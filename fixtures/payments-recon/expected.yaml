@@ -1,0 +1,129 @@
+# What `ad2v extract --repo fixtures/payments-recon --spec fixtures/payments-recon/specs` MUST find.
+# Asserted by tests/test_fixture_golden.py. Qualified names follow docs/spec/ad2v-format-v0.1.md §3.3.
+
+counts:
+  system: 1
+  container: 2
+  component: 3
+  module: 14
+  class: 1
+  function: 22
+  http_route: 4
+  mcp_tool: 1
+  cli_command: 2
+  event_consumer: 1
+  datastore: 1
+  queue: 2
+  external_service: 1
+  llm_endpoint: 1
+  ui: 0
+  loop: 2
+  retry: 1
+  fan_out: 1
+  transaction: 0        # record_run's `with session.begin()` is not risky -> not emitted by default
+  llm_call: 1
+  spec_doc: 3
+  spec_component: 3
+  requirement: 8
+  scenario: 4           # 3 scenarios + Background
+  scenario_step: 11
+  spec_endpoint: 4
+
+containers:
+  container:api: {replicas: 2, container_kind: service}
+  container:worker: {replicas: 1, container_kind: worker}
+
+nodes:
+  function:
+    - api/recon_api/matching.py::match_batch
+    - api/recon_api/db.py::fetch_ledger_entry
+    - api/recon_api/bank_client.py::fetch_statement
+    - api/recon_api/classify.py::classify_unmatched
+    - api/recon_api/mcp_server.py::reconciliation_summary
+    - worker/recon_worker/events.py::publish_run_completed
+  class:
+    - api/recon_api/routes.py::RunRequest
+  datastore:
+    - datastore:env:RECON_DB_URL
+  queue:
+    - queue:env:RECON_EVENTS_TOPIC
+    - queue:env:RECON_UPLOADS_SUBSCRIPTION
+  external_service:
+    - external_service:env:BANK_API_URL
+  llm_endpoint:
+    - llm_endpoint:env:RECON_CLASSIFIER_MODEL
+  requirement: [REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008]
+  spec_component: [CMP-001, CMP-002, "features/reconciliation.feature::Statement reconciliation"]
+
+risks:
+  api/recon_api/matching.py::match_batch@loop#1: [io_in_loop]                 # N+1 (pattern 3)
+  api/recon_api/classify.py::classify_unmatched@loop#1: [llm_in_loop]         # pattern 4
+  api/recon_api/classify.py::classify_unmatched@llm_call#1: [llm_in_loop]
+  api/recon_api/bank_client.py::fetch_statement@retry#1: [unbounded_retry]    # pattern 5
+  api/recon_api/bank_client.py::fetch_all_statements@fan_out#1: [fan_out]     # pattern 6
+
+ports:
+  http_route:
+    "http:api:POST /v1/reconciliations": api/recon_api/routes.py::start_run
+    "http:api:GET /v1/reconciliations/{run_id}": api/recon_api/routes.py::get_run
+    "http:api:GET /v1/reconciliations/{run_id}/unmatched": api/recon_api/routes.py::list_unmatched
+    "http:api:GET /internal/debug/stats": api/recon_api/main.py::debug_stats
+  mcp_tool:
+    "mcp:api:reconciliation_summary": api/recon_api/mcp_server.py::reconciliation_summary   # pattern 7
+  cli_command:
+    "cli:worker:run-nightly": worker/recon_worker/cli.py::run_nightly_cmd
+    "cli:worker:listen-uploads": worker/recon_worker/cli.py::listen_uploads
+  event_consumer:
+    "event:worker:worker/recon_worker/events.py::handle_statement_uploaded": worker/recon_worker/events.py::handle_statement_uploaded
+
+edges:   # [kind, src qname, dst qname]
+  - [publishes, worker/recon_worker/events.py::publish_run_completed, queue:env:RECON_EVENTS_TOPIC]  # pattern 8
+  - [consumes, worker/recon_worker/events.py::listen, queue:env:RECON_UPLOADS_SUBSCRIPTION]
+  - [reads, api/recon_api/db.py::fetch_ledger_entry, datastore:env:RECON_DB_URL]
+  - [writes, api/recon_api/db.py::record_run, datastore:env:RECON_DB_URL]
+  - [invokes_external, api/recon_api/bank_client.py::fetch_statement, external_service:env:BANK_API_URL]
+  - [invokes_llm, api/recon_api/classify.py::classify_unmatched, llm_endpoint:env:RECON_CLASSIFIER_MODEL]
+  - [calls, api/recon_api/matching.py::match_batch, api/recon_api/db.py::fetch_ledger_entry]
+  - [calls, worker/recon_worker/jobs.py::run_nightly, api/recon_api/matching.py::match_batch]   # cross-container
+  - [imports, worker/recon_worker/jobs.py, api/recon_api/matching.py]
+
+annotations:   # pattern 9: code qname -> resolved spec refs
+  api/recon_api/routes.py::start_run: [REQ-001]
+  api/recon_api/matching.py::match_batch: [REQ-002]
+  api/recon_api/matching.py::amounts_match: [REQ-003]
+  api/tests/test_matching.py::test_req_003_amounts_within_one_cent_match: [REQ-003]
+  api/recon_api/classify.py::classify_unmatched: [REQ-004]
+  api/recon_api/mcp_server.py::reconciliation_summary: [REQ-006]
+  worker/recon_worker/events.py::publish_run_completed: [REQ-005]
+
+dangling_refs:  # future "dangling reference" findings
+  - {src: api/recon_api/db.py::record_run, ref: REQ-099}
+
+workflows:
+  code: 8       # one per entry port
+  spec: 3       # one per scenario (Background is prepended, not its own workflow)
+  traces:       # workflow name -> ordered list of qnames that must appear (subsequence)
+    "POST /v1/reconciliations":
+      - "http:api:POST /v1/reconciliations"
+      - api/recon_api/routes.py::start_run
+      - api/recon_api/bank_client.py::fetch_all_statements
+      - api/recon_api/bank_client.py::fetch_all_statements@fan_out#1
+      - api/recon_api/bank_client.py::fetch_statement@retry#1
+      - api/recon_api/bank_client.py::fetch_statement
+      - external_service:env:BANK_API_URL
+      - api/recon_api/matching.py::match_batch
+      - api/recon_api/matching.py::match_batch@loop#1
+      - api/recon_api/db.py::fetch_ledger_entry
+      - datastore:env:RECON_DB_URL
+      - api/recon_api/db.py::record_run
+    "Start a reconciliation run":
+      - "features/reconciliation.feature::Statement reconciliation::Background::step[1]"
+      - "features/reconciliation.feature::Statement reconciliation::Start a reconciliation run::step[1]"
+      - "features/reconciliation.feature::Statement reconciliation::Start a reconciliation run::step[4]"
+
+# Deterministic candidates P2 will turn into statuses (checked here by (method, path) comparison only).
+p2_candidates:
+  missing:   # spec_endpoint with no http_route of the same method + path
+    - "POST /v1/reconciliations/{run_id}/approve"
+  orphan:    # http_route with no spec_endpoint of the same method + path
+    - "http:api:GET /internal/debug/stats"

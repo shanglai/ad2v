@@ -1,0 +1,54 @@
+openapi: 3.0.3
+info:
+  title: payments-recon API
+  version: 0.1.0
+paths:
+  /v1/reconciliations:
+    post:
+      operationId: startReconciliation
+      summary: Start a reconciliation run for a set of accounts.
+      x-ad2v-refs: [REQ-001]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_ids:
+                  type: array
+                  items: {type: string}
+      responses:
+        "200":
+          description: Run result.
+  /v1/reconciliations/{run_id}:
+    get:
+      operationId: getReconciliation
+      summary: Fetch a reconciliation run.
+      parameters:
+        - {name: run_id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: The run.
+        "404":
+          description: Not found.
+  /v1/reconciliations/{run_id}/unmatched:
+    get:
+      operationId: listUnmatched
+      summary: List unmatched transactions with a probable-cause label.
+      x-ad2v-refs: [REQ-004]
+      parameters:
+        - {name: run_id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Unmatched transactions.
+  /v1/reconciliations/{run_id}/approve:
+    post:
+      operationId: approveReconciliation
+      summary: Approve a completed reconciliation run.
+      x-ad2v-refs: [REQ-007]
+      parameters:
+        - {name: run_id, in: path, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Approved.

@@ -1,0 +1,19 @@
+# ad2v manifest for the payments-recon fixture.
+version: "0.1"
+system:
+  name: payments-recon
+containers:
+  - name: api
+    paths: [api]
+    kind: service
+    replicas: 2
+  - name: worker
+    paths: [worker]
+    kind: worker
+    replicas: 1
+behavior:
+  emit_all: false
+workflows:
+  max_depth: 12
+spec_ids:
+  test_name_prefixes: [REQ, CMP]
