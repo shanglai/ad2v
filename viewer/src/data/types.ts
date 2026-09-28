@@ -149,3 +149,19 @@ export interface Meta {
   specCoverage: string;
   llmProviders: string[];
 }
+
+/** A slice of one epoch around a focus node (P6): what the map renders, fetched in one call.
+ *  `rootId: null` (or depth -1) is the whole epoch; `complete` says which one it is. */
+export interface SceneSlice {
+  epoch: string;
+  rootId: string | null;
+  depth: number;
+  complete: boolean;
+  nodes: NodeRow[];
+  layout: Map<string, Box>;
+  glyphs: Map<string, GlyphRow>;
+  edges: EdgeRow[];
+  normative: Map<string, StatusInfo>;
+  effective: Map<string, StatusInfo>;
+  rollups: Map<string, Record<string, number>>;
+}

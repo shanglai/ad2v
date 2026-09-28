@@ -3,19 +3,23 @@
 // next step, the equivalent CLI command is shown with a copy button.
 import type { DataSource } from "../data/DataSource";
 import type {
+  Box,
   EdgeRow,
   EpochInfo,
+  GlyphRow,
   JudgmentRow,
   LineageRow,
   LinkRow,
   Meta,
   NarrationRow,
   NodeRow,
+  SceneSlice,
   StatusInfo,
   SuggestionRow,
   SummaryRow,
   WorkflowRow,
 } from "../data/types";
+import { Lod } from "../model/lod";
 import { ancestry, type Ancestry } from "../model/projection";
 import {
   classifyDiff,
@@ -41,6 +45,31 @@ import { copyText, h } from "./dom";
 import { Replay } from "./replay";
 
 const RESOURCE_KINDS = new Set(["datastore", "queue", "external_service", "llm_endpoint", "ui"]);
+const ALL = -1; // scene depth: the whole epoch
+const APP_DEPTH = 1; // app mode: each slice brings a node's children; deeper levels load on demand
+const MAX_INTENT_ROOTS = 24;
+
+/** What `ad2v_show` asks the map to do (its structuredContent), P6 §5. */
+export interface ShowIntent {
+  intent: "focus" | "fit" | "path" | "replay" | "diff";
+  nodes: string[];
+  epoch?: string | null;
+  workflowId?: string | null;
+  detailLevel?: number | null;
+  epochFrom?: string | null;
+  epochTo?: string | null;
+  theme?: "auto" | "light" | "dark";
+}
+
+export interface AppOptions {
+  /** "app": the compact MCP App inside a chat (slices, no chat box, no scrubber). Default "full". */
+  mode?: "full" | "app";
+  /** The file name used in copyable CLI commands. */
+  file?: string;
+  intent?: ShowIntent;
+  /** App mode: tell the host which node the user picked (ui/update-model-context). */
+  onSelect?: (text: string) => void;
+}
 
 interface EpochData {
   epoch: EpochInfo;
@@ -48,6 +77,11 @@ interface EpochData {
   byId: Map<string, NodeRow>;
   tree: SceneTree;
   anc: Ancestry;
+  layout: Map<string, Box>;
+  glyphs: Map<string, GlyphRow>;
+  /** Nodes whose children are all loaded (every node in full mode). */
+  expanded: Set<string>;
+  complete: boolean;
   edges: EdgeRow[];
   statusN: Map<string, StatusInfo>;
   statusE: Map<string, StatusInfo>;
@@ -108,8 +142,17 @@ export class App {
   private readonly searchResults = h("div", { class: "search-results hidden" });
   private readonly hud = h("div", { class: "hud hidden", id: "hud" });
 
-  constructor(root: HTMLElement, private readonly ds: DataSource) {
+  private readonly app: boolean;
+  private readonly fileName: string;
+  private readonly expanding = new Set<string>();
+  private viewTimer: number | null = null;
+
+  constructor(root: HTMLElement, private readonly ds: DataSource, private readonly opts: AppOptions = {}) {
     this.root = root;
+    this.app = opts.mode === "app";
+    this.fileName = opts.file ?? "project.ad2v";
+    if (this.app && opts.intent?.theme && opts.intent.theme !== "auto") this.themeChoice = opts.intent.theme;
+    else if (this.app) this.themeChoice = "system";
   }
 
   async start(): Promise<void> {
@@ -124,40 +167,123 @@ export class App {
       click: (id) => id && this.select(id, true),
       dblclick: (id) => id && this.enter(id),
       portal: (id) => this.select(id, true, true),
-      view: () => undefined,
+      view: () => this.onView(),
     });
     this.scene.reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const head = this.epochs.find((e) => e.isHead) ?? this.epochs[this.epochs.length - 1]!;
+    const it = this.opts.intent;
+    const want = this.app ? (it?.intent === "diff" ? it.epochTo : it?.epoch) : null;
+    const head = this.epochs.find((e) => e.epochId === want) ?? this.epochs.find((e) => e.isHead) ?? this.epochs[this.epochs.length - 1]!;
     await this.showEpoch(head.epochId, false);
     this.startPerfProbe();
     window.__ad2v = this;
-    this.card(this.welcomeCard());
+    if (this.app && it) await this.applyIntent(it);
+    else this.card(this.welcomeCard());
   }
 
   // -- data --------------------------------------------------------------------------------------
+  /** App mode: which slices to fetch first for an epoch (the intent's nodes); null = whole epoch. */
+  private async initialRoots(epochId: string): Promise<Array<string | null>> {
+    const it = this.opts.intent;
+    if (!this.app || !it || it.intent === "diff") return [null];
+    let ids = it.nodes;
+    if (it.intent === "replay" && it.workflowId) {
+      const steps = await this.ds.steps(epochId, it.workflowId);
+      ids = [...ids, ...new Set(steps.flatMap((s) => s.nodeIds))];
+    }
+    ids = [...new Set(ids)].slice(0, MAX_INTENT_ROOTS);
+    return ids.length ? ids : [null];
+  }
+
   private async load(epochId: string): Promise<EpochData> {
     const hit = this.cache.get(epochId);
     if (hit) return hit;
     const ds = this.ds;
-    const [nodes, layout, glyphs, edges, statusN, statusE, rollups, summaries, links, judgments, suggestions, workflows, lineage] =
-      await Promise.all([
-        ds.nodes(epochId), ds.layout(epochId), ds.glyphs(epochId), ds.edges(epochId),
-        ds.status(epochId, "normative"), ds.status(epochId, "effective"), ds.rollups(epochId),
-        ds.summaries(epochId), ds.links(epochId), ds.judgments(epochId), ds.suggestions(epochId),
-        ds.workflows(epochId), ds.lineage(epochId),
-      ]);
-    const tree = new SceneTree(nodes, layout, glyphs);
-    const anc = ancestry(new Map(nodes.map((n) => [n.id, n.parentId])));
+    const roots = epochId === (this.opts.intent?.epoch ?? null) || this.cache.size === 0 ? await this.initialRoots(epochId) : [null];
+    const [slices, summaries, links, judgments, suggestions, workflows, lineage] = await Promise.all([
+      Promise.all(roots.map((r) => ds.scene(epochId, r, r === null ? ALL : APP_DEPTH))),
+      ds.summaries(epochId), ds.links(epochId), ds.judgments(epochId), ds.suggestions(epochId),
+      ds.workflows(epochId), ds.lineage(epochId),
+    ]);
     const d: EpochData = {
       epoch: this.epochs.find((e) => e.epochId === epochId)!,
-      nodes, byId: new Map(nodes.map((n) => [n.id, n])), tree, anc, edges, statusN, statusE, rollups,
+      nodes: [], byId: new Map(), tree: new SceneTree([], new Map(), new Map()), anc: new Map(),
+      layout: new Map(), glyphs: new Map(), expanded: new Set(), complete: false,
+      edges: [], statusN: new Map(), statusE: new Map(), rollups: new Map(),
       summaries, links, judgments, suggestions, workflows, lineage,
     };
+    this.absorb(d, slices);
     this.cache.set(epochId, d);
     return d;
   }
 
-  private label = (id: string): string => this.cur.byId.get(id)?.name ?? id;
+  /** Merge scene slices into an epoch's data and rebuild the tree (slices only ever add nodes). */
+  private absorb(d: EpochData, slices: SceneSlice[]): void {
+    const edgeKey = (e: EdgeRow): string => `${e.src}|${e.kind}|${e.dst}`;
+    const seenEdges = new Set(d.edges.map(edgeKey));
+    for (const s of slices) {
+      for (const n of s.nodes) if (!d.byId.has(n.id)) { d.byId.set(n.id, n); d.nodes.push(n); }
+      for (const [k, v] of s.layout) d.layout.set(k, v);
+      for (const [k, v] of s.glyphs) d.glyphs.set(k, v);
+      for (const [k, v] of s.normative) d.statusN.set(k, v);
+      for (const [k, v] of s.effective) d.statusE.set(k, v);
+      for (const [k, v] of s.rollups) d.rollups.set(k, v);
+      for (const e of s.edges) if (!seenEdges.has(edgeKey(e))) { seenEdges.add(edgeKey(e)); d.edges.push(e); }
+      if (s.complete) {
+        d.complete = true;
+        for (const n of s.nodes) d.expanded.add(n.id);
+      } else if (s.rootId !== null) {
+        const parent = new Map(s.nodes.map((n) => [n.id, n.parentId]));
+        for (let p = parent.get(s.rootId) ?? null; p !== null; p = parent.get(p) ?? null) d.expanded.add(p);
+        const kids = new Map<string, string[]>();
+        for (const n of s.nodes) if (n.parentId !== null) (kids.get(n.parentId) ?? kids.set(n.parentId, []).get(n.parentId)!).push(n.id);
+        let frontier = [s.rootId];
+        for (let level = 0; level < s.depth; level++) {
+          for (const f of frontier) d.expanded.add(f);
+          frontier = frontier.flatMap((f) => kids.get(f) ?? []);
+        }
+      }
+    }
+    d.nodes.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    d.tree = new SceneTree(d.nodes, d.layout, d.glyphs);
+    d.anc = ancestry(new Map(d.nodes.map((n) => [n.id, n.parentId])));
+  }
+
+  /** App mode: load a node's children when it is entered or zoomed open. */
+  private async expand(id: string): Promise<void> {
+    const d = this.cur;
+    if (d.complete || d.expanded.has(id) || this.expanding.has(id)) return;
+    this.expanding.add(id);
+    try {
+      this.absorb(d, [await this.ds.scene(d.epoch.epochId, id, APP_DEPTH)]);
+      if (d === this.cur) this.pushModel(true);
+    } finally {
+      this.expanding.delete(id);
+    }
+  }
+
+  private onView(): void {
+    if (!this.app || this.cur?.complete) return;
+    if (this.viewTimer !== null) clearTimeout(this.viewTimer);
+    this.viewTimer = window.setTimeout(() => {
+      this.viewTimer = null;
+      const d = this.cur;
+      const open = [...this.scene.visibleLods()]
+        .filter(([id, l]) => l === Lod.Open && !d.expanded.has(id) && d.tree.nodes.get(id)?.glyph?.hasInterior)
+        .map(([id]) => id)
+        .slice(0, 6);
+      for (const id of open) void this.expand(id);
+    }, 200);
+  }
+
+  /** Names of nodes outside the loaded slices (app mode), fetched for cards. */
+  private readonly extraNames = new Map<string, string>();
+  private label = (id: string): string => this.cur.byId.get(id)?.name ?? this.extraNames.get(id) ?? id;
+
+  private async ensureNames(ids: Array<string | null>): Promise<void> {
+    const missing = [...new Set(ids)].filter((x): x is string => !!x && !this.cur.byId.has(x) && !this.extraNames.has(x)).slice(0, 20);
+    const got = await Promise.all(missing.map((x) => this.ds.nodeDetail(this.cur.epoch.epochId, x)));
+    got.forEach((g, i) => { if (g) this.extraNames.set(missing[i]!, g.node.name); });
+  }
 
   private async showEpoch(epochId: string, keepView: boolean): Promise<void> {
     this.cur = await this.load(epochId);
@@ -228,11 +354,18 @@ export class App {
 
   // -- DOM ---------------------------------------------------------------------------------------
   private buildDom(): void {
-    const chat = h("div", { class: "chat" },
-      h("input", { type: "text", disabled: true, placeholder: "Conversational agent arrives with MCP (P6)", "aria-label": "chat (not available yet)" }));
     const collapse = h("button", { class: "icon", title: "collapse panel", "aria-label": "collapse panel", onclick: () => this.root.classList.toggle("panel-collapsed") }, "❯");
-    this.panel.append(h("div", { class: "panel-head" }, h("strong", {}, "Timeline"), collapse), this.timeline, chat);
-    this.root.append(this.toolbar, h("main", { class: "body" }, this.mapEl, this.panel), this.replayBar, this.scrubber, this.tooltip, this.hud);
+    if (this.app) {
+      // Inside a chat: the host is the conversation, so no chat box; no scrubber; one card at a time.
+      this.root.classList.add("app-mode");
+      this.panel.append(h("div", { class: "panel-head" }, h("strong", {}, "Details"), collapse), this.timeline);
+      this.root.append(this.toolbar, h("main", { class: "body" }, this.mapEl, this.panel), this.replayBar, this.tooltip, this.hud);
+    } else {
+      const chat = h("div", { class: "chat" },
+        h("input", { type: "text", disabled: true, placeholder: "Chat about this map from Claude or another MCP host: ad2v mcp (see docs/mcp.md)", "aria-label": "chat (use an MCP host)" }));
+      this.panel.append(h("div", { class: "panel-head" }, h("strong", {}, "Timeline"), collapse), this.timeline, chat);
+      this.root.append(this.toolbar, h("main", { class: "body" }, this.mapEl, this.panel), this.replayBar, this.scrubber, this.tooltip, this.hud);
+    }
     this.mapEl.append(this.searchResults);
     this.searchBox.addEventListener("input", () => this.search(this.searchBox.value));
     this.searchBox.addEventListener("keydown", (e) => {
@@ -244,6 +377,7 @@ export class App {
   }
 
   private renderToolbarState(): void {
+    if (this.app) return this.renderAppToolbar();
     const diffCount = [...this.cur.statusE].filter(([, s]) => s.status !== s.normative).length;
     const llm = this.meta.llmProviders.length ? ` · LLM: ${this.meta.llmProviders.join(", ")}` : "";
     const wfSel = h("select", { id: "workflows", "aria-label": "replay a workflow", onchange: (e) => {
@@ -263,6 +397,40 @@ export class App {
       wfSel,
       h("button", { id: "toggle-theme", title: "theme: system / dark / light", onclick: () => this.cycleTheme() }, `Theme: ${this.themeChoice}`),
     );
+  }
+
+  /** App mode: breadcrumbs of the selection, status toggle, theme, diff label and "Open full map". */
+  private renderAppToolbar(): void {
+    const d = this.cur;
+    const at = this.selection ?? this.scene?.getFocus() ?? null;
+    const path = at ? [...(d.anc.get(at) ?? [at])] : [];
+    const crumbs = h("nav", { class: "crumbs", "aria-label": "breadcrumbs" },
+      h("button", { class: "linkish", title: "system view", onclick: () => { this.scene.setFocus(null); this.scene.home(); } }, this.meta.systemName),
+      ...path.filter((id) => d.tree.parent(id) !== null).flatMap((id) => [
+        h("span", { class: "sep" }, "›"),
+        h("button", { class: "linkish", onclick: () => this.enter(id) }, this.label(id)),
+      ]));
+    const diffCount = [...d.statusE].filter(([, s]) => s.status !== s.normative).length;
+    const cmp = this.compareFrom ? this.epochs.find((x) => x.epochId === this.compareFrom) : undefined;
+    const cmd = `ad2v view ${this.fileName}`;
+    this.toolbar.replaceChildren(
+      h("span", { class: "brand" }, "ad2v"),
+      crumbs,
+      ...(cmp ? [h("span", { class: "chip", id: "diff-label" }, `Diff #${cmp.seq} → #${d.epoch.seq}`)] : []),
+      h("button", { id: "toggle-effective", class: this.effective ? "on" : "", "aria-pressed": String(this.effective), title: "normative status (deterministic) or effective status (with LLM judgments)",
+        onclick: () => this.toggleEffective() }, `${this.effective ? "Effective" : "Normative"} · ${diffCount} differ`),
+      h("button", { id: "toggle-theme", title: "theme: system / dark / light", onclick: () => this.cycleTheme() }, `Theme: ${this.themeChoice}`),
+      h("button", { id: "open-full", title: "the full map runs locally: copy the command", onclick: () => this.card(
+        h("section", { class: "card info" }, h("h3", {}, "Open the full map"),
+          h("p", {}, "The app cannot start local programs. Run this in a terminal:"),
+          h("div", { class: "cmd" }, h("code", {}, cmd), h("button", { class: "copy", onclick: (e) => void copyText(cmd).then((ok) => { (e.target as HTMLElement).textContent = ok ? "copied" : "copy failed"; }) }, "copy")))) }, "Open full map"),
+    );
+  }
+
+  /** App mode: the host's theme (host context), or the system's. */
+  setHostTheme(theme: "light" | "dark" | undefined): void {
+    this.themeChoice = theme ?? "system";
+    if (this.scene) this.applyTheme();
   }
 
   private toggleEffective(): void {
@@ -349,15 +517,74 @@ export class App {
     this.pushModel();
     if (fly) this.scene.flyTo(id);
     if (addCard) void this.nodeCard(id).then((c) => this.card(c));
+    if (this.app) {
+      this.renderAppToolbar();
+      const n = this.cur.byId.get(id);
+      const st = (this.effective ? this.cur.statusE : this.cur.statusN).get(id);
+      if (n) this.opts.onSelect?.(
+        `On the ad2v map (${this.fileName}, epoch #${this.cur.epoch.seq}) the user selected ${n.name} ` +
+        `[${n.kind}, ${st?.status ?? "none"}${st?.provenance === "llm" ? " (AI)" : ""}] ${n.qname} (${id}).`);
+    }
   }
 
   enter(id: string): void {
-    const n = this.cur.tree.nodes.get(id);
-    if (!n) return;
-    const target = n.children.length ? id : (this.cur.tree.parent(id) ?? id);
-    this.scene.setFocus(target);
-    this.select(id, true);
-    this.scene.flyTo(target);
+    const go = (): void => {
+      const n = this.cur.tree.nodes.get(id);
+      if (!n) return;
+      const target = n.children.length ? id : (this.cur.tree.parent(id) ?? id);
+      this.scene.setFocus(target);
+      this.select(id, true);
+      this.scene.flyTo(target);
+    };
+    if (this.app && !this.cur.expanded.has(id)) void this.expand(id).then(go);
+    else go();
+  }
+
+  /** App mode: carry out an `ad2v_show` intent (node ids + camera intent; never coordinates). */
+  async applyIntent(it: ShowIntent): Promise<void> {
+    const ids = it.nodes.filter((x) => this.cur.byId.has(x));
+    const instant = this.scene.reducedMotion;
+    switch (it.intent) {
+      case "focus":
+        if (ids.length === 1) this.enter(ids[0]!);
+        else if (ids.length) { this.scene.fit(ids, instant); this.select(ids[0]!, true); }
+        break;
+      case "fit":
+        this.scene.fit(ids, instant);
+        this.card(this.listCard("Components", ids));
+        break;
+      case "path":
+        this.scene.setReplay({ nodes: [], prev: [], path: ids });
+        this.scene.fit(ids, instant);
+        this.card(this.listCard("Path", ids, true));
+        break;
+      case "replay":
+        if (it.workflowId) {
+          await this.startReplay(it.workflowId);
+          const r = this.replay;
+          if (r && it.detailLevel) {
+            const idx = r.levels.findIndex((l) => l.level >= it.detailLevel!);
+            this.setReplayLevel(idx < 0 ? r.levels.length - 1 : idx);
+          }
+        }
+        break;
+      case "diff":
+        if (it.epochFrom && it.epochTo) await this.compareIds(it.epochFrom, it.epochTo);
+        if (ids.length) this.scene.fit(ids, instant);
+        break;
+    }
+  }
+
+  async compareIds(fromId: string, toId: string): Promise<void> {
+    if (!this.epochs.some((e) => e.epochId === fromId) || !this.epochs.some((e) => e.epochId === toId)) return;
+    this.compareFrom = fromId;
+    await this.showEpoch(toId, true);
+  }
+
+  private listCard(title: string, ids: string[], ordered = false): HTMLElement {
+    const items = ids.map((id) => h("li", {}, h("a", { href: "#", onclick: (e) => { e.preventDefault(); this.select(id, true, true); } }, this.label(id)),
+      h("span", { class: "muted" }, ` ${this.cur.byId.get(id)?.kind.replace(/_/g, " ") ?? ""}`)));
+    return h("section", { class: "card info list" }, h("h3", {}, `${title} (${ids.length})`), h(ordered ? "ol" : "ul", {}, ...items));
   }
 
   /** For tests: select and frame a node by qualified name. */
@@ -448,6 +675,10 @@ export class App {
 
   // -- panel cards ----------------------------------------------------------------------------------
   private card(el: HTMLElement): void {
+    if (this.app) {
+      this.timeline.replaceChildren(el); // one card at a time inside a chat
+      return;
+    }
     this.timeline.append(el);
     el.scrollIntoView({ block: "end", behavior: this.scene?.reducedMotion ? "auto" : "smooth" });
   }
@@ -504,6 +735,10 @@ export class App {
     const d = this.cur;
     const n = d.byId.get(id)!;
     const detail = await this.ds.nodeDetail(d.epoch.epochId, id);
+    if (!d.complete) await this.ensureNames([
+      ...d.links.filter((l) => l.specId === id || l.codeId === id).flatMap((l) => [l.specId, l.codeId]),
+      ...d.suggestions.filter((s) => s.specId === id || s.codeId === id).flatMap((s) => [s.specId, s.codeId]),
+    ]);
     const sn = d.statusN.get(id), se = d.statusE.get(id);
     const sum = d.summaries.get(id);
     const sec = (title: string, open: boolean, ...kids: Array<Node | string | null>): HTMLElement =>
@@ -542,7 +777,7 @@ export class App {
       .filter((g) => g.primary.specId === id || g.primary.codeId === id || g.collapsed.some((c) => c.codeId === id));
     const sugEls = groups.map((g) => {
       const s = g.primary;
-      const cmd = `ad2v suggestions accept ${s.suggestionId.slice(0, 12)} --manifest ad2v.yaml`;
+      const cmd = `ad2v suggestions accept ${this.fileName} ${s.suggestionId.slice(0, 12)} --manifest ad2v.yaml`;
       return h("div", { class: "suggestion" },
         h("div", {}, `${this.label(s.specId)} ↔ ${this.label(s.codeId)} · confidence ${s.confidence.toFixed(2)} · BM25 rank ${s.rank}${s.provider === "fake" ? " · fake provider" : ""}`),
         h("p", {}, s.rationale),

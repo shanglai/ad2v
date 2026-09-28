@@ -1,21 +1,18 @@
-# REPORT: ad2v P5 (the viewer)
+# REPORT: ad2v P6 (MCP server + the map as an MCP App)
 
-P5 adds a deterministic layout (`nestgrid-v1`, computed in Python and stored in the file) and a
-three.js viewer:
+P6 adds `ad2v mcp`, a read-only MCP server written on the Python standard library, and the map as
+an **MCP App**:
+- the server has 13 model-visible tools, 20 app-only tools and the `ui://ad2v/map` resource;
+- the app renders a focused map inside Claude, ChatGPT, VS Code and other hosts that support
+  MCP Apps.
 
-- a level-of-detail isometric map;
-- status styling from the theme tokens;
-- effective and suggestion overlays;
-- workflow replay with a fine playhead;
-- epoch diff;
-- `ad2v view`, which serves on 127.0.0.1 only.
+A deterministic retrieval eval (25 questions, 8 held out) measures whether the tools find the
+right components.
 
-P5 made **no LLM calls and used no cloud resources**. The viewer never triggers an LLM call.
+**No LLM calls and no cloud resources in P6.** Version 0.6.0, format v0.4 (unchanged; the rules
+gain a `retrieval:` section).
 
-Commit: one commit at the end of the phase ("hash: see `git log -1`"). Version 0.5.0, format v0.4
-(adds the `layout_grids` table).
-
-## Accrued cost per phase
+## 1. Accrued cost per phase
 
 | phase | cloud / LLM spend | notes |
 |---|---|---|
@@ -24,205 +21,274 @@ Commit: one commit at the end of the phase ("hash: see `git log -1`"). Version 0
 | P3 | $0.00 | no cloud (bench clones only) |
 | P4 | $0.592 | Vertex AI, gemini-3.8-flash, 125 billed calls (live M9 run) |
 | P5 | $0.00 | no LLM calls, no cloud resources |
+| P6 | $0.00 | no LLM calls, no cloud resources (MCP Inspector and GitHub clone only) |
 | **total** | **$0.592** | |
 
 **Claude usage** (the agent building ad2v) is not metered per phase from inside the session.
 - This account is on the **Max** plan with **extra usage disabled**, so the sessions add no
   incremental dollar cost beyond the subscription.
-- At the end of P5 the plan meters read 11% of the 5-hour window and 44% of the weekly
-  all-models window.
+- At the end of P6 the weekly all-models window read 45% used, versus 44% at the end of P5.
+  The 5-hour window had just reset.
 
-## 1. Milestones
+## 2. Milestones
 
 | # | scope | state |
 |---|---|---|
-| M1 | `nestgrid-v1` layout in Python, `layout_grids`, `ad2v layout`, `materialize --epochs last:N` | done |
-| M2 | `viewer/` (Vite 7, TypeScript strict, ESLint), `DataSource` + `LocalFileSource` (sql.js), `ad2v view` (127.0.0.1), wheel packaging, single-file demo | done |
-| M3 | three.js iso map, LOD with hysteresis (8 / 40 / 160 px, ×0.8), navigation, perf HUD, `window.__ad2vPerf` | done |
-| M4 | edges at LOD, portals, status styles from tokens, effective toggle with count, themes, suggestions, links | done |
-| M5 | panel timeline (cards), chat placeholder "Conversational agent arrives with MCP (P6)" | done |
-| M6 | replay on the fine trace with a detail slider, TypeScript projection parity with Python | done |
-| M7 | epoch scrubber, diff overlay and changes card, diff tokens | done |
-| M8 | tests and gates, Playwright e2e in both themes, 12 screenshots | done |
-| M9 | performance on dispatch `dd2837e` | done; targets met |
+| M1 | stdlib JSON-RPC MCP server: stdio + Streamable HTTP (127.0.0.1), pinned protocol, files/root, read-only | done |
+| M2 | agent tools, `untrusted_text`, instructions | done |
+| M3 | app tools mirroring `DataSource`, `viewer_scene`, `RemoteSliceSource`, parity test | done |
+| M4 | MCP App build (`ui://ad2v/map`), app-mode UI, 5 intents | done |
+| M5 | conformance (MCP Inspector), Python unit tests, App e2e in a test host (10 screenshots) | done |
+| M6 | retrieval eval (25 questions, 8 held out), tuned weights in the rules | done |
+| M7 | `docs/mcp.md` client setup | done |
+| M8 | performance on dispatch `dd2837e` | done; all targets met |
 
-Changed files, grouped:
+Commit: one commit at the end of the phase ("hash: see `git log -1`"). Changed files:
 
 - **Python:**
-  - `src/ad2v/layout.py` (new), `src/ad2v/view.py` (new);
-  - `cli.py` (`layout`, `view`, `materialize --epochs`);
-  - `pipeline.py` (layout after extract and materialize);
-  - `store.py` and `admin.py` (`layout_grids` in the epoch tables);
-  - `tokens.py` (`OVERLAY_BADGES`, `token()`);
-  - `__init__.py`, `pyproject.toml` (0.5.0, `ad2v._viewer` package data).
-- **Schema:** `schema/ad2v-v0.4.sql` (`layout_grids`), and `schema/themes/{dark,light}.json`
-  (AI and suggestion badges, the `diff` block, `link.*`).
+  - `src/ad2v/mcp/`: `protocol`, `stdio`, `http`, `files`, `index`, `locate`, `slices`, `tools`,
+    `app_tools`, `evaluate` (new);
+  - `cli.py` (`ad2v mcp`), `__main__.py` (new: `python -m ad2v`);
+  - `extract/code/rules/python.yaml` (`retrieval:`);
+  - `pyproject.toml` (0.6.0; packages `ad2v.mcp` and `ad2v._app`; the `mcp` pytest marker).
 - **Viewer:**
-  - `viewer/src/` (`data/`, `model/`, `render/`, `ui/`, `theme.ts`, `main.ts`), about 3,100 lines;
-  - `viewer/scripts/` (license gate, fixtures, demo publish);
-  - `viewer/e2e/`;
-  - config files (`package.json`, lockfile, tsconfig, Vite, ESLint, Playwright).
+  - `src/app-main.ts`, `app.html` (the MCP App);
+  - `src/data/RemoteSliceSource.ts`; `scene()` in `DataSource` and `LocalFileSource`;
+  - `ui/app.ts` (app mode, `scene()` loading, intents), `render/scene.ts` (`fit`, `path` overlay),
+    `style.css`;
+  - `vite.config.ts` (`app` and `host` modes);
+  - `scripts/conformance.mjs`, `scripts/test-mcp.mjs`, `check-licenses.mjs` (size and wasm
+    budget), `make_fixtures.py` (`build_demo()`);
+  - `package.json` (0.6.0; `build:app`, `test:mcp`; `@modelcontextprotocol/ext-apps`).
 - **Tests:**
-  - Python: `tests/test_layout.py`, `tests/test_view.py`, `tests/test_tokens.py`;
-  - viewer: `viewer/tests/*.test.ts`, with fixtures `projections.json` and `styles.json` (the
-    demo `.ad2v` is generated and gitignored).
+  - Python: `tests/test_mcp.py`;
+  - viewer: `viewer/tests/mcp/{client,parity.test}.ts`, `viewer/e2e/app.spec.ts`,
+    `viewer/e2e/host/`.
+- **Fixtures:** `fixtures/payments-recon/expected-questions.yaml`.
 - **Docs:**
-  - format spec §12 and the principle 8 exception;
-  - visual tokens §6;
-  - ADR-0034 to ADR-0038;
-  - `README.md`, `docs/dependencies.md`, `issues.md`, `pending.md`, `status.md`;
-  - `docs/reports/P5-demo.html`, `docs/reports/P5-screens/`, `docs/reports/P4.md` (moved from the
-    root).
+  - `docs/mcp.md`, ADR-0039 to ADR-0045, format spec §13;
+  - `README.md`, `docs/dependencies.md`, `issues.md` (58–69), `pending.md`, `status.md`;
+  - `docs/reports/P6-screens/`, `docs/reports/P6.md`.
 
-## 2. Tests
+## 3. Pinned versions, and what is implemented
+
+- **MCP protocol 2026-07-28**, read on 2026-09-28 (ADR-0039). It is stateless: per-request
+  `_meta` and `server/discover`, with no `initialize`, `ping` or sessions. The server is
+  **dual-era**: a legacy `initialize` (2025-11-25, 2025-06-18, 2025-03-26) is served too.
+- **MCP Apps 2026-01-26** (`io.modelcontextprotocol/ui`, ADR-0040). The iframe uses
+  `@modelcontextprotocol/ext-apps` 2.0.3 (MIT; its tree passes the gate).
+
+| feature | status | ADR |
+|---|---|---|
+| per-request `_meta` (version, client capabilities), `resultType`, `serverInfo` in results, `ttlMs`/`cacheScope` | implemented | 0039 |
+| `server/discover`, `-32022` UnsupportedProtocolVersion with the supported list | implemented | 0039 |
+| legacy `initialize` / `notifications/initialized` / `ping` | implemented (legacy mode only) | 0039 |
+| `tools/list` (deterministic order), `tools/call`, `resources/list`, `resources/read`, `resources/templates/list` | implemented | 0039 |
+| `notifications/cancelled` (stdio: queued requests dropped, running ones stop at a checkpoint) | implemented | 0039 |
+| stdio framing (one message per line, stdout protocol-only, stderr logs, EOF exit) | implemented | 0039 |
+| Streamable HTTP: POST `/mcp`, 127.0.0.1, Origin/Host checks, `MCP-Protocol-Version`/`Mcp-Method`/`Mcp-Name` validation (`-32020`), 202/400/404/405 | implemented; JSON responses only (no SSE), which is allowed | 0039 |
+| legacy HTTP sessions (`Mcp-Session-Id`) | implemented for legacy clients only | 0039 |
+| logging (`notifications/message`, `logging/setLevel`) | **skipped**: deprecated in 2026-07-28; logs go to stderr | 0039 |
+| `subscriptions/listen`, prompts, completions, MRTR/sampling/elicitation/roots, tasks | skipped (out of scope, or nothing to notify) | 0039 |
+| `ui://ad2v/map`, `text/html;profile=mcp-app`, `_meta.ui.csp = {}`, `prefersBorder` | implemented | 0040 |
+| tool `_meta.ui.resourceUri`, `visibility: ["app"]` for app tools; app tools listed only for clients declaring the extension | implemented | 0040 |
+| iframe side: `ui/initialize`, tool-input/result/cancelled, host context (theme, styles, dimensions), `ui/update-model-context` on selection, size-changed, teardown | implemented | 0040, 0044 |
+| `ui/message`, `ui/open-link`, `ui/request-display-mode`, downloads | not used | 0040 |
+
+## 4. Tests
 
 | suite | result |
 |---|---|
-| Python (pytest) | **215 passed**. New modules: `layout.py` 99%, `view.py` 96% coverage. ruff clean. |
-| Viewer unit (Vitest) | **34 passed**: DataSource, projection parity, LOD, tree, edges, text helpers, tokens |
-| Viewer e2e (Playwright, Chromium + SwiftShader) | **2 passed** (dark, light), 12 screenshots, no console errors |
-| Lint / types | ESLint clean (src, tests, e2e, scripts); `tsc --noEmit` clean |
-| License gate | OK (see §5) |
+| Python (pytest, all) | **240 passed**. New `ad2v.mcp` modules: 91–97% coverage each (94% total). ruff clean |
+| `pytest -m mcp` | 25 passed (framing, both eras, error codes, cancellation, HTTP headers/Origin/sessions, path traversal, read-only, untrusted text, non-materialized epochs, pagination, tools, scene slices, stdio in and out of process, retrieval eval) |
+| Viewer unit (Vitest) | 34 passed |
+| Parity (Vitest over the real stdio server) | **6 passed**: every `DataSource` method, every epoch, every node (per-node methods), every workflow (steps, narrations), whole-epoch and 38 roots × 3 depths for scenes |
+| Protocol conformance (MCP Inspector **2.8.0**, via `npx`, not a dependency) | **38/38**: stdio and HTTP × modern and legacy; `tools/list --strict`, resources list/read (MIME), `--app-info`, a `tools/call` for every agent tool |
+| App e2e (Playwright, Chromium, official `AppBridge` test host) | **10 passed**, both themes; **no request left the iframe** (every non-host-frame request recorded: 0); the app called only `viewer_*` tools |
+| P5 viewer e2e (regression) | 2 passed (the standalone viewer now loads through `scene()`) |
+| Lint / types / licenses | ESLint and `tsc` clean; license gate OK (166 packages) |
 
-- **Projection parity.** The TypeScript `project()` equals Python's `workflows.project()` for
-  **every code workflow at every containment depth** of the demo file, and the detail levels
-  match. A further test checks that the playhead always lies inside the containing coarse step at
-  every level.
-- **Layout stability.** On the P3 history scenario (8 epochs), 765/765 boxes of surviving nodes
-  keep their position (**100%**). Layout is byte-identical across runs and with CRLF inputs.
-- **Token and style parity.** `STATUS_STYLES`, `OVERLAY_BADGES` and dash patterns in TypeScript
-  equal `tokens.py` (via `styles.json`).
-- **Every status in both themes.** The rendered outline uses the token stroke, the correct line
-  style, hollow fill, weight, emphasis (glow in dark, halo in light) and badge.
-
-## 3. How to open it
-
-- **Demo:** `docs/reports/P5-demo.html` (4.26 MB, one self-contained file). Open it from disk; it
-  needs no server.
-  - It holds the fixture's 8-epoch history.
-  - Its LLM rows come from the offline **fake** provider, and the UI says so.
-- **Your own file:**
-
-  ```bash
-  ad2v view project.ad2v
-  ```
-
-  It prints the `http://127.0.0.1:<port>/` URL and opens the browser; use `--no-browser` and
-  `--port` to control this. To browse history, first run
-  `ad2v materialize project.ad2v --epochs last:5`.
-
-Screenshots (`docs/reports/P5-screens/`, `dark-*` and `light-*`):
+Screenshots (`docs/reports/P6-screens/`, `dark-*` and `light-*`), each showing the test host's
+chat column with the inline map:
 
 | # | file | shows |
 |---|---|---|
-| 1 | `*-1-system.png` | System view: spec region (west) and code system; api container red dashed (orphan, with warning badge); worker; roll-up bars |
-| 2 | `*-2-container-api.png` | Inside `container:api` at open LOD; modules, ports and edges; panel card with summary, suggestion and copyable `ad2v suggestions accept …` command |
-| 3 | `*-3-matching-risky-loop.png` | `matching.py` with the `match_batch` IO-in-loop risk visible and its card |
-| 4 | `*-4-replay-two-levels.png` | Replay of `POST /v1/reconciliations`: step 4/7 at level 2 after starting at level 1, same fine playhead; step cards show the narration of both levels |
-| 5 | `*-5-effective-req003-ai-drift.png` | Effective status on: REQ-003 shows drift with the **AI** badge; the card reads "normative: verified, effective (AI): drift", with the judge's evidence lines |
-| 6 | `*-6-diff-epoch-2-3.png` | Diff #2 → #3: the changes card lists 3 status transitions (verified → stale), with the scrubber in compare mode |
+| 1 | `*-1-focus-container-api.png` | `ad2v_show(focus, container:api)`: api entered at interior LOD; breadcrumbs `payments-recon › api`; the card with the AI summary, the suggestion and the copyable `ad2v suggestions accept demo.ad2v …` command |
+| 2 | `*-2-path-post-reconciliations.png` | `path` along the 7 nodes of `POST /v1/reconciliations` (level 3): outlined and joined in order; the ordered list card |
+| 3 | `*-3-replay-two-levels.png` | `replay` at detail level 1, then 2, on the same fine playhead; replay bar and the step card with parent narration |
+| 4 | `*-4-diff-epoch-2-3.png` | `diff` #2 → #3: the `Diff #2 → #3` label and the changes card (3 × verified → stale) |
+| 5 | `*-5-enter-module.png` | a real double-click into `matching.py` from `api/recon_api`: a new slice fetched, breadcrumbs 4 deep, the module card (Escape goes back up, which is asserted) |
 
-## 4. Performance on dispatch
+## 5. Retrieval eval (no LLM)
 
-Setup: Netflix/dispatch at `dd2837e` (717 files, 84,041 lines, 5,374 nodes, 12,406 edges, 331
-workflows).
-- Extract plus layout: 5.1 s.
-- The file is 17.7 MB.
-- The bench served it through `ad2v view` and drove the page with 10 s of real wheel and drag
-  input.
-- The GPU was an **Intel UHD integrated GPU (ANGLE Direct3D 11)**, in headless Chromium with
-  hardware ANGLE (ADR-0038).
+The eval has 25 questions in 7 types, with 8 held out. Questions that name a status or a diff
+are scored with the tool a model would call (`ad2v_status`, `ad2v_diff`); all others use
+`ad2v_locate`. Metrics are recall@5 / MRR / nDCG@5.
 
-| metric | target | dispatch | fixture |
+| configuration | tool | overall (25) | tuning set (17) | **held-out (8)** |
+|---|---|---|---|---|
+| baseline (initial rules) | locate only | 0.80 / 0.72 / 0.72 | 0.76 / 0.71 / 0.69 | 0.88 / 0.76 / 0.78 |
+| baseline | with tools | 0.88 / 0.79 / 0.79 | 0.88 / 0.82 / 0.81 | 0.88 / 0.73 / 0.76 |
+| + structural fixes, untuned weights | locate only | 0.87 / 0.89 / 0.83 | 0.85 / 0.86 / 0.81 | 0.92 / 0.94 / 0.89 |
+| + structural fixes, untuned weights | with tools | 0.93 / 0.92 / 0.87 | 0.94 / 0.95 / 0.90 | 0.92 / 0.84 / 0.82 |
+| **final** (+ tuned weights, in the rules) | locate only | 0.91 / 0.88 / 0.85 | 0.91 / 0.89 / 0.86 | 0.92 / 0.84 / 0.84 |
+| **final** | **with tools** | **0.95 / 0.89 / 0.88** | 0.97 / 0.95 / 0.92 | **0.92 / 0.75 / 0.77** |
+
+Final, per type (with tools):
+
+| type | n | recall@5 / MRR / nDCG@5 |
+|---|---|---|
+| where | 7 | 1.00 / 1.00 / 0.98 |
+| flow | 4 | 1.00 / 1.00 / 0.97 |
+| risk | 4 | 0.88 / 1.00 / 0.90 |
+| requirement | 4 | 0.83 / 0.68 / 0.67 |
+| status | 3 | 1.00 / 0.75 / 0.81 |
+| describe | 2 | 1.00 / 0.63 / 0.72 |
+| diff | 1 | 1.00 / 1.00 / 1.00 |
+
+**What tuning did.**
+- The **structural fixes** carried the gain: prefix expansion ("night" → "nightly",
+  "classified" → "classify"), stemmed status words ("drifts"), and an `endpoint` intent. All
+  three were found by reading failures in the tuning set only.
+- **Weight tuning** (coordinate descent, deterministic) chose name 0.5, qname 0.5, narration 2.0
+  and status boost 4.0. It raised the tuning set but **lowered held-out MRR by about one
+  question's rank** (0.94 → 0.84 locate-only). With 17 tuning questions that is overfitting
+  noise.
+- The procedure fixed "adopt the tuning-set optimum" before the held-out numbers were seen, so
+  the tuned weights are recorded in `rules/python.yaml` (covered by `rules_hash`) and the drop is
+  reported here (ADR-0043, issue 68).
+
+The five worst questions (final, with tools):
+
+1. **q16** (held out), "what does the spec say about approving a run?". The code route and the
+   `approve_run` function outrank REQ-007: code nodes repeat "approve" and "run" in names,
+   qualified names and code heads. The requirement intent fires, but ×1.5 isn't enough.
+2. **q15**, "which requirement covers the amount tolerance?". REQ-003 ranks 5th, behind
+   `amounts_equal` and the REQ-003 test, whose names carry "amount" and whose summaries mention
+   the tolerance.
+3. **q14** (held out), "which endpoint is not in the spec?". Scored with `ad2v_status(orphan)`,
+   which lists alphabetically, so `api/recon_api`, `api/tests` and `container:api` come before
+   the route. `ad2v_locate` ranks the route first (issue 67).
+4. **q25** (held out), "which external service is the bank API?". `bank_client.py` outranks the
+   resource node, whose name (`env:BANK_API_URL`) shares only "bank" and "api".
+5. **q11**, "where do we fan out requests to the bank?". The fan-out is first, but its function
+   `fetch_all_statements` isn't in the top 5.
+
+## 6. Performance on dispatch (`dd2837e`: 717 files, 5,374 nodes, 12,406 edges, 331 workflows)
+
+Extract plus layout took 7.9 s. Tool latency was measured warm over stdio, 50 calls per tool:
+
+| tool | p50 | p95 | target (p95) |
 |---|---|---|---|
-| first render (from navigation) | < 3 s | **0.86 s** | 0.80 s |
-| fps median / p5 over 10 s pan+zoom | ≥ 45 median (dispatch), 60 (fixture) | **59.9 / 59.5** | 59.9 / 59.5 |
-| visible nodes, draw calls (home / ×4 / ×16) | | 344 / 346 / 336 nodes; 7 / 7 / 6 calls; 27k / 27k / 26k triangles | 28 / 20 / 12 nodes; 8 calls |
-| JS heap | | 50–75 MB | 8–14 MB |
+| get_node | 24 ms | 28 ms | < 150 ms |
+| search | 4 ms | 4 ms | < 150 ms |
+| neighborhood (depth 2) | 20 ms | 23 ms | < 150 ms |
+| status (a container) | 7 ms | 8 ms | < 150 ms |
+| workflow | 10 ms | 11 ms | < 150 ms |
+| **locate** | 31 ms | 37 ms | < 300 ms |
+| **overview** | 12 ms | 13 ms | < 300 ms |
+| show | 0.4 ms | 0.5 ms | — |
 
-**All targets are met**, and frame rate is capped by vsync.
+- **Cold start** (launch → first `tools/list` response): **0.31 s**.
+- **First `ad2v_locate`:** it took 2.3 s at first. Top cause: the BM25 build (3.35 s), with
+  1,437 per-module SQL lookups through the versioned `nodes` view plus re-stemming.
+  - Fixed with one batched query and a memoized stemmer: the build now takes **0.33 s**
+    (index 0.12 s).
+  - It also runs in a background thread at startup, with the build time logged to stderr, so the
+    first locate took 0.43 s.
+- **`viewer_scene` payloads:**
 
-The bench found two real bugs on dispatch, both fixed before the numbers above:
-- the camera's fixed distance and clip planes cut off the map;
-- the minimum zoom could not fit an 8,500-unit map.
+  | slice | size | nodes | edges |
+  |---|---|---|---|
+  | module, depth 1 | 376 KB | 438 | 399 |
+  | component, depth 1 | 528 KB | 542 | 1,193 |
+  | container, depth 1 | 667 KB | 780 | 714 |
+  | component, depth 2 | 827 KB | 838 | 1,893 |
+  | whole epoch | 4.9 MB | 5,374 | — |
 
-Instancing keeps draw calls at 6–8 whatever the node count. `bench/` was deleted after the
-measurements.
+  Each takes 150–260 ms.
+- **App first render in the test host:** measured from `ad2v_show` to the first frame, including
+  the 988 KB resource read, the handshake and every tool call, on the Intel UHD GPU (ANGLE
+  D3D11).
+  - **1.10 s** on a large dispatch component (353 visible nodes, 7 draw calls).
+  - 1.09 s on the dispatch container, and **0.55 s** on the fixture.
+  - Budget: 1.5 s.
+- `bench/` was deleted.
 
-## 5. Licenses
+## 7. How to try it (this machine)
 
-The npm tree is checked by `viewer/scripts/check-licenses.mjs`, which runs in every build and
-fails it on a violation.
-- It covers **158 packages**: MIT 123, Apache-2.0 18, ISC 7, BSD-2-Clause 6, BSD-3-Clause 3,
-  BlueOak-1.0.0 1.
-- **No copyleft** (GPL, LGPL, AGPL, MPL, EPL, CDDL, CC-BY-SA, OFL).
-- **No font files** in the build output: labels use the system font.
-- three's example fonts sit unused in `node_modules`, and the gate reports them as info.
-- Vite 8 was rejected because of `lightningcss` (MPL-2.0).
+`claude_desktop_config.json` is at `%APPDATA%\Claude\claude_desktop_config.json`. The demo file
+(8 epochs, fake-provider LLM rows) is built by `npm run fixtures` in `viewer/`:
 
-**Python: no dependency added.** `ad2v view` uses the standard library, and `certifi` stays out.
+```json
+{
+  "mcpServers": {
+    "ad2v": {
+      "command": "C:\\Users\\David\\Documents\\projects\\agents\\ad2v\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "ad2v", "mcp", "--root", "C:\\Users\\David\\Documents\\projects\\agents\\ad2v\\viewer\\tests\\fixtures"]
+    }
+  }
+}
+```
 
-## 6. UX assessment (honest)
+The map app is served from `viewer\app-dist\app.html`, which is built; rebuild it with
+`npm run build:app` in `viewer\`. Restart Claude Desktop, then try:
 
-What works:
-- **Fixture-sized projects read well.** The system view shows the spec region, the two containers
-  and their status at a glance. Double-click or search flies into a box and the panel explains it.
-- **Status survives without color.** Line style, badges and the AI marker all work in both themes.
-- **Replay is correct and legible**, and the detail slider does not lose your place.
-- **The diff card is the most useful single view for a reviewer.**
+1. "Using ad2v, which requirement is drifting, and why? Show me where it is on the map."
+   Expect `ad2v_locate`, `ad2v_get_node` and `ad2v_show(focus)` on REQ-003 / `amounts_equal`,
+   with the AI judgment labeled.
+2. "Walk me through how a reconciliation run starts, step by step, and replay it on the map."
+   Expect `ad2v_workflow` and `ad2v_show(replay, POST /v1/reconciliations)`.
+3. "What changed between epoch 2 and epoch 3 of payments-recon? Highlight it on the map."
+   Expect `ad2v_diff` and `ad2v_show(diff, 2 → 3)`.
 
-What feels wrong:
-- **Large repositories look empty and tangled at the top.** On dispatch the home view is mostly
-  empty nested slabs. A few open components carry an **edge hairball**, because every visible
-  representative pair gets its own ribbon.
-  - Suggestion: denser packing (`nestgrid-v2` with shelf or squarified packing and the same
-    slot-stability rule).
-  - Suggestion: bundle or aggregate edges per level at low zoom, and show edges only for the
-    selection past a count threshold.
-- **Labels collide** in dense modules. Culling hides many of them, so you often hover to learn a
-  name.
-  - Suggestion: show the parent's children names in the panel when a container is open.
-- **Very long dashed edges alias** into a cross-hatch at high zoom (issue 55).
-- **Portal chips overlap** when two edges leave a box at the same side (screenshot 3: "→ payments-recon" over "→ api"). Suggestion: stack or merge chips per side.
-- **Badges cluster at the front-left corner** of open slabs, which can crowd the container label.
-- **Suggestions are off by default** and the toggle is easy to miss. The `?` badge only appears
-  once they are on.
-- The **perf HUD** is hidden unless `?perf=1` is set, which is fine for users but undiscoverable.
+## 8. Licenses and bundle size
 
-## 7. Deviations and open questions
+- **npm:** 166 packages (MIT 131, Apache-2.0 18, ISC 7, BSD-2-Clause 6, BSD-3-Clause 3,
+  BlueOak-1.0.0 1). No copyleft and no font assets. New: `@modelcontextprotocol/ext-apps` 2.0.3
+  (MIT) with its peers core/client 2.2.0 (MIT) and zod (MIT).
+  - The MCP Inspector runs through `npx`, outside the tree: its tree includes lightningcss
+    (MPL-2.0).
+- **Python:** no dependency added. The official MCP SDK was rejected because of
+  httpx → certifi (MPL-2.0).
+- **MCP App bundle:** `app.html`, **988 KB** in one self-contained file (budget 2 MB, checked by
+  the build). No wasm, no sql.js, no data, no external origins.
 
-Deviations (with ADRs):
+## 9. Deviations and open questions
 
-1. **Layout is history-dependent.** It is a named exception to principle 8, like `id_lineage`
-   (ADR-0034, spec §12.1).
-2. **Vite 7 instead of Vite 8**, for the license rule (ADR-0035).
-3. **Canvas 2D labels instead of SDF text, and glow from additive ribbons instead of bloom**
-   (ADR-0035).
-4. **`ad2v view` details:** fixed file path, GET/HEAD only, and a CSP with `'wasm-unsafe-eval'`
-   (ADR-0036).
-5. **Presentation choices:**
-   - neutral bodies with a light tint;
-   - modifier badges hidden on open glyphs;
-   - corner badges;
-   - camera planes scale with the map (ADR-0037).
-6. **Demo data from the fake provider.**
-   - The replay screenshot covers both detail levels in one shot per theme.
-   - Performance was measured headless on hardware ANGLE, because headed Chromium could not start
-     in the agent sandbox (ADR-0038).
-7. **Playwright browsers.** They were installed in this session (`%LOCALAPPDATA%\ms-playwright`)
-   and **deleted** at the end. Reinstall them with `npx playwright install chromium` before
-   `npm run e2e`.
+Deviations:
 
-Open questions for P6 (MCP), ranked:
+1. **The protocol changed under the plan.** The plan named `initialize`/`initialized`, `ping`
+   and logging. MCP 2026-07-28 removed them, so the server pins 2026-07-28 and is dual-era;
+   logging goes to stderr because the feature is deprecated (ADR-0039).
+2. **App tools are listed only for clients that declare MCP Apps** (spec guidance), and carry
+   `visibility: ["app"]` plus the "internal:" description prefix (ADR-0040).
+3. **The `diff` intent loads both whole epochs** (the classifier needs them); other intents use
+   slices (ADR-0041).
+4. **`ad2v_llm_plan` ignores the cache,** to report the full job size (ADR-0042).
+5. **Tuned retrieval weights were kept despite a small held-out drop** (ADR-0043).
+6. **The test host is desktop-style** (direct sandboxed iframe, no second-origin sandbox proxy),
+   and **the Inspector runs via `npx`** (ADR-0045).
+7. **The P5 viewer's suggestion command** lacked the file argument; it is fixed (ADR-0044).
+8. **Playwright's Chromium** was installed for this session and **deleted** at the end;
+   reinstall it with `npx playwright install chromium`. The Inspector and the scratch ext-apps
+   install were removed from the npm cache.
 
-1. **Slice queries.** What the MCP tools return: node, neighborhood to depth k, workflow window,
-   diff slice. Should these mirror the `DataSource` methods one to one, so the viewer can swap
-   `LocalFileSource` for an MCP source unchanged?
-2. **MCP App iframe constraints.** CSP, whether wasm is allowed, and size limits. If wasm or a
-   4 MB inline bundle is not allowed there, the App must fetch slices instead of the whole file.
-3. **Camera paths from the agent.** Should answers carry node ids plus a camera "fly to" intent,
-   with the viewer resolving boxes from its own layout? Coordinates would break if layout changes.
-4. **Write actions.** Accepting suggestions stays CLI-only in P5. Should P6 expose it as an MCP
-   tool with human confirmation, or keep it out?
-5. **Multi-epoch access.** Only materialized epochs are visible today. Should the MCP server
-   materialize on demand? That writes the file.
+Open questions for P7 (the viewer's own chat agent, BYOM), ranked:
+
+1. **Where the agent runs.** In the browser, the API key sits in the page. Behind `ad2v view`,
+   the local Python server would call the provider, keep the key in the environment, and reuse
+   the P4 providers, budget and cache. The second looks right: nothing new ships to the browser,
+   and `ad2v view` stays the only process.
+2. **Reuse these 13 tools as function calling.** They are already compact, read-only and
+   `untrusted_text`-fenced. The open question is whether the P7 agent should call them in
+   process (a Python loop) or through MCP (the viewer as an MCP client of `ad2v mcp`), which
+   gives one surface to test.
+3. **Budget UX.**
+   - Show the P4 `plan` estimate before each turn, or a per-session budget with a running meter?
+   - What happens at the cap: refuse, or offer a smaller model?
+   - `--max-cost-usd` semantics from P4 should carry over.
+4. **Grounding and display.** Should answers be forced to cite node ids, and should the map
+   follow automatically (`ad2v_show` inside the viewer), or only on click?
+5. **Retrieval quality.** A larger, multi-repository question set before any further weight
+   tuning. The P6 eval shows the limits of 17 tuning questions.

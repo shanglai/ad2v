@@ -1,6 +1,6 @@
 {
   "name": "ad2v-viewer",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -14,9 +14,12 @@
     "e2e": "playwright test",
     "licenses": "node scripts/check-licenses.mjs",
     "fixtures": "node scripts/run-python.mjs scripts/make_fixtures.py",
-    "pretest": "node -e \"require('fs').existsSync('tests/fixtures/demo.ad2v')||process.exit(1)\" || npm run fixtures"
+    "pretest": "node -e \"require('fs').existsSync('tests/fixtures/demo.ad2v')||process.exit(1)\" || npm run fixtures",
+    "build:app": "npm run licenses && tsc --noEmit && vite build --mode app && node scripts/check-licenses.mjs --dist app-dist --max-bytes 2097152 --forbid wasm,sql-wasm",
+    "test:mcp": "node scripts/test-mcp.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "2.0.3",
     "sql.js": "^1.14.2",
     "three": "^0.180.0"
   },

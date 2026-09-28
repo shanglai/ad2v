@@ -3,7 +3,7 @@
 Policy: **no copyleft dependencies** (GPL, LGPL, AGPL, MPL, EPL, CDDL…), including transitive,
 development and build-time dependencies. ad2v itself is Apache-2.0.
 
-Checked on 2026-09-28 (P1, re-checked in P2, P3, P4 and P5) from installed package metadata (`License-Expression` / classifiers), versions
+Checked on 2026-09-28 (P1, re-checked in P2–P6) from installed package metadata (`License-Expression` / classifiers), versions
 as resolved in the development environment.
 
 ## Runtime
@@ -45,6 +45,10 @@ the `vertex` provider needs it (CI can pass a token in `AD2V_ACCESS_TOKEN`).
 **P5 added no Python dependency.** `ad2v view` uses `http.server` and `webbrowser` from the
 standard library. `certifi` stays banned. The layout is pure Python.
 
+**P6 added no Python dependency.** The MCP server is written on the standard library
+(`json`, `http.server`, `threading`, `secrets`, `sqlite3`), because the official Python MCP SDK
+depends on `httpx`, which brings in **`certifi` (MPL-2.0)**. The retrieval eval reuses PyYAML.
+
 ## Viewer (npm, P5)
 
 The viewer in `viewer/` has its own npm tree. `npm run build` and `npm run build:demo` run
@@ -66,6 +70,18 @@ full list is written to `viewer/scripts/licenses.json` (gitignored).
 | vitest | 4.1.11 | MIT | dev | unit tests |
 | @playwright/test | 1.63.0 | Apache-2.0 | dev | e2e screenshots, perf bench |
 | @types/three, @types/sql.js, @types/node | | MIT | dev | types |
+| @modelcontextprotocol/ext-apps (P6) | 2.0.3 | MIT | runtime (bundled in the MCP App) | MCP Apps client in the iframe; `AppBridge` for the e2e test host |
+| ↳ @modelcontextprotocol/core, /client (peers) | 2.2.0 | MIT | bundled / dev | JSON-RPC protocol classes |
+| ↳ zod, @standard-schema/spec | 4.6.5 / 1.x | MIT | bundled | schema validation (jitless: no `unsafe-eval`) |
+
+After P6: **166 packages** (MIT 131, Apache-2.0 18, ISC 7, BSD-2-Clause 6, BSD-3-Clause 3,
+BlueOak-1.0.0 1). The MCP App build (`build:app`) is also checked for a 2 MB budget and for any
+embedded wasm: it is 988 KB, with no wasm.
+
+**MCP Inspector** (`@modelcontextprotocol/inspector` 2.8.0, Apache-2.0/MIT) is used for protocol
+conformance **through `npx`, outside the project tree**. Its dependencies include Vite 8 and
+therefore `lightningcss` (MPL-2.0), which the gate would reject in our tree. It is a development
+tool that runs from npm's cache and is not redistributed.
 
 No font ships: labels use the system UI font through Canvas 2D. three's example fonts are in
 `node_modules` but are never imported. The license check reports them as info.
@@ -102,6 +118,8 @@ are development tools, not redistributed.
 | click / typer | BSD / MIT | not rejected on license; argparse avoids a dependency |
 | google-genai, google-cloud-aiplatform, openai, httpx, requests | Apache-2.0 / MIT, but depend on **certifi (MPL-2.0)** | replaced by stdlib `urllib` (ADR-0027) |
 | vite 8 | MIT, but depends on **lightningcss (MPL-2.0)** | Vite 7 instead (ADR-0035) |
+| mcp (official Python MCP SDK) | MIT, but depends on **httpx → certifi (MPL-2.0)** | stdlib server (ADR-0039) |
+| @modelcontextprotocol/inspector as a devDependency | Apache-2.0/MIT, but its tree has **lightningcss (MPL-2.0)** | run via `npx` only (ADR-0045) |
 | troika-three-text and SDF fonts | MIT; bundled fonts are often **OFL** | Canvas 2D labels with the system font (ADR-0035) |
 
 ## Fixture-only names
@@ -112,6 +130,6 @@ dependencies.
 
 ## Benchmarks
 
-The performance measurements (P1–P3, P5) used shallow clones of third-party repositories in `bench/`
+The performance measurements (P1–P3, P5, P6) used shallow clones of third-party repositories in `bench/`
 (gitignored): dispatch (Apache-2.0) and full-stack-fastapi-template (MIT). They were deleted after
 the measurements. Nothing from them is redistributed.

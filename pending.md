@@ -72,10 +72,27 @@ Items consciously left out so far, grouped by the phase that should pick them up
 - Headed-GPU perf numbers on a discrete GPU. The M9 figures are from an Intel UHD integrated GPU,
   headless with ANGLE D3D11.
 
-## P6: MCP
+## Done in P6 (moved from this list)
 
-- MCP-backed `DataSource`, and the conversational agent in the panel (the chat box is a
-  placeholder today).
+- MCP server (stdlib, protocol 2026-07-28, dual-era), 13 agent tools, 20 app tools, the map as an
+  MCP App, `RemoteSliceSource`, deterministic retrieval with an eval.
+
+## After P6: MCP and retrieval
+
+- A larger question set (≥ 100, several repositories) before tuning retrieval weights further
+  (issue 68); per-repository overlays through `rules_overlay`.
+- Server-side digests for app-mode cards (issue 66); rank `ad2v_status` results by specificity
+  (issue 67).
+- `subscriptions/listen` for `resources/list_changed` when a file is re-extracted while the
+  server runs.
+- A remote deployment story (auth, TLS, a shared `--root`) for hosts that need HTTPS: not done;
+  see the checklist in docs/mcp.md.
+- A web-host style test (sandbox proxy, second origin) in addition to the desktop-style test host.
+
+## P7: standalone chat (BYOM)
+
+- The viewer's own chat agent reusing these tools as function calling (see REPORT.md open
+  questions).
 
 ## Deferred from P2
 

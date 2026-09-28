@@ -9,7 +9,9 @@ how the spec items and the code pair up. Readers of that file:
   Glyph shape = node kind. Line style = status: spec-only items are dotted, implemented solid,
   verified glowing (dark) or haloed (light), drift carries a warning badge, orphan code is dashed.
   Workflows replay step by step with a detail slider that follows the zoom.
-- a **conversational agent** (via MCP), whose answers point to node IDs and camera paths.
+- **any MCP host's model** (Claude, ChatGPT, VS Code, …) through `ad2v mcp`: read-only tools that
+  find components and explain them, with answers that point at node ids. Hosts with MCP Apps show
+  the map inline in the conversation.
 
 Like mermaid.js, ad2v is an open **format** plus reference implementations. License: Apache-2.0.
 
@@ -21,8 +23,9 @@ Like mermaid.js, ad2v is an open **format** plus reference implementations. Lice
 | P2 | spec↔code pairing, single-epoch statuses, structural drift, roll-ups, risk severity, visual tokens (light + dark), format v0.2 | done ([report](docs/reports/P2.md)) |
 | P3 | content-addressed multi-epoch storage, parse cache, git history, epoch diff, lineage, `stale`, entry-point recognizers, orphan policy, format v0.3 | done ([report](docs/reports/P3.md)) |
 | P4 | bring-your-own-model LLM layer (informative only): semantic judge, link suggestions, summaries, narrations, prose-spec extraction, evaluation; format v0.4 | done ([report](docs/reports/P4.md)) |
-| **P5** | three.js viewer: deterministic layout, LOD map, status styling, replay, epoch diff; `ad2v view` | **done** ([report](REPORT.md), [demo](docs/reports/P5-demo.html)) |
-| P6 | MCP server + MCP App | planned |
+| P5 | three.js viewer: deterministic layout, LOD map, status styling, replay, epoch diff; `ad2v view` | done ([report](docs/reports/P5.md), [demo](docs/reports/P5-demo.html)) |
+| **P6** | MCP server (stdlib, protocol 2026-07-28) + the map as an MCP App; deterministic retrieval | **done** ([report](REPORT.md), [setup](docs/mcp.md)) |
+| P7 | the viewer's own chat agent (BYOM), LLM refinements, viewer UX v2 | planned |
 
 Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
 line numbers): the same inputs (code, specs, rules, manifest, test results) give the same normative
@@ -78,6 +81,13 @@ ad2v materialize project.ad2v --epochs last:5
 A self-contained demo (the fixture's 8-epoch history, with demo LLM rows from the offline `fake`
 provider) opens from disk: [`docs/reports/P5-demo.html`](docs/reports/P5-demo.html).
 
+Ask about the map from Claude (or any MCP host). Add this server to the host's configuration; see
+[docs/mcp.md](docs/mcp.md) for Claude Desktop, Claude Code and VS Code:
+
+```bash
+python -m ad2v mcp --root path/to/maps
+```
+
 ## CLI
 
 ```text
@@ -92,6 +102,7 @@ ad2v prune    project.ad2v --keep-last N [--keep-pinned]
 ad2v materialize project.ad2v (--epoch <epoch> | --epochs last:N)   # last N + pinned
 ad2v layout   project.ad2v                 # nestgrid-v1 for epochs that lack a layout
 ad2v view     project.ad2v [--port 0] [--no-browser]
+ad2v mcp      (--file project.ad2v | --root <dir>) [--http [--port N]] [--no-warm]   # MCP server, read-only
 ad2v status   project.ad2v [--epoch <epoch>] [--side spec|code] [--status stale] [--all] [--format table|json]
 ad2v inspect  project.ad2v [--epoch <epoch>] [--node <id|qualified_name>] [--kind loop] [--top-risk N]
 ad2v dump     project.ad2v [--epoch <id|head|all>] [--normative-only] [--out project.jsonl]
@@ -155,7 +166,7 @@ repository code or tests.
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
 - [DDL](schema/ad2v-v0.4.sql), [IR JSON Schema](schema/ir-v0.4.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
-- [REPORT.md](REPORT.md) (P5), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
+- [REPORT.md](REPORT.md) (P6), [MCP setup](docs/mcp.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
 ## Optional manifest (`ad2v.yaml`)
 
@@ -209,6 +220,14 @@ ships) and runs the license gate. `npm run build:demo` regenerates the test fixt
 `docs/reports/P5-demo.html`. `npm test` runs the unit tests (Vitest) and `npm run lint` runs
 ESLint. `npm run e2e` (after `build:demo`) runs the Playwright tour over the demo and writes `docs/reports/P5-screens/`. It needs
 `npx playwright install chromium` once.
+
+The MCP layer (P6): `pytest -m mcp` (repository root) runs the Python protocol and tool tests,
+including the retrieval eval. `npm run test:mcp` (in `viewer/`) builds the MCP App
+(`npm run build:app` → `viewer/app-dist/app.html`, which the wheel ships). It then runs the parity
+test (the viewer's data over the real stdio server), protocol conformance with the MCP Inspector
+(via `npx`; not a dependency), and the App e2e in a test host (`docs/reports/P6-screens/`). The
+retrieval eval also runs standalone:
+`python -m ad2v.mcp.evaluate <file> fixtures/payments-recon/expected-questions.yaml [--tune]`.
 
 After editing `schema/ad2v-v0.4.sql`, regenerate the spec's column table with
 `python -m ad2v.ddl`. A test fails if you forget.

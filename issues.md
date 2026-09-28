@@ -84,3 +84,20 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 56 | low | Headed Chromium cannot be launched from the agent's sandbox (`spawn UNKNOWN`). | worked around: headless Chromium with hardware ANGLE (D3D11) on the real GPU (ADR-0038) |
 | 57 | low | Headless e2e uses SwiftShader, where frame rates are meaningless; e2e does not assert fps. | by design: fps is measured in the M9 bench on the GPU |
 
+## P6
+
+| # | Severity | Issue | Status |
+|---|---|---|---|
+| 58 | high | The P6 plan asked for `initialize`/`initialized`, `ping` and logging; MCP 2026-07-28 removed the handshake, `ping`, `logging/setLevel` and sessions (stateless, per-request `_meta`, `server/discover`). | **resolved**: pinned 2026-07-28 and dual-era (a legacy `initialize` still works); logging to stderr per the deprecation (ADR-0039) |
+| 59 | medium | The official Python MCP SDK depends on httpx → certifi (MPL-2.0). | **resolved**: stdlib server |
+| 60 | medium | The MCP Inspector's tree includes Vite 8 → lightningcss (MPL-2.0). | **resolved**: run via `npx`, not a dependency (ADR-0045) |
+| 61 | medium | Conformance: the Inspector sends numeric tool arguments (`from=2` → 2), and `from` was typed as a string. | **fixed**: epoch arguments accept integers |
+| 62 | low | Inspector `--strict`: a nullable `type: ["string","null"]` (`viewer_scene.root_id`) is less portable across model providers. | **fixed**: optional string (absent = whole epoch) |
+| 63 | medium | The first `ad2v_locate` on dispatch took 2.3 s (BM25 build 3.35 s): one SQL query per module through the versioned `nodes` view, and re-stemming. | **fixed**: one query, memoized stems (0.33 s), built in a background thread at startup |
+| 64 | low | The P5 viewer's "accept suggestion" command omitted the file argument (`ad2v suggestions accept <id>` fails). | **fixed**: `ad2v suggestions accept <file> <id> --manifest ad2v.yaml` |
+| 65 | low | `ad2v.mcp.__init__` imported the function `app_tools`, shadowing the submodule of the same name. | **fixed**: `make_app_tools` |
+| 66 | low | In app mode, a deterministic card counts only the loaded part of a subtree ("3 components, 15 modules" when more exist below). | open (pending.md): ask the server for the digest |
+| 67 | low | For "which endpoint is not in the spec?", `ad2v_status` lists by qualified name, so containers come before the route (MRR 0.25); `ad2v_locate` ranks it first. | open: rank status results by kind specificity |
+| 68 | low | Weight tuning improved the tuning set but lowered held-out MRR (0.94 → 0.84 locate-only) on 8 questions: noise-level overfitting. | accepted and reported (ADR-0043); needs a larger question set (pending.md) |
+| 69 | low | `diff` intent in the MCP App loads both whole epochs (the classifier needs every node). | accepted (ADR-0041); fine up to dispatch size (~5 MB per epoch) |
+

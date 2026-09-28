@@ -43,6 +43,8 @@ export interface MapModel {
 export interface ReplayView {
   nodes: string[]; // current step (fine or coarse), mapped to representatives by the scene
   prev: string[];
+  /** P6 `path` intent: an ordered list of nodes, all outlined and joined in order (replay styling). */
+  path?: string[];
 }
 
 export interface PerfStats {
@@ -211,6 +213,16 @@ export class MapScene {
     const minX = Math.min(...roots.map((b) => b.x)), maxX = Math.max(...roots.map((b) => b.x + b.w));
     const minY = Math.min(...roots.map((b) => b.y)), maxY = Math.max(...roots.map((b) => b.y + b.h));
     this.frameBox({ x: minX, y: minY, z: 0, w: maxX - minX, h: maxY - minY, d: 1 }, instant, 0.9);
+  }
+
+  /** Frame the union of several nodes' boxes (P6 `fit` intent). */
+  fit(ids: string[], instant = false): void {
+    const boxes = ids.map((i) => this.model?.tree.nodes.get(i)?.box).filter((b): b is Box => b !== undefined);
+    if (!boxes.length) return;
+    const x0 = Math.min(...boxes.map((b) => b.x)), x1 = Math.max(...boxes.map((b) => b.x + b.w));
+    const y0 = Math.min(...boxes.map((b) => b.y)), y1 = Math.max(...boxes.map((b) => b.y + b.h));
+    const z0 = Math.min(...boxes.map((b) => b.z)), z1 = Math.max(...boxes.map((b) => b.z + b.d));
+    this.frameBox({ x: x0, y: y0, z: z0, w: x1 - x0, h: y1 - y0, d: z1 - z0 }, instant, boxes.length === 1 ? 0.55 : 0.8);
   }
 
   flyTo(id: string, instant = false): void {
@@ -685,8 +697,12 @@ export class MapScene {
       pair(l.spec, l.code, token(th, l.kind === "normative" ? "link.normative" : "link.suggestion"), l.kind === "normative" ? "solid" : "dashed", 2.6);
     if (this.replay) {
       const hi = new THREE.Color(th.emphasis.color);
-      const cur = [...new Set(this.replay.nodes.map(this.rep).filter((x): x is string => x !== null))];
+      const path = (this.replay.path ?? []).map(this.rep).filter((x): x is string => x !== null);
+      const cur = [...new Set([...this.replay.nodes.map(this.rep).filter((x): x is string => x !== null), ...path])];
       const prev = [...new Set(this.replay.prev.map(this.rep).filter((x): x is string => x !== null))];
+      for (let i = 1; i < path.length; i++)
+        if (path[i] !== path[i - 1])
+          lines.push({ points: this.arc(this.topCenter(path[i - 1]!, topOf), this.topCenter(path[i]!, topOf), 1.2), closed: false, color: hi, widthPx: 4, style: "dashed" });
       for (const id of cur) {
         const b = m.tree.nodes.get(id)!.box;
         const y = (topOf.get(id) ?? b.z + b.d) + 0.04;

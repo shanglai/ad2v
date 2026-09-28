@@ -912,6 +912,38 @@ future MCP-backed source (P6) implements the same interface.
 - **Diff.** Two materialized epochs are compared through composed `id_lineage`. Nodes are shown as
   added, removed (ghosts), renamed, or status transitions.
 
+## 13. MCP access (P6)
+
+### 13.1 Retrieval rules (normative for `rules_hash`)
+
+The rules file may hold a `retrieval:` section: BM25 field weights (`name`, `qname`, `code`,
+`spec`, `summary`, `narration`), `status_boost`, `prefix_min` and `intents` (trigger words →
+kind multipliers). It decides which components a natural-language question points at, so it is
+part of the rules and of `rules_hash`, like `severity:`. It changes nothing in the extracted
+graph. A consumer that ranks components by question SHOULD use the `retrieval:` section of the
+rules stored with the epoch, and fall back to its own defaults when there is none (files
+extracted before P6).
+
+### 13.2 The MCP server (informative)
+
+`ad2v mcp` exposes `.ad2v` files read-only over the Model Context Protocol (2026-07-28, with
+legacy `initialize` accepted).
+
+- **Agent tools:** `ad2v_files`, `ad2v_overview`, `ad2v_search`, `ad2v_locate`,
+  `ad2v_get_node`, `ad2v_neighborhood`, `ad2v_status`, `ad2v_links`, `ad2v_risks`,
+  `ad2v_workflow`, `ad2v_diff`, `ad2v_show` and `ad2v_llm_plan`.
+  - They return node references `{id, label, kind, qualified_name, status}`.
+  - Free text from the repository or from an LLM is wrapped as `untrusted_text`.
+  - Actions that would write (materialize, accept suggestions, run the LLM layer) are returned
+    as CLI commands.
+- **App tools:** `viewer_*` tools mirror the viewer's `DataSource` (§12.2) for the MCP App
+  `ui://ad2v/map` (MCP Apps 2026-01-26).
+  - `viewer_scene(epoch, root_id, depth)` returns a slice of an epoch: every root; the root's
+    ancestors and their children; its subtree to `depth`; and its direct neighbors with their
+    ancestors.
+  - The app renders the answers of `ad2v_show` (node ids plus a camera intent: `focus`, `fit`,
+    `path`, `replay`, `diff`; never coordinates) from the file's own layout.
+
 ## Appendix A: column classes (normative)
 
 Every column in the DDL is marked **N** (normative), **I** (informative), **V** (volatile: deterministic, ignored by `ad2v diff`) or **N/I** (depends on the row, e.g. `provenance`). This appendix is generated from the DDL comments and a test keeps it in sync.

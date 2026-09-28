@@ -1,5 +1,6 @@
 // Every query the viewer makes goes through this interface (P5 decision 6). P5 implements
-// LocalFileSource (sql.js over the whole file); P6 will add a RemoteSliceSource for MCP Apps.
+// LocalFileSource (sql.js over the whole file); P6 adds RemoteSliceSource (app tools of the MCP
+// server, called through the MCP Apps host bridge). Both implement exactly the same results.
 import type {
   Box,
   EdgeRow,
@@ -12,6 +13,7 @@ import type {
   NarrationRow,
   NodeDetail,
   NodeRow,
+  SceneSlice,
   StatusInfo,
   StatusMode,
   StepRow,
@@ -41,5 +43,8 @@ export interface DataSource {
   narrations(epoch: string, workflowId: string, mode?: string): Promise<NarrationRow[]>;
   workflowsThrough(epoch: string, nodeId: string): Promise<string[]>;
   lineage(epoch: string): Promise<LineageRow[]>;
+  /** The slice of an epoch around `rootId` (see ad2v/mcp/slices.py `scene_ids`); rootId null or depth -1
+   *  returns the whole epoch. Both viewers load maps through this one method. */
+  scene(epoch: string, rootId: string | null, depth: number): Promise<SceneSlice>;
   statusHistory(nodeId: string): Promise<Array<{ epochId: string; seq: number; status: string }>>;
 }

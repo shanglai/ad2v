@@ -14,6 +14,7 @@ import type {
   NarrationRow,
   NodeDetail,
   NodeRow,
+  SceneSlice,
   Side,
   StatusInfo,
   StatusMode,
@@ -24,6 +25,7 @@ import type {
 } from "./types";
 
 export const LAYOUT_ALGORITHM = "nestgrid-v1";
+export const ALL = -1; // scene depth: the whole epoch
 const MENTIONS_RE = /\n\nmentions: ([^\n]*)\s*$/;
 
 type Row = Record<string, SqlValue>;
@@ -306,6 +308,70 @@ export class LocalFileSource implements DataSource {
     return this.all("SELECT old_id, new_id, method, score FROM id_lineage WHERE epoch_id = ? ORDER BY old_id", [
       epoch,
     ]).map((r) => ({ oldId: String(r.old_id), newId: String(r.new_id), method: String(r.method), score: Number(r.score) }));
+  }
+
+  async scene(epoch: string, rootId: string | null, depth: number): Promise<SceneSlice> {
+    const ids = this.sceneIds(epoch, rootId, depth);
+    let [nodes, layout, glyphs, edges, normative, effective, rollups] = await Promise.all([
+      this.nodes(epoch), this.layout(epoch), this.glyphs(epoch), this.edges(epoch),
+      this.status(epoch, "normative"), this.status(epoch, "effective"), this.rollups(epoch),
+    ]);
+    if (ids !== null) {
+      const keep = new Set(ids);
+      const pick = <V>(m: Map<string, V>): Map<string, V> => new Map([...m].filter(([k]) => keep.has(k)));
+      nodes = nodes.filter((n) => keep.has(n.id));
+      layout = pick(layout);
+      glyphs = pick(glyphs);
+      normative = pick(normative);
+      effective = pick(effective);
+      rollups = pick(rollups);
+      edges = edges.filter((e) => keep.has(e.src) && keep.has(e.dst));
+    }
+    return { epoch, rootId, depth: ids !== null ? depth : ALL, complete: ids === null, nodes, layout, glyphs, edges, normative, effective, rollups };
+  }
+
+  /** Mirrors ad2v/mcp/slices.py scene_ids: roots, the ancestor chain of the root with each ancestor's
+   *  children, the root's subtree to `depth`, and the subtree's direct neighbors with their chains. */
+  private sceneIds(epoch: string, rootId: string | null, depth: number): string[] | null {
+    if (rootId === null || depth === ALL) return null;
+    const parent = new Map<string, string | null>();
+    const kids = new Map<string, string[]>();
+    for (const r of this.all("SELECT id, parent_id FROM nodes WHERE epoch_id = ? ORDER BY id", [epoch])) {
+      const id = String(r.id), p = r.parent_id === null ? null : String(r.parent_id);
+      parent.set(id, p);
+      if (p !== null) (kids.get(p) ?? kids.set(p, []).get(p)!).push(id);
+    }
+    if (!parent.has(rootId)) throw new Error(`not found: ${rootId}`);
+    const keep = new Set<string>([...parent].filter(([, p]) => p === null).map(([k]) => k));
+    const chain = (n: string | null | undefined): void => {
+      while (n !== null && n !== undefined && !keep.has(n)) {
+        keep.add(n);
+        n = parent.get(n);
+      }
+    };
+    const anc: string[] = [];
+    for (let n: string | null | undefined = rootId; n !== null && n !== undefined; n = parent.get(n)) anc.push(n);
+    for (const a of anc) keep.add(a);
+    for (const a of anc) for (const c of kids.get(a) ?? []) keep.add(c);
+    const sub = new Set<string>([rootId]);
+    let frontier = [rootId];
+    for (let i = 0; i < Math.max(depth, 0); i++) {
+      const nxt = frontier.flatMap((f) => kids.get(f) ?? []);
+      for (const c of nxt) sub.add(c);
+      frontier = nxt;
+    }
+    for (const s of sub) keep.add(s);
+    for (const r of this.all(
+      "SELECT src, dst FROM edges WHERE epoch_id = ? AND kind NOT IN ('contains', 'declares')",
+      [epoch],
+    )) {
+      const src = String(r.src), dst = String(r.dst);
+      if (sub.has(src) || sub.has(dst)) {
+        chain(src);
+        chain(dst);
+      }
+    }
+    return [...keep].sort();
   }
 
   async statusHistory(nodeId: string): Promise<Array<{ epochId: string; seq: number; status: string }>> {

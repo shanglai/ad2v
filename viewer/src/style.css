@@ -88,3 +88,20 @@ a, .linkish { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* -- MCP App mode (P6): a compact panel inside a chat -------------------------------------------- */
+body.mcp-app #app { height: var(--app-h, 560px); grid-template-rows: auto 1fr auto; font-size: 13px; }
+#app.app-mode .body { grid-template-columns: 1fr 300px; }
+#app.app-mode.panel-collapsed .body { grid-template-columns: 1fr 36px; }
+#app.app-mode .toolbar { gap: 6px; padding: 4px 8px; flex-wrap: nowrap; overflow-x: auto; }
+#app.app-mode .toolbar button { font-size: 12px; padding: 2px 6px; white-space: nowrap; }
+#app.app-mode .crumbs { display: flex; gap: 4px; align-items: center; margin-right: auto; min-width: 0; overflow: hidden; white-space: nowrap; }
+#app.app-mode .crumbs .sep { color: var(--muted); }
+#app.app-mode .crumbs .linkish { font-size: 12px; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; }
+#app.app-mode .timeline { padding: 6px; }
+#app.app-mode .card.list ol, #app.app-mode .card.list ul { margin: 4px 0 0 18px; padding: 0; }
+.app-msg { margin: 24px auto; max-width: 460px; }
+@media (max-width: 640px) {
+  #app.app-mode .body { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  #app.app-mode .panel { max-height: 40%; border-left: none; border-top: 1px solid var(--grid); }
+}

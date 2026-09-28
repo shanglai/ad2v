@@ -1,0 +1,49 @@
+# P6 §7: questions a developer asks about payments-recon, with the components that answer them.
+# Evaluated on the head epoch of the viewer demo file (the P3 history scenario of this fixture, with
+# fake-provider summaries and narrations): `python -m ad2v.mcp.evaluate <file> <this file>`.
+#
+# gold: qualified names (kind:qname when a name is ambiguous). tool: the tool a model would obviously
+# call (`locate` unless the question names a status or a diff). holdout: never used for tuning.
+questions:
+  - {id: q01, type: where, q: "where are bank statements fetched?",
+     gold: ["api/recon_api/bank_client.py::fetch_statement", "api/recon_api/bank_client.py::fetch_all_statements", "api/recon_api/bank_client.py"]}
+  - {id: q02, type: where, q: "where is the ledger queried?", gold: ["api/recon_api/db.py::fetch_ledger_entry"]}
+  - {id: q03, type: where, q: "which file defines the HTTP routes?", gold: ["api/recon_api/routes.py"]}
+  - {id: q04, type: where, holdout: true, q: "where does the worker publish run-completed events?",
+     gold: ["worker/recon_worker/events.py::publish_run_completed"]}
+  - {id: q05, type: where, q: "where are unmatched transactions classified?",
+     gold: ["api/recon_api/classify.py::classify_unmatched", "api/recon_api/classify.py"]}
+  - {id: q06, type: where, q: "where is the MCP tool for run summaries implemented?",
+     gold: ["mcp:api:reconciliation_summary", "api/recon_api/mcp_server.py::reconciliation_summary"]}
+  - {id: q07, type: where, holdout: true, q: "where are old approved runs purged?",
+     gold: ["worker/recon_worker/archive.py::purge_approved_runs"]}
+  - {id: q08, type: risk, q: "what calls the LLM in a loop?",
+     gold: ["api/recon_api/classify.py::classify_unmatched@loop#bc51e9e6", "api/recon_api/classify.py::classify_run@loop#d1ff137d",
+            "api/recon_api/classify.py::classify_unmatched@llm_call#67251e28"]}
+  - {id: q09, type: risk, q: "which retry is unbounded?", gold: ["api/recon_api/bank_client.py::fetch_statement@retry#297043df"]}
+  - {id: q10, type: risk, holdout: true, q: "which loop queries the database once per transaction?",
+     gold: ["api/recon_api/matching.py::match_batch@loop#a4e53c24"]}
+  - {id: q11, type: risk, q: "where do we fan out requests to the bank?",
+     gold: ["api/recon_api/bank_client.py::fetch_all_statements@fan_out#809d9005", "api/recon_api/bank_client.py::fetch_all_statements"]}
+  - {id: q12, type: requirement, q: "which requirement is drifting?", gold: ["REQ-003"]}
+  - {id: q13, type: status, q: "which endpoint drifts from the OpenAPI spec?", tool: {name: status, status: drift},
+     gold: ["http:api:GET /v1/reconciliations/{run_id}/unmatched", "spec_endpoint:GET /reconciliations/{run_id}/unmatched"]}
+  - {id: q14, type: status, holdout: true, q: "which endpoint is not in the spec?", tool: {name: status, status: orphan},
+     gold: ["http:api:GET /internal/debug/stats"]}
+  - {id: q15, type: requirement, q: "which requirement covers the amount tolerance?", gold: ["REQ-003"]}
+  - {id: q16, type: requirement, holdout: true, q: "what does the spec say about approving a run?",
+     gold: ["REQ-007", "spec_endpoint:POST /reconciliations/{run_id}/approve", "features/reconciliation.feature::Statement reconciliation::Approve a reconciliation run"]}
+  - {id: q17, type: status, q: "which requirements are stale?", tool: {name: status, status: stale}, gold: ["REQ-002"]}
+  - {id: q18, type: requirement, holdout: true, q: "is bounded exponential backoff for the bank feed specified?", gold: ["REQ-008"]}
+  - {id: q19, type: flow, q: "how does a reconciliation run start?",
+     gold: ["http:api:POST /v1/reconciliations", "api/recon_api/routes.py::start_run"]}
+  - {id: q20, type: flow, q: "what does the worker do at night?",
+     gold: ["cli:worker:run-nightly", "worker/recon_worker/jobs.py::run_nightly"]}
+  - {id: q21, type: flow, holdout: true, q: "what happens when a statement is uploaded?",
+     gold: ["event:worker:worker/recon_worker/events.py::handle_statement_uploaded", "worker/recon_worker/events.py::handle_statement_uploaded"]}
+  - {id: q22, type: flow, q: "how is a run approved?",
+     gold: ["http:api:POST /v1/reconciliations/{run_id}/approve", "api/recon_api/routes.py::approve_run"]}
+  - {id: q23, type: diff, q: "what changed between epoch 2 and 3?", tool: {name: diff, from: "2", to: "3"},
+     gold: ["REQ-003", "api/recon_api/matching.py::amounts_equal", "api/tests/test_matching.py::test_req_003_amounts_within_one_cent_match"]}
+  - {id: q24, type: describe, q: "what is the api container?", gold: ["container:api"]}
+  - {id: q25, type: describe, holdout: true, q: "which external service is the bank API?", gold: ["external_service:env:BANK_API_URL"]}

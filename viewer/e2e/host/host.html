@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ad2v test host</title>
+    <style>
+      body { margin: 0; font: 14px system-ui, sans-serif; background: #f6f7f9; color: #111; }
+      body[data-theme="dark"] { background: #1b1d22; color: #eee; }
+      #chat { max-width: 960px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+      .msg { padding: 8px 12px; border-radius: 10px; background: #0001; }
+      body[data-theme="dark"] .msg { background: #fff1; }
+    </style>
+  </head>
+  <body>
+    <div id="chat"><div class="msg" id="prompt">Test host: the model called ad2v_show.</div></div>
+    <script type="module" src="./host.ts"></script>
+  </body>
+</html>

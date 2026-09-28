@@ -410,6 +410,41 @@ def cmd_view(a: argparse.Namespace) -> int:  # pragma: no cover - interactive (s
     return 0
 
 
+def cmd_mcp(a: argparse.Namespace) -> int:
+    """MCP server over stdio (default) or Streamable HTTP on 127.0.0.1; stdout is protocol-only."""
+    from ad2v.mcp import make_server
+    from ad2v.mcp.files import FileSet
+    from ad2v.mcp.protocol import log
+
+    try:
+        files = FileSet(root=Path(a.root)) if a.root else FileSet(single=Path(a.file))
+    except (ValueError, OSError) as e:
+        print(f"ad2v mcp: {e}", file=sys.stderr)
+        return 2
+    server = make_server(files)
+    if not a.no_warm:  # build the indexes in the background; the first ad2v_locate is then fast
+        import threading
+
+        threading.Thread(target=server.ctx.warm, name="ad2v-mcp-warm", daemon=True).start()  # type: ignore[attr-defined]
+    if a.http:
+        from ad2v.mcp import http
+
+        httpd, url = http.serve(server, a.port)
+        log(f"Streamable HTTP on {url} (127.0.0.1 only); Ctrl+C to stop")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            httpd.server_close()
+        return 0
+    from ad2v.mcp import stdio
+
+    log(f"stdio server ready ({len(files.listing())} file(s))")
+    stdio.serve(server)
+    return 0
+
+
 def cmd_layout(a: argparse.Namespace) -> int:
     conn = store.open_rw(Path(a.file))
     try:
@@ -568,6 +603,15 @@ def parser() -> argparse.ArgumentParser:
     vw.add_argument("--port", type=int, default=0, help="0 = any free port")
     vw.add_argument("--no-browser", action="store_true")
     vw.set_defaults(func=cmd_view)
+
+    mc = sub.add_parser("mcp", help="MCP server (read-only tools + the map as an MCP App); stdio by default")
+    src_ = mc.add_mutually_exclusive_group(required=True)
+    src_.add_argument("--file", help="serve this one .ad2v file")
+    src_.add_argument("--root", help="serve every *.ad2v file under this directory")
+    mc.add_argument("--http", action="store_true", help="Streamable HTTP on 127.0.0.1 instead of stdio")
+    mc.add_argument("--port", type=int, default=0, help="HTTP port (0 = any free port)")
+    mc.add_argument("--no-warm", action="store_true", help="do not build search indexes at startup")
+    mc.set_defaults(func=cmd_mcp)
 
     ly = sub.add_parser("layout", help="deterministic layout (nestgrid-v1) of epochs that lack one")
     ly.add_argument("file")

@@ -1,6 +1,21 @@
 # Status
 
-## P5 (done): the viewer
+## P6 (done): MCP server (stdlib) + MCP App
+
+Single final commit at the end. P5 report is at docs/reports/P5.md. P6 report: `REPORT.md` (copy in `docs/reports/P6.md`). ADRs 0039–0045.
+
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | stdlib JSON-RPC MCP server (stdio + Streamable HTTP on 127.0.0.1), pinned protocol + MCP Apps versions, file/root resolution, read-only | done (code): MCP 2026-07-28 dual-era (legacy initialize 2025-11-25/06-18/03-26), MCP Apps 2026-01-26; src/ad2v/mcp/{protocol,stdio,http,files}.py; tests pending (M5) |
+| M2 | Agent tools (§3) + untrusted_text wrapping + instructions | done (code): 13 tools in mcp/tools.py, index.py, locate.py (BM25F, rules `retrieval:`); smoke-tested on the fixture |
+| M3 | App tools mirroring DataSource, viewer_scene, RemoteSliceSource, parity test | done: 20 viewer_* app-only tools, scene() in both sources, standalone viewer loads via scene(); parity 6/6 (every method, every epoch, 38 roots x 3 depths) |
+| M4 | MCP App build (`build:app`, ui://ad2v/map) + app-mode UI + intents | done: app-dist/app.html 988 KB (budget 2 MB, no wasm), ext-apps 2.0.3 App, 5 intents, slices on demand |
+| M5 | Conformance (Inspector), Python unit tests, App e2e in test host (10 screenshots) | done: Inspector 2.8.0 via npx 37/38 (fixed: integer epoch args), 23 pytest -m mcp, 10/10 App e2e, no iframe requests |
+| M6 | Retrieval eval (25 questions, 8 held out), tuned weights in rules | done: with tools R@5 .95 MRR .89 nDCG .88 (held-out .92/.75/.77); weights in rules `retrieval:` |
+| M7 | docs/mcp.md client setup | done |
+| M8 | Performance on dispatch | done: warm p95 get_node 28 ms, search 4, neighborhood 23, status 8, workflow 11, locate 37, overview 13 (targets 150/300); cold start 0.31 s; BM25 build 3.35 s -> 0.33 s (batched source query, memoized stems, startup warm-up); App first render 1.10 s dispatch / 0.55 s fixture (budget 1.5 s); bench/ deleted |
+
+## P5 (done, commit aeef69a): the viewer
 
 Single final commit at the end. Root REPORT.md (P4) removed; it is at docs/reports/P4.md. P5 report: `REPORT.md` (copy in `docs/reports/P5.md`). ADRs 0034–0038.
 

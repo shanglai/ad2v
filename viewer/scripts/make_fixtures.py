@@ -175,6 +175,33 @@ def recordings(view: EpochView) -> list[dict[str, Any]]:
     return recs
 
 
+def build_demo(out: Path, tmp: Path) -> str:
+    """The demo file: the P3 history scenario (8 epochs, all materialized and laid out) plus
+    fake-provider LLM rows (judge, suggestions, summaries, narrations). Returns the head epoch."""
+    sc = Scenario(tmp / "payments-recon").build()
+    if out.exists():
+        out.unlink()
+    first = sc.commits[0][1]
+    gitsource.run_history(sc.repo, f"{first}^!", out, "specs", ["test-results/junit.xml"])
+    gitsource.run_history(sc.repo, f"{first}..HEAD", out, "specs", ["test-results/junit.xml"])
+    conn = store.open_rw(out)
+    with conn:
+        for r in store.epoch_rows(conn):
+            materialize.materialize(conn, r["epoch_id"])
+        layout.ensure(conn)
+    head = store.head_epoch(conn)
+    view = EpochView(conn, head, from_data({}))
+    rec_dir = tmp / "rec"
+    rec_dir.mkdir()
+    (rec_dir / "demo.json").write_text(json.dumps({"recordings": recordings(view)}), encoding="utf-8")
+    conn.close()
+    cfg = from_data({"provider": "fake", "fake_replay_dir": str(rec_dir)})
+    api.run(
+        out, cfg, ["judge", "suggest", "summarize", "narrate"], 1.0, provider=ReplayOnly(cfg.model, rec_dir)
+    )
+    return head
+
+
 def main() -> None:
     fx = VIEWER / "tests" / "fixtures"
     gen = VIEWER / "src" / "generated"
@@ -182,32 +209,8 @@ def main() -> None:
     gen.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="ad2v-viewer-"))
     try:
-        sc = Scenario(tmp / "payments-recon").build()
         out = fx / "demo.ad2v"
-        if out.exists():
-            out.unlink()
-        first = sc.commits[0][1]
-        gitsource.run_history(sc.repo, f"{first}^!", out, "specs", ["test-results/junit.xml"])
-        gitsource.run_history(sc.repo, f"{first}..HEAD", out, "specs", ["test-results/junit.xml"])
-        conn = store.open_rw(out)
-        with conn:
-            for r in store.epoch_rows(conn):
-                materialize.materialize(conn, r["epoch_id"])
-            layout.ensure(conn)
-        head = store.head_epoch(conn)
-        view = EpochView(conn, head, from_data({}))
-        rec_dir = tmp / "rec"
-        rec_dir.mkdir()
-        (rec_dir / "demo.json").write_text(json.dumps({"recordings": recordings(view)}), encoding="utf-8")
-        conn.close()
-        cfg = from_data({"provider": "fake", "fake_replay_dir": str(rec_dir)})
-        api.run(
-            out,
-            cfg,
-            ["judge", "suggest", "summarize", "narrate"],
-            1.0,
-            provider=ReplayOnly(cfg.model, rec_dir),
-        )
+        head = build_demo(out, tmp)
         conn = store.open_readonly(out)
         try:
             g = store.load_graph(conn, head)

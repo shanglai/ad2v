@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ad2v"
-version = "0.5.0"
+version = "0.6.0"
 description = "agent development to viz: compare a repository against its SDD specs and emit one .ad2v SQLite file"
 readme = "README.md"
 license = "Apache-2.0"
@@ -41,21 +41,26 @@ packages = [
     "ad2v.llm.prompts",
     "ad2v._schema",
     "ad2v._viewer",
+    "ad2v.mcp",
+    "ad2v._app",
 ]
 
 [tool.setuptools.package-dir]
 "" = "src"
 "ad2v._schema" = "schema"
 "ad2v._viewer" = "viewer/dist"  # build it first: npm ci && npm run build (in viewer/)
+"ad2v._app" = "viewer/app-dist"  # the MCP App: npm run build:app (in viewer/)
 
 [tool.setuptools.package-data]
 "ad2v.extract.code" = ["rules/*.yaml"]
 "ad2v.llm.prompts" = ["*.md"]
 "ad2v._schema" = ["*.sql", "*.json", "themes/*.json"]
 "ad2v._viewer" = ["*.html", "assets/*"]
+"ad2v._app" = ["app.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["mcp: the MCP server (P6); run just these with pytest -m mcp"]
 
 [tool.ruff]
 line-length = 110
