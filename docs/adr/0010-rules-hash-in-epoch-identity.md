@@ -1,6 +1,6 @@
 # ADR-0010: The extractor rules are an input of the epoch (`epochs.rules_hash`)
 
-- Status: accepted (P1, M7)
+- Status: accepted (P1, M7). Amended by ADR-0012 (overlay-aware canonical rules_hash; config and test-result hashes).
 - Context: extraction output depends on three inputs, not two: the code, the specs, **and**
   `extract/code/rules/python.yaml` (library → resource classification, pure methods, port
   frameworks). Suppose two runs on the same repository with different rules files produce different

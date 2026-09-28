@@ -11,7 +11,8 @@ from typing import Any
 
 from ad2v import ids
 
-FORMAT_VERSION = "0.1"
+FORMAT_VERSION = "0.2"
+SUPPORTED_FORMAT_VERSIONS = ("0.2",)
 
 SIDES = ("code", "spec")
 
@@ -19,7 +20,15 @@ STRUCTURAL_KINDS = ("system", "container", "component", "module", "class", "func
 PORT_KINDS = ("http_route", "mcp_tool", "cli_command", "event_consumer")
 RESOURCE_KINDS = ("datastore", "queue", "external_service", "llm_endpoint", "ui")
 BEHAVIOR_KINDS = ("loop", "retry", "fan_out", "transaction", "llm_call")
-SPEC_KINDS = ("spec_doc", "spec_component", "requirement", "scenario", "scenario_step", "spec_endpoint")
+SPEC_KINDS = (
+    "spec_root",
+    "spec_doc",
+    "spec_component",
+    "requirement",
+    "scenario",
+    "scenario_step",
+    "spec_endpoint",
+)
 NODE_KINDS = STRUCTURAL_KINDS + PORT_KINDS + RESOURCE_KINDS + BEHAVIOR_KINDS + SPEC_KINDS
 
 EDGE_KINDS = (
@@ -58,6 +67,22 @@ LINK_STATUSES = (
     "needs_review",
     "missing",
 )
+# Effective node status: link statuses plus `none` (no spec coverage applies, e.g. a function
+# inside an unmapped container). Precedence, highest first (format spec §6.4):
+STATUS_PRECEDENCE = (
+    "drift",
+    "needs_review",
+    "missing",
+    "orphan",
+    "stale",
+    "verified",
+    "implemented",
+    "specified",
+    "none",
+)
+NODE_STATUSES = STATUS_PRECEDENCE
+LINK_METHODS = ("annotation", "route_match", "manifest", "name_match", "none")
+TEST_OUTCOMES = ("passed", "failed", "skipped")
 
 LEVEL_HINTS: dict[str, str] = {
     "system": "system",
@@ -262,3 +287,33 @@ class Graph:
 
         for nid in sorted(self.nodes):
             visit(nid, frozenset())
+
+
+@dataclass
+class Link:
+    spec_node_id: str | None
+    code_node_id: str | None
+    status: str
+    method: str
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    provenance: str = "deterministic"
+    confidence: float = 1.0
+
+    @property
+    def link_id(self) -> str:
+        return ids.link_id(self.spec_node_id, self.code_node_id, self.method)
+
+
+@dataclass
+class NodeStatus:
+    node_id: str
+    status: str
+    reasons: list[dict[str, Any]]
+
+
+@dataclass
+class TestResult:
+    test_node_id: str
+    outcome: str
+    source_file: str
+    duration_ms: int

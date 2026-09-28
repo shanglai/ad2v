@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-written in the shape of pytest JUnit XML output, run from the fixture root (never actually run). -->
+<testsuites>
+  <testsuite name="pytest" errors="0" failures="1" skipped="0" tests="5" time="0.412" timestamp="2026-09-28T09:00:00" hostname="ci">
+    <testcase classname="api.tests.test_matching" name="test_req_003_amounts_within_one_cent_match" time="0.004"/>
+    <testcase classname="api.tests.test_matching" name="test_req_002_match_batch_pairs_by_reference" time="0.006"/>
+    <testcase classname="api.tests.test_routes" name="test_req_001_start_run_returns_run_result" time="0.012"/>
+    <testcase classname="api.tests.test_routes" name="test_req_004_unmatched_rows_get_a_label" time="0.310">
+      <failure message="AssertionError: expected a label">AssertionError: expected a label</failure>
+    </testcase>
+    <testcase classname="api.tests.test_legacy" name="test_removed_export_endpoint[csv]" time="0.080"/>
+  </testsuite>
+</testsuites>

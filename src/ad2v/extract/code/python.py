@@ -18,11 +18,11 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import tree_sitter_python as tsp
-import yaml
 from tree_sitter import Language, Parser
 from tree_sitter import Node as TSNode
 
 from ad2v import ids, ir
+from ad2v import rules as rules_mod
 from ad2v.extract.code.base import CodeFacts, Event, Layout
 from ad2v.extract.files import SourceFile
 from ad2v.manifest import Config
@@ -42,10 +42,8 @@ ENV_GETTERS = frozenset({"os.getenv", "os.environ.get", "os.environ.setdefault"}
 
 
 def load_rules(path: Path | None = None) -> dict[str, Any]:
-    text = ids.read_normalized(path or python_rules_path())
-    rules = yaml.safe_load(text)
-    rules["_hash"] = ids.content_hash(text)
-    return rules
+    """Built-in (or given) rules without overlay; see `ad2v.rules` for overlays and hashing."""
+    return rules_mod.load(path or python_rules_path())
 
 
 # ---------------------------------------------------------------------------------------------
@@ -266,6 +264,28 @@ def sanitize_url(url: str, host_only: bool) -> str:
 def join_route(*parts: str) -> str:
     joined = "/".join(p.strip("/") for p in parts if p and p.strip("/"))
     return "/" + joined
+
+
+def _param_info(fn: TSNode) -> dict[str, Any]:
+    """Parameter names in order (without self/cls) and whether **kwargs is present."""
+    names: list[str] = []
+    var_kw = False
+    params = fn.child_by_field_name("parameters")
+    for p in params.named_children if params is not None else []:
+        first = p.named_children[0] if p.named_children else None
+        if "dictionary_splat_pattern" in (p.type, first.type if first is not None else ""):
+            var_kw = True
+        elif p.type == "identifier":
+            names.append(_text(p))
+        elif p.type in ("typed_parameter", "default_parameter", "typed_default_parameter"):
+            ident = p.child_by_field_name("name") or next(
+                (c for c in p.named_children if c.type == "identifier"), None
+            )
+            if ident is not None:
+                names.append(_text(ident))
+    if names and names[0] in ("self", "cls"):
+        names = names[1:]
+    return {"params": names, "var_kwargs": var_kw}
 
 
 def dotted_text(n: TSNode) -> str | None:
@@ -521,6 +541,7 @@ class PythonExtractor:
                 dotted_text(self._deco_callee(d)) or _text(d)[1:].split("(")[0] for d in decorators
             ],
             "is_test": is_test,
+            **_param_info(fn),
         }
         node = self.graph.add_node(
             ir.Node(
@@ -1154,15 +1175,29 @@ class PythonExtractor:
                 self.fn_candidates.setdefault(fi.node.id, []).append(cand)
 
     def _candidate(
-        self, kind: str, n: TSNode, ctx: Ctx, attrs: dict[str, Any], function_level: bool = False
+        self,
+        kind: str,
+        n: TSNode,
+        ctx: Ctx,
+        attrs: dict[str, Any],
+        function_level: bool = False,
+        header: TSNode | None = None,
     ) -> Candidate:
-        key = (ctx.scope_qname, kind)
+        """Create a behavior candidate with a content-anchored qualified name (ADR-0011).
+
+        `<scope>@<kind>#<anchor>` where anchor = sha256(whitespace-normalized header text)[:8];
+        a second identical header in the same scope and kind gets `~2`, a third `~3`, ...
+        """
+        head = " ".join(_text(header if header is not None else n).split())
+        anchor = ids.sha256_hex(head)[:8]
+        key = (ctx.scope_qname, kind, anchor)
         self.counters[key] = self.counters.get(key, 0) + 1
+        dup = self.counters[key]
         parent = None if function_level or not ctx.stack else ctx.stack[-1]
         start, end = _line(n), _end_line(n)
         cand = Candidate(
             kind=kind,
-            qname=f"{ctx.scope_qname}@{kind}#{self.counters[key]}",
+            qname=f"{ctx.scope_qname}@{kind}#{anchor}" + (f"~{dup}" if dup > 1 else ""),
             scope_id=ctx.src_id,
             parent=parent,
             path=ctx.module.path,
@@ -1198,6 +1233,7 @@ class PythonExtractor:
                         "construct": "for" if t == "for_statement" else "while",
                         "async": any(c.type == "async" for c in n.children),
                     },
+                    header=iterable if t == "for_statement" else n.child_by_field_name("condition"),
                 )
                 ctx.stack.append(loop_cand)
             if t == "while_statement":
@@ -1216,7 +1252,9 @@ class PythonExtractor:
         if t in COMPREHENSIONS:
             has_call = self._has_call(n)
             if has_call and ctx.collector is None:
-                cand = self._candidate("loop", n, ctx, {"construct": "comprehension"})
+                clause = next((c for c in n.named_children if c.type == "for_in_clause"), None)
+                head = clause.child_by_field_name("right") if clause is not None else None
+                cand = self._candidate("loop", n, ctx, {"construct": "comprehension"}, header=head)
                 ctx.stack.append(cand)
                 for c in n.named_children:
                     self._walk(c, ctx)
@@ -1266,7 +1304,7 @@ class PythonExtractor:
             expr = value.named_children[0] if value.type == "as_pattern" and value.named_children else value
             self._walk(expr, ctx)
             if self._is_transaction(expr, ctx):
-                cand = self._candidate("transaction", n, ctx, {"construct": "with"})
+                cand = self._candidate("transaction", n, ctx, {"construct": "with"}, header=expr)
                 ctx.stack.append(cand)
                 pushed += 1
             if value.type == "as_pattern":
@@ -1349,7 +1387,11 @@ class PythonExtractor:
         fn_refs: list[TSNode] | None = None,
     ) -> None:
         cand = self._candidate(
-            "fan_out", call, ctx, {"construct": "call", "library": lib, "over_collection": over}
+            "fan_out",
+            call,
+            ctx,
+            {"construct": "call", "library": lib, "over_collection": over},
+            header=call.child_by_field_name("arguments") if fn_refs is None else call,
         )
         ctx.stack.append(cand)
         saved = ctx.collector

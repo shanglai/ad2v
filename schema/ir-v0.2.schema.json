@@ -1,0 +1,661 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ad2v.dev/schema/ir-v0.2.schema.json",
+  "title": "ad2v IR v0.2",
+  "description": "Intermediate representation of an ad2v extraction: nodes (code and spec items), edges, glyphs, workflows. Normative.",
+  "type": "object",
+  "required": [
+    "format_version",
+    "nodes",
+    "edges"
+  ],
+  "properties": {
+    "format_version": {
+      "const": "0.2"
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "glyphs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/glyph"
+      }
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workflow"
+      }
+    },
+    "unresolved_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/unresolved_ref"
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/link"
+      }
+    },
+    "node_status": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node_status"
+      }
+    },
+    "test_results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/test_result"
+      }
+    }
+  },
+  "$defs": {
+    "node_id": {
+      "type": "string",
+      "pattern": "^n_[0-9a-f]{20}$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "code_kind": {
+      "enum": [
+        "system",
+        "container",
+        "component",
+        "module",
+        "class",
+        "function",
+        "http_route",
+        "mcp_tool",
+        "cli_command",
+        "event_consumer",
+        "datastore",
+        "queue",
+        "external_service",
+        "llm_endpoint",
+        "ui",
+        "loop",
+        "retry",
+        "fan_out",
+        "transaction",
+        "llm_call"
+      ]
+    },
+    "spec_kind": {
+      "enum": [
+        "spec_root",
+        "spec_doc",
+        "spec_component",
+        "requirement",
+        "scenario",
+        "scenario_step",
+        "spec_endpoint"
+      ]
+    },
+    "risk_flag": {
+      "enum": [
+        "io_in_loop",
+        "llm_in_loop",
+        "unbounded_retry",
+        "fan_out",
+        "nested_loop_io",
+        "slow_io_in_transaction"
+      ]
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "side",
+        "kind",
+        "name",
+        "qualified_name",
+        "parent_id",
+        "content_hash",
+        "subtree_hash",
+        "attrs",
+        "spec_ref"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/node_id"
+        },
+        "side": {
+          "enum": [
+            "code",
+            "spec"
+          ]
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/code_kind"
+            },
+            {
+              "$ref": "#/$defs/spec_kind"
+            }
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "qualified_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/node_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[^\\\\]*$"
+        },
+        "span_start_line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "span_end_line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "subtree_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "level_hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attrs": {
+          "type": "object",
+          "properties": {
+            "risk": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/risk_flag"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "spec_ref": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "side": {
+                "const": "spec"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/spec_kind"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/code_kind"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "src",
+        "dst",
+        "kind",
+        "weight",
+        "attrs",
+        "provenance"
+      ],
+      "properties": {
+        "src": {
+          "$ref": "#/$defs/node_id"
+        },
+        "dst": {
+          "$ref": "#/$defs/node_id"
+        },
+        "kind": {
+          "enum": [
+            "contains",
+            "imports",
+            "calls",
+            "reads",
+            "writes",
+            "publishes",
+            "consumes",
+            "exposes",
+            "invokes_external",
+            "invokes_llm",
+            "declares",
+            "annotated_as"
+          ]
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attrs": {
+          "type": "object"
+        },
+        "provenance": {
+          "enum": [
+            "deterministic",
+            "runtime",
+            "llm"
+          ]
+        }
+      }
+    },
+    "glyph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "base_shape",
+        "variant",
+        "modifiers",
+        "size_weight",
+        "has_interior"
+      ],
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/node_id"
+        },
+        "base_shape": {
+          "enum": [
+            "cylinder",
+            "tube",
+            "trapezoid",
+            "rounded_box",
+            "hexagon",
+            "diamond",
+            "ring",
+            "port_notch",
+            "folded_sheet",
+            "cloud"
+          ]
+        },
+        "variant": {
+          "type": "string"
+        },
+        "modifiers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ports",
+            "replicas",
+            "has_loop_risk",
+            "has_llm",
+            "external"
+          ],
+          "properties": {
+            "ports": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "replicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "has_loop_risk": {
+              "type": "boolean"
+            },
+            "has_llm": {
+              "type": "boolean"
+            },
+            "external": {
+              "type": "boolean"
+            }
+          }
+        },
+        "size_weight": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "has_interior": {
+          "type": "boolean"
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow_id",
+        "name",
+        "side",
+        "entry_node_id",
+        "source",
+        "steps"
+      ],
+      "properties": {
+        "workflow_id": {
+          "type": "string",
+          "pattern": "^w_[0-9a-f]{20}$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "side": {
+          "enum": [
+            "code",
+            "spec"
+          ]
+        },
+        "entry_node_id": {
+          "$ref": "#/$defs/node_id"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/node_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "enum": [
+            "static",
+            "runtime",
+            "llm_inferred"
+          ]
+        },
+        "attrs": {
+          "type": "object"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "seq",
+              "node_ids",
+              "depth"
+            ],
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "node_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/node_id"
+                }
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "unresolved_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "src",
+        "ref",
+        "ref_kind",
+        "reason"
+      ],
+      "properties": {
+        "src": {
+          "$ref": "#/$defs/node_id"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "ref_kind": {
+          "enum": [
+            "spec_id"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "not_found"
+          ]
+        }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "link_id",
+        "spec_node_id",
+        "code_node_id",
+        "status",
+        "method",
+        "provenance",
+        "confidence",
+        "evidence"
+      ],
+      "properties": {
+        "link_id": {
+          "type": "string",
+          "pattern": "^l_[0-9a-f]{20}$"
+        },
+        "spec_node_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/node_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "code_node_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/node_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "specified",
+            "implemented",
+            "verified",
+            "drift",
+            "orphan",
+            "stale",
+            "needs_review",
+            "missing"
+          ]
+        },
+        "method": {
+          "enum": [
+            "annotation",
+            "route_match",
+            "manifest",
+            "name_match",
+            "none",
+            "llm"
+          ]
+        },
+        "provenance": {
+          "enum": [
+            "deterministic",
+            "runtime",
+            "llm"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind"
+            ]
+          }
+        }
+      },
+      "anyOf": [
+        {
+          "properties": {
+            "spec_node_id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "properties": {
+            "code_node_id": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "node_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "status",
+        "reasons"
+      ],
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/node_id"
+        },
+        "status": {
+          "enum": [
+            "drift",
+            "needs_review",
+            "missing",
+            "orphan",
+            "stale",
+            "verified",
+            "implemented",
+            "specified",
+            "none"
+          ]
+        },
+        "reasons": {
+          "type": "object",
+          "required": [
+            "precedence",
+            "reasons"
+          ],
+          "properties": {
+            "precedence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reasons": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "status",
+                  "kind"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "test_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_node_id",
+        "outcome",
+        "source_file",
+        "duration_ms"
+      ],
+      "properties": {
+        "test_node_id": {
+          "$ref": "#/$defs/node_id"
+        },
+        "outcome": {
+          "enum": [
+            "passed",
+            "failed",
+            "skipped"
+          ]
+        },
+        "source_file": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

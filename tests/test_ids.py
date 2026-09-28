@@ -59,6 +59,16 @@ def test_rel_posix(tmp_path):
 
 def test_workflow_and_epoch_ids():
     assert ids.workflow_id("code", "n_x", "static").startswith("w_")
-    assert ids.epoch_id(None, "a", "b", "r") == ids.epoch_id("", "a", "b", "r")
-    assert ids.epoch_id("e_1", "a", "b", "r") != ids.epoch_id(None, "a", "b", "r")
-    assert ids.epoch_id(None, "a", "b", "r2") != ids.epoch_id(None, "a", "b", "r")
+    base = ids.epoch_id(None, "a", "b", "r", "c", "t")
+    assert base == ids.epoch_id("", "a", "b", "r", "c", "t")
+    assert ids.epoch_id("e_1", "a", "b", "r", "c", "t") != base
+    for i in range(1, 6):  # every input moves the epoch id
+        args = ["", "a", "b", "r", "c", "t"]
+        args[i] += "x"
+        assert ids.epoch_id(*args) != base
+
+
+def test_link_id():
+    assert ids.link_id("n_a", None, "none") == ids.link_id("n_a", "", "none")
+    assert ids.link_id("n_a", "n_b", "annotation") != ids.link_id("n_a", "n_b", "route_match")
+    assert ids.link_id("n_a", "n_b", "annotation").startswith("l_")

@@ -1,0 +1,67 @@
+{
+  "name": "dark",
+  "class": "informative",
+  "description": "Near-black map. Blue family for spec/implemented/verified; verified adds a bloom glow.",
+  "background": "#0A0E16",
+  "surface": "#121926",
+  "grid": "#1B2433",
+  "text": "#E6ECF5",
+  "text_muted": "#A3AFC2",
+  "edge": "#6E7D94",
+  "status": {
+    "specified": {
+      "stroke": "#6F93D8",
+      "fill": "#111C30"
+    },
+    "implemented": {
+      "stroke": "#4F9DFF",
+      "fill": "#10233F"
+    },
+    "verified": {
+      "stroke": "#8CD2FF",
+      "fill": "#12304D"
+    },
+    "drift": {
+      "stroke": "#F5A524",
+      "fill": "#2A1F0C"
+    },
+    "orphan": {
+      "stroke": "#FF6166",
+      "fill": "#2A1216"
+    },
+    "missing": {
+      "stroke": "#8C9BB8",
+      "fill": "#0A0E16"
+    },
+    "needs_review": {
+      "stroke": "#C38BFA",
+      "fill": "#221733"
+    },
+    "stale": {
+      "stroke": "#98A2B3",
+      "fill": "#161C26"
+    },
+    "none": {
+      "stroke": "#6B7689",
+      "fill": "#111722"
+    }
+  },
+  "emphasis": {
+    "kind": "glow",
+    "color": "#6FC3FF",
+    "radius": 5,
+    "opacity": 0.9
+  },
+  "badge": {
+    "warning": "#F5A524",
+    "warning_text": "#0A0E16",
+    "clock": "#98A2B3"
+  },
+  "severity_ramp": [
+    "#7F93B3",
+    "#D9C24A",
+    "#F5A524",
+    "#FF7A45",
+    "#FF4D57"
+  ]
+}

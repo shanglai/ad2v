@@ -6,10 +6,14 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ad2v import __version__, ids, ir
+from ad2v import workflows as wf_mod
 from ad2v.resources import ddl_path
+
+if TYPE_CHECKING:
+    from ad2v.pairing import PairingResult
 
 GENERATOR = "ad2v-reference"
 
@@ -24,6 +28,8 @@ class Epoch:
     repo_tree_hash: str
     spec_tree_hash: str
     rules_hash: str
+    config_hash: str = ids.sha256_hex(ids.canonical_json({}))
+    test_results_hash: str = ids.tree_hash({})
     parent_epoch_id: str | None = None
     repo_commit: str | None = None
     attrs: dict[str, Any] = field(default_factory=dict)
@@ -63,6 +69,8 @@ def write(
     glyphs: list[ir.Glyph],
     workflows: list[ir.Workflow],
     meta: dict[str, str],
+    pairing_result: PairingResult | None = None,
+    test_results: list[ir.TestResult] | None = None,
 ) -> None:
     """Write a complete .ad2v file (replaces `out` if it exists)."""
     out = Path(out)
@@ -80,9 +88,14 @@ def write(
                 "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 **meta,
             }
-            conn.executemany("INSERT INTO meta(key, value) VALUES (?, ?)", sorted(all_meta.items()))
+            conn.executemany(
+                "INSERT INTO meta(key, value, class) VALUES (?, ?, ?)",
+                [(k, v, "I" if k in INFORMATIVE_META_KEYS else "N") for k, v in sorted(all_meta.items())],
+            )
             conn.execute(
-                "INSERT INTO epochs VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO epochs(epoch_id, parent_epoch_id, repo_commit, repo_tree_hash, spec_tree_hash,"
+                " rules_hash, config_hash, test_results_hash, attrs_json, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     epoch.epoch_id,
                     epoch.parent_epoch_id,
@@ -90,6 +103,8 @@ def write(
                     epoch.repo_tree_hash,
                     epoch.spec_tree_hash,
                     epoch.rules_hash,
+                    epoch.config_hash,
+                    epoch.test_results_hash,
                     ids.canonical_json(epoch.attrs),
                     all_meta["created_at"],
                 ),
@@ -164,8 +179,53 @@ def write(
                     "INSERT INTO workflow_steps VALUES (?,?,?,?,?)",
                     [(e, wf.workflow_id, s.seq, ids.canonical_json(s.node_ids), s.depth) for s in wf.steps],
                 )
+            conn.executemany(
+                "INSERT INTO workflow_step_nodes VALUES (?,?,?,?)",
+                [(e, w, seq, n) for w, seq, n in wf_mod.step_nodes(workflows)],
+            )
+            conn.executemany(
+                "INSERT INTO test_results VALUES (?,?,?,?,?)",
+                sorted(
+                    (e, t.test_node_id, t.outcome, t.source_file, t.duration_ms) for t in test_results or []
+                ),
+            )
+            if pairing_result is not None:
+                _write_pairing(conn, e, pairing_result)
     finally:
         conn.close()
+
+
+def _write_pairing(conn: sqlite3.Connection, e: str, res: PairingResult) -> None:
+    conn.executemany(
+        "INSERT INTO links(epoch_id, link_id, spec_node_id, code_node_id, method, status, provenance,"
+        " evidence_json, confidence) VALUES (?,?,?,?,?,?,?,?,?)",
+        [
+            (
+                e,
+                lk.link_id,
+                lk.spec_node_id,
+                lk.code_node_id,
+                lk.method,
+                lk.status,
+                lk.provenance,
+                ids.canonical_json(lk.evidence),
+                lk.confidence,
+            )
+            for lk in sorted(res.links, key=lambda x: x.link_id)
+        ],
+    )
+    precedence = list(ir.STATUS_PRECEDENCE)
+    conn.executemany(
+        "INSERT INTO node_status VALUES (?,?,?,?)",
+        [
+            (e, nid, st.status, ids.canonical_json({"precedence": precedence, "reasons": st.reasons}))
+            for nid, st in sorted(res.statuses.items())
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO status_rollup VALUES (?,?,?)",
+        [(e, nid, ids.canonical_json(c)) for nid, c in sorted(res.rollup.items())],
+    )
 
 
 def read_meta(conn: sqlite3.Connection) -> dict[str, str]:

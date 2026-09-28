@@ -34,7 +34,10 @@ def _graph() -> ir.Graph:
 
 def _write(path, g):
     epoch = store.Epoch(
-        epoch_id=ids.epoch_id(None, "r", "s", "x"), repo_tree_hash="r", spec_tree_hash="s", rules_hash="x"
+        epoch_id=ids.epoch_id(None, "r", "s", "x", "c", "t"),
+        repo_tree_hash="r",
+        spec_tree_hash="s",
+        rules_hash="x",
     )
     wf = ir.Workflow("w", "code", sorted(g.nodes)[0], "static", [ir.WorkflowStep(0, [sorted(g.nodes)[0]], 0)])
     glyphs = [ir.Glyph(n, "rounded_box", "module", {"ports": 0}, 1, False) for n in g.nodes]
@@ -82,8 +85,9 @@ def test_llm_rows_require_provenance(tmp_path):
     e = conn.execute("SELECT epoch_id FROM epochs").fetchone()[0]
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
-            "INSERT INTO links(epoch_id, link_id, spec_node_id, status, provenance) VALUES (?,?,?,?,?)",
-            (e, "l_1", nid, "drift", "llm"),
+            "INSERT INTO links(epoch_id, link_id, spec_node_id, method, status, provenance, confidence)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (e, "l_1", nid, "llm", "drift", "llm", 0.5),
         )
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
@@ -91,8 +95,9 @@ def test_llm_rows_require_provenance(tmp_path):
             (e, nid, "card", "x"),
         )
     conn.execute(
-        "INSERT INTO links VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (e, "l_2", nid, None, "drift", "llm", "[]", 0.7, "m", "1", "p", "i", None),
+        "INSERT INTO links(epoch_id, link_id, spec_node_id, method, status, provenance, evidence_json,"
+        " confidence, model, model_version, prompt_hash, input_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (e, "l_2", nid, "llm", "drift", "llm", "[]", 0.7, "m", "1", "p", "i"),
     )
 
 

@@ -1,6 +1,14 @@
+from ad2v import ids
 from ad2v.manifest import Config, ContainerDecl
 
 from helpers import edges, node, qnames, run_code
+
+LLM_CALL = 'litellm.completion(model="m", messages=[x])'
+
+
+def A(header: str) -> str:
+    """Behavior anchor: sha256 of the whitespace-normalized header text, 8 hex chars (ADR-0011)."""
+    return ids.sha256_hex(" ".join(header.split()))[:8]
 
 
 def test_structure_qnames_spans_and_hierarchy(tmp_path):
@@ -273,24 +281,26 @@ def test_behaviors_risks(tmp_path):
     g, facts = run_code(tmp_path, files)
     risk = {n.qualified_name: n.attrs["risk"] for n in g.nodes.values() if "risk" in n.attrs}
     assert risk == {
-        "b.py::n_plus_one@loop#1": ["io_in_loop"],
-        "b.py::nested@loop#1": ["io_in_loop", "nested_loop_io"],
-        "b.py::nested@loop#2": ["io_in_loop"],
-        "b.py::llm_loop@loop#1": ["llm_in_loop"],
-        "b.py::llm_loop@llm_call#1": ["llm_in_loop"],
-        "b.py::forever@retry#1": ["unbounded_retry"],
-        "b.py::fan@fan_out#1": ["fan_out"],
-        "b.py::pool@fan_out#1": ["fan_out"],
-        "b.py::tx@transaction#1": ["slow_io_in_transaction"],
+        f"b.py::n_plus_one@loop#{A('items')}": ["io_in_loop"],
+        f"b.py::nested@loop#{A('groups')}": ["io_in_loop", "nested_loop_io"],
+        f"b.py::nested@loop#{A('g')}": ["io_in_loop"],
+        f"b.py::llm_loop@loop#{A('xs')}": ["llm_in_loop"],
+        f"b.py::llm_loop@llm_call#{A(LLM_CALL)}": ["llm_in_loop"],
+        f"b.py::forever@retry#{A('@retry')}": ["unbounded_retry"],
+        f"b.py::fan@fan_out#{A('(*[get_one(x) for x in xs])')}": ["fan_out"],
+        f"b.py::pool@fan_out#{A('ex.map(get_one, xs)')}": ["fan_out"],
+        f"b.py::tx@transaction#{A('engine.begin()')}": ["slow_io_in_transaction"],
     }
-    assert node(g, "loop", "b.py::nested@loop#2").parent_id == node(g, "loop", "b.py::nested@loop#1").id
+    inner, outer = f"b.py::nested@loop#{A('g')}", f"b.py::nested@loop#{A('groups')}"
+    assert node(g, "loop", inner).parent_id == node(g, "loop", outer).id
     assert facts.wrappers[node(g, "function", "b.py::forever").id] == [
-        node(g, "retry", "b.py::forever@retry#1").id
+        node(g, "retry", f"b.py::forever@retry#{A('@retry')}").id
     ]
     # the parallel event of a fan-out carries the fan_out node
     fan_events = facts.events[node(g, "function", "b.py::fan").id]
     assert fan_events[0].targets == (node(g, "function", "b.py::get_one").id,)
-    assert fan_events[0].behaviors == (node(g, "fan_out", "b.py::fan@fan_out#1").id,)
+    fan_q = f"b.py::fan@fan_out#{A('(*[get_one(x) for x in xs])')}"
+    assert fan_events[0].behaviors == (node(g, "fan_out", fan_q).id,)
 
 
 def test_emit_all_keeps_ordinals_stable(tmp_path):
@@ -314,9 +324,10 @@ def test_emit_all_keeps_ordinals_stable(tmp_path):
     g0, _ = run_code(tmp_path / "a", src)
     assert qnames(g0, "loop") == [] and qnames(g0, "fan_out") == []
     g1, _ = run_code(tmp_path / "b", src, Config(behavior_emit_all=True))
-    assert qnames(g1, "loop") == ["e.py::f@loop#1", "e.py::f@loop#2"]
-    assert qnames(g1, "fan_out") == ["e.py::g@fan_out#1"]
-    assert node(g1, "fan_out", "e.py::g@fan_out#1").attrs["risk"] == []
+    # two loops over the same iterable: the second one gets ~2
+    assert qnames(g1, "loop") == [f"e.py::f@loop#{A('xs')}", f"e.py::f@loop#{A('xs')}~2"]
+    assert qnames(g1, "fan_out") == [f"e.py::g@fan_out#{A('(h(), h())')}"]
+    assert node(g1, "fan_out", f"e.py::g@fan_out#{A('(h(), h())')}").attrs["risk"] == []
 
 
 def test_ports(tmp_path):
@@ -502,5 +513,60 @@ def test_datastore_library_helpers_are_not_io(tmp_path):
         },
     )
     risk = {n.qualified_name: n.attrs["risk"] for n in g.nodes.values() if "risk" in n.attrs}
-    assert risk == {"h.py::fetch@loop#1": ["io_in_loop"]}
+    assert risk == {f"h.py::fetch@loop#{A('urls')}": ["io_in_loop"]}
     assert qnames(g, "datastore") == []
+
+
+def test_behavior_ids_survive_an_inserted_loop(tmp_path):
+    loops = "    for u in urls:\n        requests.get(u)\n    for p in pages:\n        requests.get(p)\n"
+    extra = "    for z in other:\n        requests.get(z)\n"
+    head = "import requests\n\ndef f(urls, pages, other):\n"
+    g0, _ = run_code(tmp_path / "a", {"m.py": head + loops})
+    g1, _ = run_code(tmp_path / "b", {"m.py": head + extra + loops})
+    before, after = set(qnames(g0, "loop")), set(qnames(g1, "loop"))
+    assert before == {f"m.py::f@loop#{A('urls')}", f"m.py::f@loop#{A('pages')}"}
+    assert after - before == {f"m.py::f@loop#{A('other')}"}  # only the new loop is new
+    assert before <= after
+
+
+def test_whitespace_in_header_does_not_change_anchor(tmp_path):
+    g0, _ = run_code(
+        tmp_path / "a",
+        {"m.py": "import requests\ndef f(a):\n    for x in range(a,  3):\n        requests.get(x)\n"},
+    )
+    g1, _ = run_code(
+        tmp_path / "b",
+        {"m.py": "import requests\ndef f(a):\n    for x in range(a, 3):\n        requests.get(x)\n"},
+    )
+    assert qnames(g0, "loop") == qnames(g1, "loop")
+
+
+def test_function_params_recorded(tmp_path):
+    g, _ = run_code(
+        tmp_path, {"m.py": "class C:\n    def m(self, a, b: int = 1, *args, c, **kw):\n        pass\n"}
+    )
+    attrs = node(g, "function", "m.py::C.m").attrs
+    assert attrs["params"] == ["a", "b", "c"] and attrs["var_kwargs"] is True
+
+
+def test_sqlalchemy_query_builders_are_not_io(tmp_path):
+    # found by the P2 performance re-check on Netflix/dispatch: query.join() in a loop was ranked #3
+    g, _ = run_code(
+        tmp_path,
+        {
+            "q.py": """
+from sqlalchemy.orm import Query, Session
+
+def refine(query: Query, models):
+    for m in models:
+        query = query.join(m).filter(m.x == 1)
+    return query
+
+def fetch_each(session: Session, ids):
+    for i in ids:
+        session.get(i)
+""",
+        },
+    )
+    risk = {n.qualified_name: n.attrs["risk"] for n in g.nodes.values() if "risk" in n.attrs}
+    assert risk == {f"q.py::fetch_each@loop#{A('ids')}": ["io_in_loop"]}

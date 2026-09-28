@@ -1,4 +1,7 @@
-# ad2v glyph grammar, v0.1
+# ad2v glyph grammar, v0.2
+
+Changes from v0.1: the `spec_root` kind (§3), and the status channel is now defined in
+[`visual-tokens-v0.2.md`](visual-tokens-v0.2.md) (§7).
 
 Status: **draft, normative**. Reference implementation: `src/ad2v/glyphs.py`.
 
@@ -11,7 +14,7 @@ viewers, and learnable: a reader who knows the ten shapes can read any ad2v map.
 |---|---|---|---|
 | **shape** (base shape + variant) | node **kind** | `nodes.kind` (+ container kind) | this document |
 | **modifiers** | node **attributes** | graph structure + attrs | this document |
-| **line style / glow / color** | link **status** | `links.status` | reserved; P2 fills `links` |
+| **line style / fill / emphasis / color** | effective **status** | `node_status.status` | [`visual-tokens-v0.2.md`](visual-tokens-v0.2.md) |
 | **size** | **weight** | `glyphs.size_weight` | this document |
 
 **Never overload a channel.** A risk is a modifier (badge), not a color. A status is a line style,
@@ -56,7 +59,7 @@ not a shape. An API gateway is a gateway with N port axles, not a new shape.
 | loop | ring | `loop` | |
 | retry | ring | `retry` | ring with arrowhead |
 | fan_out | diamond | `fan_out` | |
-| spec_doc … spec_endpoint | folded_sheet | = kind | spec_doc largest, scenario_step smallest |
+| spec_root … spec_endpoint | folded_sheet | = kind | spec_root largest (stacked sheets), scenario_step smallest |
 
 ## 4. Modifiers
 
@@ -90,22 +93,16 @@ it is the sum of the weights of incoming non-hierarchy edges (how much the resou
 every other node, it is the line count of its span (`span_end - span_start + 1`). Nodes without a span
 use the sum over their children. Viewers SHOULD map size with a sub-linear scale (e.g. `sqrt`).
 
-## 7. Reserved: line style and glow (status channel)
+## 7. Status channel
 
-These come from `links.status` in P2 and are not stored in `glyphs`:
-
-| status | line | glow |
-|---|---|---|
-| specified | dotted | none |
-| missing | dotted, dim | none |
-| implemented | solid | none |
-| verified | solid | blue |
-| drift | solid | amber |
-| orphan | red dashed | none |
-| stale | desaturated previous style | none |
-| needs_review | amber outline | none |
+The status channel (line style, fill, decoration, weight, and color as reinforcement) is defined in
+[`visual-tokens-v0.2.md`](visual-tokens-v0.2.md). Its source is `node_status.status` (one effective
+status per node, format spec §6.4). At far zoom, a collapsed glyph MAY show a small stacked bar of
+`status_rollup.counts_json` under it. That bar is a modifier and never changes the glyph's own line
+style.
 
 ## 8. Palette constraints (informative)
 
-Dark background. Color is reserved for status (§7). Kinds are distinguished by shape only, so
-the map stays readable in grayscale and for color-blind users.
+Color is reserved for status (§7). Kinds are distinguished by shape only, so the map stays
+readable in grayscale and for color-blind users. Dark and light themes are defined in
+`schema/themes/`.

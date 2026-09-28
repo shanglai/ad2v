@@ -6,10 +6,11 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ad2v import glyphs, ids, ir, store, workflows
+from ad2v import glyphs, ids, ir, junit, pairing, severity, store, workflows
+from ad2v import rules as rules_mod
 from ad2v.extract import files as filewalk
 from ad2v.extract.code.base import CodeFacts, Layout
-from ad2v.extract.code.python import PythonExtractor, load_rules
+from ad2v.extract.code.python import PythonExtractor
 from ad2v.extract.spec import extract_specs
 from ad2v.manifest import Config
 from ad2v.manifest import load as load_manifest
@@ -24,6 +25,9 @@ class Result:
     epoch: store.Epoch
     config: Config
     meta: dict[str, str]
+    pairing: pairing.PairingResult
+    tests: junit.Ingested
+    ranked_behaviors: list[str]
     elapsed_s: float = 0.0
     stats: dict[str, int] = field(default_factory=dict)
 
@@ -52,19 +56,18 @@ def read_git_head(repo: Path) -> str | None:
     return None
 
 
-def rules_hash(rules_files: dict[str, str]) -> str:
-    """Tree hash over {rules file name: content_hash of its normalized text} (format spec §2)."""
-    return ids.tree_hash(rules_files)
-
-
 def build(
-    repo: Path, spec: Path | None = None, manifest: Path | None = None, rules_path: Path | None = None
+    repo: Path,
+    spec: Path | None = None,
+    manifest: Path | None = None,
+    rules_path: Path | None = None,
+    test_results: list[Path] | None = None,
 ) -> Result:
     t0 = time.perf_counter()
     repo = Path(repo).resolve()
     config = load_manifest(repo, manifest)
-    rules = load_rules(rules_path)
-    r_hash = rules_hash({"python.yaml": rules["_hash"]})
+    rules = rules_mod.load(rules_path, config.rules_overlay)
+    r_hash = rules["_hash"]
     graph = ir.Graph()
     system_name = config.system_name or repo.name
     layout = Layout(graph, config, repo, system_name)
@@ -79,31 +82,42 @@ def build(
 
     spec_files: dict[str, str] = {}
     if spec_root is not None:
-        spec_files = extract_specs(graph, spec_root, config.exclude)
+        spec_files = extract_specs(graph, spec_root, config.exclude, root_name=system_name)
 
     resolve_spec_refs(graph)
     graph.link_contains()
     graph.compute_subtree_hashes()
 
     wfs = workflows.build_all(graph, facts, config)
+    ranked = severity.apply(graph, wfs, rules)
+    tests = junit.ingest(list(test_results or []), repo, graph)
+    paired = pairing.pair(graph, config, tests.results)
     gl = glyphs.compute(graph)
 
     repo_tree = ids.tree_hash(facts.files_read)
     spec_tree = ids.tree_hash(spec_files)
     epoch = store.Epoch(
-        epoch_id=ids.epoch_id(None, repo_tree, spec_tree, r_hash),
+        epoch_id=ids.epoch_id(None, repo_tree, spec_tree, r_hash, config.config_hash, tests.files_hash),
         repo_tree_hash=repo_tree,
         spec_tree_hash=spec_tree,
         rules_hash=r_hash,
+        config_hash=config.config_hash,
+        test_results_hash=tests.files_hash,
         repo_commit=read_git_head(repo),
-        attrs={**config.echo(), "rules_version": str(rules["rules_version"])},
+        attrs={
+            **config.echo(),
+            "pairing_warnings": paired.warnings,
+            "rules_version": str(rules["rules_version"]),
+            "test_cases": tests.cases,
+            "unmatched_tests": tests.unmatched,
+        },
     )
     meta = {
         "repo_root_name": repo.name,
         "rules_version": str(rules["rules_version"]),
         "system_name": system_name,
     }
-    res = Result(graph, facts, wfs, gl, epoch, config, meta)
+    res = Result(graph, facts, wfs, gl, epoch, config, meta, paired, tests, ranked)
     res.elapsed_s = time.perf_counter() - t0
     res.stats = {
         "files_code": len(facts.files_read),
@@ -133,10 +147,24 @@ def resolve_spec_refs(graph: ir.Graph) -> None:
 
 
 def extract_to_file(
-    repo: Path, spec: Path | None, out: Path, manifest: Path | None = None, rules_path: Path | None = None
+    repo: Path,
+    spec: Path | None,
+    out: Path,
+    manifest: Path | None = None,
+    rules_path: Path | None = None,
+    test_results: list[Path] | None = None,
 ) -> Result:
-    res = build(repo, spec, manifest, rules_path)
+    res = build(repo, spec, manifest, rules_path, test_results)
     t0 = time.perf_counter()
-    store.write(out, res.graph, res.epoch, res.glyphs, res.workflows, res.meta)
+    store.write(
+        out,
+        res.graph,
+        res.epoch,
+        res.glyphs,
+        res.workflows,
+        res.meta,
+        pairing_result=res.pairing,
+        test_results=list(res.tests.results.values()),
+    )
     res.elapsed_s += time.perf_counter() - t0
     return res

@@ -1,0 +1,343 @@
+"""Deterministic spec<->code pairing, link statuses, effective node statuses and roll-ups.
+
+Format spec §6. Everything here is normative: no fuzzy matching, no LLM (that is P4).
+
+Pairing methods, in priority order:
+  1. annotation   explicit `annotated_as` edges code -> spec (comments, docstrings, test names)
+  2. route_match  http_route <-> spec_endpoint on (METHOD, normalized path)
+  3. manifest     `pairing.components: {CMP-001: api}` in ad2v.yaml
+  4. name_match   spec_component <-> container/component with exactly equal slugs
+"""
+
+from __future__ import annotations
+
+import re
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Any
+
+from ad2v import ids, ir
+from ad2v.manifest import Config
+
+PORT_KINDS = frozenset(ir.PORT_KINDS)
+STRUCTURAL_ORPHAN_KINDS = frozenset({"container", "component"})
+ORPHAN_KINDS = PORT_KINDS | STRUCTURAL_ORPHAN_KINDS
+RANK = {s: i for i, s in enumerate(ir.STATUS_PRECEDENCE)}  # 0 = highest precedence
+INHERITABLE = frozenset({"implemented", "verified", "specified"})
+PARAM_RE = re.compile(r"\{[^}]*\}")
+
+
+@dataclass
+class PairingResult:
+    links: list[ir.Link]
+    statuses: dict[str, ir.NodeStatus]
+    rollup: dict[str, dict[str, int]]
+    warnings: list[dict[str, Any]] = field(default_factory=list)
+
+
+def slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def normalize_path(
+    path: str,
+    base: str = "",
+    prefix_map: dict[str, str] | None = None,
+    case_insensitive: bool = False,
+) -> tuple[str, list[str]]:
+    """Normalize an HTTP path for pairing (format spec §6.1). Returns (key path, param names).
+
+    base (OpenAPI servers[0] path) is prepended; the longest matching `prefix_map` key (on a
+    segment boundary) is replaced; `{param}` -> `{}`; `//` collapsed; trailing `/` stripped
+    (except root); literal segments lowercased only when case_insensitive.
+    """
+    p = "/" + "/".join(x for x in (base.strip("/"), path.strip("/")) if x)
+    p = re.sub(r"/+", "/", p)
+    for k in sorted(prefix_map or {}, key=lambda x: (-len(x), x)):
+        kk = "/" + k.strip("/") if k.strip("/") else "/"
+        if kk == "/" or p == kk or p.startswith(kk + "/"):
+            rest = p[len(kk) :] if kk != "/" else p
+            p = "/" + "/".join(x for x in ((prefix_map or {})[k].strip("/"), rest.strip("/")) if x)
+            break
+    names = PARAM_RE.findall(p)
+    names = [n[1:-1] for n in names]
+    p = PARAM_RE.sub("{}", p)
+    p = re.sub(r"/+", "/", p)
+    if len(p) > 1:
+        p = p.rstrip("/") or "/"
+    if case_insensitive:
+        p = p.lower()
+    return p, names
+
+
+class _Links:
+    def __init__(self) -> None:
+        self.by_id: dict[str, ir.Link] = {}
+
+    def add(self, link: ir.Link) -> ir.Link:
+        existing = self.by_id.get(link.link_id)
+        if existing is not None:
+            existing.evidence.extend(e for e in link.evidence if e not in existing.evidence)
+            if RANK[link.status] < RANK[existing.status]:
+                existing.status = link.status
+            return existing
+        self.by_id[link.link_id] = link
+        return link
+
+    def all(self) -> list[ir.Link]:
+        return [self.by_id[k] for k in sorted(self.by_id)]
+
+
+def _q(graph: ir.Graph, nid: str | None) -> str | None:
+    return graph.nodes[nid].qualified_name if nid else None
+
+
+def pair(graph: ir.Graph, config: Config, tests: dict[str, ir.TestResult] | None = None) -> PairingResult:
+    tests = tests or {}
+    nodes = graph.nodes
+    links = _Links()
+    warnings: list[dict[str, Any]] = []
+    by_kind: dict[str, list[str]] = defaultdict(list)
+    for nid in sorted(nodes):
+        by_kind[nodes[nid].kind].append(nid)
+
+    # 1. annotation --------------------------------------------------------------------------
+    for (src, kind, dst), edge in sorted(graph.edges.items()):
+        if kind == "annotated_as" and nodes[src].side == "code" and nodes[dst].side == "spec":
+            ref = edge.attrs.get("ref", nodes[dst].qualified_name)
+            sources = nodes[src].attrs.get("spec_ref_sources", {}).get(ref, [])
+            links.add(
+                ir.Link(
+                    dst,
+                    src,
+                    "implemented",
+                    "annotation",
+                    [{"kind": "annotation", "ref": ref, "sources": sources}],
+                )
+            )
+
+    # 2. route_match -------------------------------------------------------------------------
+    pm, ci = config.path_prefix_map, config.case_insensitive
+    routes: dict[tuple[str, str], list[tuple[str, list[str]]]] = defaultdict(list)
+    for nid in by_kind["http_route"]:
+        a = nodes[nid].attrs
+        key, names = normalize_path(a["path"], "", pm, ci)
+        routes[(a["method"], key)].append((nid, names))
+    endpoints: dict[tuple[str, str], list[tuple[str, list[str]]]] = defaultdict(list)
+    for nid in by_kind["spec_endpoint"]:
+        a = nodes[nid].attrs
+        key, names = normalize_path(a["path"], a.get("base_path", ""), pm, ci)
+        endpoints[(a["method"], key)].append((nid, names))
+    for key in sorted(endpoints):
+        eps, rts = endpoints[key], routes.get(key, [])
+        if not rts:
+            continue
+        ambiguous = len(eps) > 1 or len(rts) > 1
+        for ep, ep_names in eps:
+            for rt, rt_names in rts:
+                ev: list[dict[str, Any]] = [
+                    {"kind": "route_match", "method": key[0], "normalized_path": key[1]}
+                ]
+                if ep_names != rt_names:
+                    ev.append({"kind": "param_name_mismatch", "spec": ep_names, "code": rt_names})
+                drift = _structural_drift(graph, ep, rt, len(rt_names))
+                ev.extend(drift)
+                if ambiguous:
+                    ev.append(
+                        {
+                            "kind": "ambiguous",
+                            "spec_candidates": sorted(_q(graph, e) for e, _ in eps),
+                            "code_candidates": sorted(_q(graph, r) for r, _ in rts),
+                        }
+                    )
+                status = "drift" if drift else ("needs_review" if ambiguous else "implemented")
+                links.add(ir.Link(ep, rt, status, "route_match", ev))
+
+    # 3. manifest ----------------------------------------------------------------------------
+    manifested: set[str] = set()
+    for spec_id, target in sorted(config.pairing_components.items()):
+        specs = [n for n in by_kind["spec_component"] if nodes[n].qualified_name == spec_id]
+        if not specs:
+            warnings.append({"kind": "manifest_spec_id_not_found", "spec_id": spec_id})
+            continue
+        code = _structural_target(graph, target)
+        for s in specs:
+            manifested.add(s)
+            if code is None:
+                links.add(
+                    ir.Link(s, None, "missing", "manifest", [{"kind": "target_not_found", "target": target}])
+                )
+            else:
+                links.add(
+                    ir.Link(s, code, "implemented", "manifest", [{"kind": "manifest", "target": target}])
+                )
+
+    # 4. name_match --------------------------------------------------------------------------
+    structural = by_kind["container"] + by_kind["component"]
+    for s in by_kind["spec_component"]:
+        if s in manifested:
+            continue
+        want = slug(nodes[s].name)
+        cands = [c for c in structural if want and slug(nodes[c].name) == want]
+        for c in cands:
+            ev = [{"kind": "name_match", "slug": want}]
+            if len(cands) > 1:
+                ev.append({"kind": "ambiguous", "code_candidates": sorted(_q(graph, x) for x in cands)})
+            links.add(ir.Link(s, c, "needs_review" if len(cands) > 1 else "implemented", "name_match", ev))
+
+    # verification from linked tests -----------------------------------------------------------
+    test_ids = [n for n in by_kind["function"] if nodes[n].attrs.get("is_test")]
+    for link in links.all():
+        if link.spec_node_id is None or link.code_node_id is None:
+            continue
+        spec = nodes[link.spec_node_id]
+        wanted = {spec.qualified_name, *spec.spec_ref}
+        linked = [t for t in test_ids if wanted & set(nodes[t].spec_ref)]
+        outcomes = {t: tests[t].outcome for t in linked if t in tests}
+        passed = sorted(_q(graph, t) or "" for t, o in outcomes.items() if o == "passed")
+        failed = sorted(_q(graph, t) or "" for t, o in outcomes.items() if o == "failed")
+        if passed:
+            link.evidence.append({"kind": "tests_passed", "tests": passed})
+        if failed:
+            link.evidence.append({"kind": "tests_failed", "tests": failed})
+        if passed and link.status == "implemented":
+            link.status = "verified"
+
+    # unpaired spec items ----------------------------------------------------------------------
+    paired_spec = {lk.spec_node_id for lk in links.all() if lk.spec_node_id}
+    for nid in by_kind["spec_endpoint"]:
+        if nid not in paired_spec:
+            links.add(ir.Link(nid, None, "missing", "none", [{"kind": "no_matching_route"}]))
+    for kind in ("requirement", "scenario", "spec_component"):
+        for nid in by_kind[kind]:
+            if nid not in paired_spec:
+                links.add(ir.Link(nid, None, "specified", "none", [{"kind": "no_deterministic_pair"}]))
+
+    # orphans ----------------------------------------------------------------------------------
+    code_linked = {lk.code_node_id for lk in links.all() if lk.code_node_id and lk.spec_node_id}
+    structural_linked = {c for c in code_linked if nodes[c].kind in STRUCTURAL_ORPHAN_KINDS}
+    anc = _ancestors(graph)
+    for nid in sorted(n for k in ORPHAN_KINDS for n in by_kind[k]):
+        node = nodes[nid]
+        if nid in code_linked:
+            continue
+        if node.kind in PORT_KINDS and _handler(graph, node) in code_linked:
+            continue
+        if any(a in structural_linked for a in anc[nid]):
+            continue
+        links.add(ir.Link(None, nid, "orphan", "none", [{"kind": "no_spec_link"}]))
+
+    all_links = links.all()
+    statuses = _node_statuses(graph, all_links, anc)
+    return PairingResult(all_links, statuses, _rollup(graph, statuses), warnings)
+
+
+def _handler(graph: ir.Graph, port: ir.Node) -> str | None:
+    h = port.attrs.get("handler")
+    nid = ids.node_id("code", "function", h) if h else None
+    return nid if nid in graph.nodes else None
+
+
+def _structural_target(graph: ir.Graph, target: str) -> str | None:
+    for kind, qn in (("container", f"container:{target}"), ("container", target), ("component", target)):
+        nid = ids.node_id("code", kind, qn)
+        if nid in graph.nodes:
+            return nid
+    return None
+
+
+def _structural_drift(graph: ir.Graph, ep: str, rt: str, route_params: int) -> list[dict[str, Any]]:
+    """Structural drift between a spec endpoint and a route (format spec §6.3)."""
+    out: list[dict[str, Any]] = []
+    a = graph.nodes[ep].attrs
+    declared = a.get("path_params", [])
+    if declared and len(declared) != route_params:
+        out.append({"kind": "path_param_count", "spec": len(declared), "code": route_params})
+    handler = _handler(graph, graph.nodes[rt])
+    if handler is not None:
+        h = graph.nodes[handler].attrs
+        if not h.get("var_kwargs"):
+            missing = [q for q in a.get("required_query", []) if q not in h.get("params", [])]
+            if missing:
+                out.append(
+                    {
+                        "kind": "required_query_param_missing",
+                        "params": missing,
+                        "handler": graph.nodes[handler].qualified_name,
+                    }
+                )
+    return out
+
+
+def _ancestors(graph: ir.Graph) -> dict[str, list[str]]:
+    """{node: [parent, grandparent, ...]} (nearest first)."""
+    out: dict[str, list[str]] = {}
+    for nid in sorted(graph.nodes):
+        chain, cur, seen = [], graph.nodes[nid].parent_id, {nid}
+        while cur is not None and cur in graph.nodes and cur not in seen:
+            chain.append(cur)
+            seen.add(cur)
+            cur = graph.nodes[cur].parent_id
+        out[nid] = chain
+    return out
+
+
+def _node_statuses(
+    graph: ir.Graph, links: list[ir.Link], anc: dict[str, list[str]]
+) -> dict[str, ir.NodeStatus]:
+    nodes = graph.nodes
+    own: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for lk in links:
+        for nid, other in ((lk.spec_node_id, lk.code_node_id), (lk.code_node_id, lk.spec_node_id)):
+            if nid is not None:
+                own[nid].append(
+                    {
+                        "status": lk.status,
+                        "kind": "link",
+                        "link_id": lk.link_id,
+                        "method": lk.method,
+                        "other": _q(graph, other),
+                    }
+                )
+    for nid in sorted(nodes):  # ports take their handler's links when they have none of their own
+        n = nodes[nid]
+        if n.kind in PORT_KINDS and nid not in own:
+            h = _handler(graph, n)
+            for r in list(own.get(h, [])) if h else []:
+                own[nid].append({**r, "kind": "via_handler", "handler": _q(graph, h)})
+    for u in graph.unresolved:
+        own[u.src].append({"status": "needs_review", "kind": "unresolved_ref", "ref": u.ref})
+
+    out: dict[str, ir.NodeStatus] = {}
+    for nid in sorted(nodes, key=lambda x: (len(anc[x]), x)):  # parents before children
+        reasons = sorted(own.get(nid, []), key=ids.canonical_json)
+        if reasons:
+            status = min((r["status"] for r in reasons), key=RANK.__getitem__)
+        else:
+            parent = anc[nid][0] if anc[nid] else None
+            ps = out[parent].status if parent is not None else "none"
+            if ps in INHERITABLE:
+                status = ps
+                reasons = [{"status": ps, "kind": "inherited", "from": _q(graph, parent)}]
+            else:
+                status = "none"
+                reasons = [{"status": "none", "kind": "no_coverage"}]
+        out[nid] = ir.NodeStatus(nid, status, reasons)
+    return out
+
+
+def _rollup(graph: ir.Graph, statuses: dict[str, ir.NodeStatus]) -> dict[str, dict[str, int]]:
+    kids = graph.children()
+    memo: dict[str, dict[str, int]] = {}
+
+    def visit(nid: str) -> dict[str, int]:
+        if nid not in memo:
+            acc: dict[str, int] = defaultdict(int)
+            for c in kids[nid]:
+                acc[statuses[c].status] += 1
+                for k, v in visit(c).items():
+                    acc[k] += v
+            memo[nid] = dict(sorted(acc.items()))
+        return memo[nid]
+
+    return {nid: visit(nid) for nid in sorted(graph.nodes) if kids[nid]}

@@ -1,5 +1,5 @@
 # ad2v manifest for the payments-recon fixture.
-version: "0.1"
+version: "0.2"
 system:
   name: payments-recon
 containers:
@@ -17,3 +17,9 @@ workflows:
   max_depth: 12
 spec_ids:
   test_name_prefixes: [REQ, CMP]
+pairing:
+  # Explicit spec component -> container mapping (pairing method `manifest`).
+  components:
+    CMP-002: worker
+# Deep-merged over the built-in rules; changes rules_hash.
+rules_overlay: rules-overlay.yaml

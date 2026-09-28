@@ -11,9 +11,20 @@ from ad2v.extract.spec import gherkin, markdown, openapi
 SPEC_SUFFIXES = (".feature", ".md", ".markdown", ".yaml", ".yml", ".json")
 
 
-def extract_specs(graph: ir.Graph, spec_root: Path, exclude: tuple[str, ...]) -> dict[str, str]:
-    """Extract every spec file under `spec_root`. Returns {path: content_hash} of files read."""
+def extract_specs(
+    graph: ir.Graph, spec_root: Path, exclude: tuple[str, ...], root_name: str = "spec"
+) -> dict[str, str]:
+    """Extract every spec file under `spec_root`. Returns {path: content_hash} of files read.
+
+    All `spec_doc` nodes hang under one synthetic `spec_root` node (qualified name = `root_name`,
+    the system name), so the spec side has a single root like the code side (format spec §3.2).
+    """
     read: dict[str, str] = {}
+    root_node = graph.add_node(
+        ir.Node(
+            "spec", "spec_root", root_name, root_name, content_hash=ids.attrs_hash("spec_root", root_name, {})
+        )
+    )
     if spec_root.is_file():
         root, rels = spec_root.parent, [spec_root.name]
     else:
@@ -29,4 +40,5 @@ def extract_specs(graph: ir.Graph, spec_root: Path, exclude: tuple[str, ...]) ->
         else:
             continue
         read[rel] = ids.content_hash(text)
+        graph.nodes[ids.node_id("spec", "spec_doc", rel)].parent_id = root_node.id
     return read

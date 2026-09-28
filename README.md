@@ -2,12 +2,13 @@
 
 **Comprehension debt** is what builds up when agents merge code faster than people can understand
 it. ad2v compares a **repository** with its **SDD specs** (spec-driven development) and writes
-**one SQLite file**, `*.ad2v`, that describes both sides as a single graph. Readers of that file:
+**one SQLite file**, `*.ad2v`, that describes both sides as a single graph. The file also records
+how the spec items and the code pair up. Readers of that file:
 
-- a **viewer**: a dark, zoomable isometric 2.5D map (like C4, with more levels). Glyph shapes come
-  from a fixed grammar. Spec-only items are dotted, implemented items solid, verified items glow
-  blue. Drift is amber and orphan code is red dashed. Workflows replay step by step with a detail
-  slider.
+- a **viewer**: a zoomable isometric 2.5D map (like C4, with more levels) in dark and light themes.
+  Glyph shape = node kind. Line style = status: spec-only items are dotted, implemented solid,
+  verified glowing (dark) or haloed (light), drift carries a warning badge, orphan code is dashed.
+  Workflows replay step by step with a detail slider that follows the zoom.
 - a **conversational agent** (via MCP), whose answers point to node IDs and camera paths.
 
 Like mermaid.js, ad2v is an open **format** plus reference implementations. License: Apache-2.0.
@@ -16,14 +17,15 @@ Like mermaid.js, ad2v is an open **format** plus reference implementations. Lice
 
 | phase | scope | status |
 |---|---|---|
-| **P1** | format spec v0.1, SQLite schema, IR, deterministic extractors (Python code, Gherkin / OpenAPI / Markdown specs), static workflows, canonical dump | **done** (this repo) |
-| P2 | spec↔code pairing, structural diff (missing / orphan / stale), Merkle incremental runs, epochs | planned |
-| P3 | bring-your-own-model LLM layer: semantic judge, summaries, narrations, all with provenance | planned |
-| P4 | three.js viewer | planned |
-| P5 | MCP server + MCP App | planned |
+| P1 | format spec v0.1, SQLite schema, IR, deterministic extractors (Python code, Gherkin / OpenAPI / Markdown specs), static workflows, canonical dump | done ([report](docs/reports/P1.md)) |
+| **P2** | spec↔code pairing, single-epoch statuses, structural drift, roll-ups, risk severity, visual tokens (light + dark), format **v0.2** | **done** ([report](REPORT.md)) |
+| P3 | content-addressed multi-epoch storage, incremental extraction, epoch diff, `stale` | planned |
+| P4 | bring-your-own-model LLM layer: semantic judge, summaries, narrations, all with provenance | planned |
+| P5 | three.js viewer | planned |
+| P6 | MCP server + MCP App | planned |
 
-P1 makes **no LLM calls**. Every row it writes is *normative*: the same inputs (code, specs and
-extractor rules) give the same canonical dump on any platform.
+P1 and P2 make **no LLM calls**. Every row they write is *normative*: the same inputs (code,
+specs, rules, manifest, test results) give the same normative dump on any platform.
 
 ## Quickstart
 
@@ -37,38 +39,48 @@ python -m venv .venv
 .venv/Scripts/python -m pip install -e ".[dev]"
 ```
 
-(On macOS/Linux, use `.venv/bin/python`.) Then extract the bundled fixture:
+(On macOS/Linux, use `.venv/bin/python`.) Then extract the bundled fixture, with its test results:
 
 ```bash
-ad2v extract --repo fixtures/payments-recon --spec fixtures/payments-recon/specs --out recon.ad2v
+ad2v extract --repo fixtures/payments-recon --spec fixtures/payments-recon/specs --test-results fixtures/payments-recon/test-results/junit.xml --out recon.ad2v
+```
+
+```bash
+ad2v status recon.ad2v --side spec
 ```
 
 ## CLI
 
 ```text
-ad2v extract --repo <path> [--spec <path>] [--manifest ad2v.yaml] --out project.ad2v
-ad2v dump    project.ad2v --canonical [--out project.jsonl]
-ad2v inspect project.ad2v [--node <id|qualified_name>] [--kind loop] [--risk io_in_loop]
+ad2v extract  --repo <path> [--spec <path>] [--manifest ad2v.yaml] [--test-results junit.xml ...] --out project.ad2v
+ad2v status   project.ad2v [--side spec|code] [--status missing] [--all] [--format table|json]
+ad2v inspect  project.ad2v [--node <id|qualified_name>] [--kind loop] [--risk io_in_loop] [--top-risk N]
+ad2v dump     project.ad2v [--canonical] [--normative-only] [--out project.jsonl]
 ad2v validate project.ad2v
+ad2v preview-tokens --out tokens.html
 ```
 
-- `extract` prints counts per kind, ports, risky behaviors, workflows, unresolved spec references
-  and the elapsed time.
-- `dump --canonical` writes sorted JSONL (UTF-8, LF on every OS). Use it to check determinism, not
-  the SQLite bytes.
-- `validate` checks the format version, foreign keys, glyph coverage, the IR JSON Schema, and that
-  ids and Merkle hashes recompute.
+- `extract` prints counts per kind, ports, the top 10 risky behaviors by severity, status counts
+  per side, test-result matching, workflows, unresolved spec references and the elapsed time.
+- `status` lists effective statuses (`drift`, `needs_review`, `missing`, `orphan`, `verified`,
+  `implemented`, `specified`) with their reasons.
+- `dump --normative-only` is the determinism contract: sorted JSONL, UTF-8, LF on every OS.
+- `validate` checks the format version (≥ 0.2), foreign keys, glyph and status coverage, the IR JSON
+  Schema, and that ids, link ids, Merkle hashes and roll-ups recompute.
+- `preview-tokens` writes one self-contained HTML page: every glyph × every status, dark and light
+  (see [`docs/reports/P2-tokens.html`](docs/reports/P2-tokens.html)).
 
-The extractor only **reads** the repository. It never imports or runs repository code.
+The extractor only **reads** the repository and ingests test-result files. It never imports or runs
+repository code or tests.
 
 ## Documents
 
-- [Format spec v0.1](docs/spec/ad2v-format-v0.1.md) (normative: the product)
-- [Glyph grammar v0.1](docs/spec/glyph-grammar-v0.1.md)
+- [Format spec v0.2](docs/spec/ad2v-format-v0.2.md) (normative: the product)
+- [Glyph grammar v0.2](docs/spec/glyph-grammar-v0.2.md) and [visual tokens v0.2](docs/spec/visual-tokens-v0.2.md)
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
-- [DDL](schema/ad2v-v0.1.sql) and [IR JSON Schema](schema/ir-v0.1.schema.json)
+- [DDL](schema/ad2v-v0.2.sql), [IR JSON Schema](schema/ir-v0.2.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
-- [REPORT.md](REPORT.md), [status](status.md), [issues](issues.md), [pending](pending.md)
+- [REPORT.md](REPORT.md) (P2), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
 ## Optional manifest (`ad2v.yaml`)
 
@@ -77,10 +89,15 @@ system: {name: payments-recon}
 containers:
   - {name: api, paths: [api], kind: service, replicas: 2}
   - {name: worker, paths: [worker], kind: worker}
-exclude: [migrations]          # added to the default excludes
-behavior: {emit_all: false}    # true: emit loop/retry/... nodes even without risk flags
+exclude: [migrations]              # added to the default excludes
+behavior: {emit_all: false}        # true: emit loop/retry/... nodes even without risk flags
 workflows: {max_depth: 12, max_steps: 5000}
 spec_ids: {test_name_prefixes: [REQ, CMP]}
+pairing:
+  components: {CMP-002: worker}    # spec component -> container or component
+  path_prefix_map: {/api: ""}      # route normalization, both sides
+  case_insensitive: false
+rules_overlay: rules-overlay.yaml  # deep-merged over the built-in rules (changes rules_hash)
 ```
 
 Without a manifest, each top-level directory that has `pyproject.toml`, `setup.py` or `Dockerfile`
@@ -96,5 +113,5 @@ is a container.
 .venv/Scripts/ruff check src tests
 ```
 
-After editing `schema/ad2v-v0.1.sql`, regenerate the spec's column table with
+After editing `schema/ad2v-v0.2.sql`, regenerate the spec's column table with
 `python -m ad2v.ddl`. A test fails if you forget.

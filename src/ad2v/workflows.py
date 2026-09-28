@@ -104,40 +104,103 @@ def spec_workflows(graph: ir.Graph) -> list[ir.Workflow]:
 @dataclass(frozen=True)
 class CoarseStep:
     seq: int
-    node_ids: list[str]  # nodes of the anchor step
+    node_ids: list[str]  # what the coarse step highlights (see project())
     touched: list[str]  # union of all nodes in the span, first-seen order
     depth: int
     span: tuple[int, int]  # inclusive fine seq range
 
 
-def project(
-    steps: Sequence[ir.WorkflowStep], detail_level: int
-) -> tuple[list[CoarseStep], list[tuple[int, int]]]:
-    """Collapse a fine trace to `detail_level`.
+def ancestry(graph: ir.Graph) -> dict[str, list[str]]:
+    """{node_id: [root, ..., node_id]} along parent_id (the `contains` hierarchy)."""
+    memo: dict[str, list[str]] = {}
 
-    Step i joins the group anchored at g(i) = max{ j <= i : depth_j <= k }; steps before any
-    such j form one leading group. Groups are contiguous and partition the trace.
+    def chain(nid: str) -> list[str]:
+        if nid not in memo:
+            parent = graph.nodes[nid].parent_id
+            memo[nid] = (chain(parent) if parent is not None and parent in graph.nodes else []) + [nid]
+        return memo[nid]
+
+    for nid in sorted(graph.nodes):
+        chain(nid)
+    return memo
+
+
+def step_nodes(workflows: Sequence[ir.Workflow]) -> list[tuple[str, int, str]]:
+    """Rows of the derived `workflow_step_nodes` table: (workflow_id, seq, node_id), sorted."""
+    return sorted({(w.workflow_id, s.seq, n) for w in workflows for s in w.steps for n in s.node_ids})
+
+
+def _group(keys: Sequence[object]) -> list[list[int]]:
+    groups: list[list[int]] = []
+    prev: object = object()
+    for i, k in enumerate(keys):
+        if groups and k == prev:
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+        prev = k
+    return groups
+
+
+def project(
+    steps: Sequence[ir.WorkflowStep],
+    depth: int,
+    mode: str = "containment",
+    ancestry_map: dict[str, list[str]] | None = None,
+) -> tuple[list[CoarseStep], list[tuple[int, int]]]:
+    """Collapse a fine trace to detail `depth` (format spec §7, ADR-0009 amended by ADR-0013).
+
+    mode="containment" (default, follows the viewer's zoom): a step's key is the tuple of the
+    ancestors at relative containment depth `depth` of its nodes (a node shallower than `depth`
+    is its own key). Consecutive steps with equal keys merge. The coarse step highlights those
+    ancestors, i.e. the glyphs visible at that zoom. Requires `ancestry_map` (see ancestry()).
+
+    mode="call_depth": step i joins the group anchored at g(i) = max{ j <= i : depth_j <= k };
+    leading steps deeper than k form one group. The coarse step shows its anchor's nodes.
+
+    In both modes groups are contiguous and partition the trace.
     Returns (coarse_steps, fine_span_per_coarse_step).
     """
-    if detail_level < 0:
-        raise ValueError("detail_level must be >= 0")
-    groups: list[list[int]] = []
-    anchor_of: list[int | None] = []
-    for i, s in enumerate(steps):
-        if s.depth <= detail_level:
-            groups.append([i])
-            anchor_of.append(i)
-        elif not groups:  # leading steps deeper than k, before any anchor
-            groups.append([i])
-            anchor_of.append(None)
-        else:
-            groups[-1].append(i)
+    if depth < 0:
+        raise ValueError("depth must be >= 0")
+    if mode == "containment":
+        if ancestry_map is None:
+            raise ValueError("containment projection needs ancestry_map")
+
+        def key(s: ir.WorkflowStep) -> tuple[str, ...]:
+            out: list[str] = []
+            for n in s.node_ids:
+                chain = ancestry_map.get(n, [n])
+                a = chain[min(depth, len(chain) - 1)]
+                if a not in out:
+                    out.append(a)
+            return tuple(out)
+
+        keys = [key(s) for s in steps]
+        groups = _group(keys)
+        anchors_nodes = [list(keys[g[0]]) for g in groups]
+        depths = [depth for _ in groups]
+    elif mode == "call_depth":
+        groups = []
+        anchored: list[bool] = []
+        for i, s in enumerate(steps):
+            if s.depth <= depth:
+                groups.append([i])
+                anchored.append(True)
+            elif not groups:  # leading steps deeper than k, before any anchor
+                groups.append([i])
+                anchored.append(False)
+            else:
+                groups[-1].append(i)
+        anchors_nodes = [list(steps[g[0]].node_ids) for g in groups]
+        depths = [steps[g[0]].depth for g in groups]
+    else:
+        raise ValueError(f"unknown projection mode {mode!r}")
     coarse: list[CoarseStep] = []
     spans: list[tuple[int, int]] = []
-    for gi, (members, anchor) in enumerate(zip(groups, anchor_of, strict=True)):
-        a = steps[anchor] if anchor is not None else steps[members[0]]
+    for gi, members in enumerate(groups):
         touched = list(dict.fromkeys(n for m in members for n in steps[m].node_ids))
         span = (steps[members[0]].seq, steps[members[-1]].seq)
-        coarse.append(CoarseStep(gi, list(a.node_ids), touched, a.depth, span))
+        coarse.append(CoarseStep(gi, anchors_nodes[gi], touched, depths[gi], span))
         spans.append(span)
     return coarse, spans

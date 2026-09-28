@@ -1,5 +1,6 @@
 """Determinism, ID stability, validation and CLI (prompt §8)."""
 
+import json
 import shutil
 import sqlite3
 import subprocess
@@ -11,14 +12,14 @@ from ad2v import dump, pipeline
 from ad2v.cli import main
 from ad2v.validate import validate
 
-from helpers import FIXTURE
+from helpers import FIXTURE, JUNIT
 
-TEXT_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".feature", ".toml", ".json"}
+TEXT_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".feature", ".toml", ".json", ".xml"}
 
 
-def _extract(repo, out):
-    pipeline.extract_to_file(repo, repo / "specs", out)
-    return dump.canonical_dump(out)
+def _extract(repo, out, normative_only=True):
+    pipeline.extract_to_file(repo, repo / "specs", out, test_results=[repo / "test-results" / "junit.xml"])
+    return dump.canonical_dump(out, normative_only=normative_only)
 
 
 def _copy_fixture(dst, crlf=False, bom_on=()):
@@ -55,7 +56,16 @@ def test_checkout_directory_name_does_not_matter(tmp_path):
 
 def _nodes(path):
     conn = sqlite3.connect(path)
-    rows = conn.execute("SELECT id, qualified_name, content_hash, subtree_hash FROM nodes").fetchall()
+    rows = conn.execute(
+        "SELECT id, side || ':' || qualified_name, content_hash, subtree_hash FROM nodes"
+    ).fetchall()
+    conn.close()
+    return {r[0]: r[1:] for r in rows}
+
+
+def _table(path, sql):
+    conn = sqlite3.connect(path)
+    rows = conn.execute(sql).fetchall()
     conn.close()
     return {r[0]: r[1:] for r in rows}
 
@@ -80,48 +90,91 @@ def test_id_stability_after_adding_unrelated_function(tmp_path):
     after = _nodes(after_path)
 
     new_ids = set(after) - set(before)
-    assert {after[i][0] for i in new_ids} == {"api/recon_api/matching.py::describe_tolerance"}
+    assert {after[i][0] for i in new_ids} == {"code:api/recon_api/matching.py::describe_tolerance"}
     assert set(before) <= set(after), "no existing id may disappear or change"
 
     ancestors = {
-        "api/recon_api/matching.py",
-        "api/recon_api",
-        "container:api",
-        "payments-recon",
+        "code:api/recon_api/matching.py",
+        "code:api/recon_api",
+        "code:container:api",
+        "code:payments-recon",
     }
     for nid, (qname, content, subtree) in before.items():
         if qname in ancestors:
             assert after[nid][2] != subtree, f"subtree_hash of ancestor {qname} must change"
-        elif qname.startswith("api/recon_api/matching.py::"):
+        elif qname.startswith("code:api/recon_api/matching.py::"):
             # siblings (some moved down by the insertion) keep their content hash
             assert after[nid][1] == content
     changed_subtrees = {before[i][0] for i in before if before[i][2] != after[i][2]}
     assert changed_subtrees == ancestors
 
+    # pairing is unaffected by an edit outside paired nodes: same links, same statuses
+    links_sql = "SELECT link_id, status, method, evidence_json FROM links"
+    assert _table(before_path, links_sql) == _table(after_path, links_sql)
+    st_sql = "SELECT node_id, status, reasons_json FROM node_status"
+    st_before, st_after = _table(before_path, st_sql), _table(after_path, st_sql)
+    assert {k: v for k, v in st_after.items() if k in st_before} == st_before
+    roll_sql = "SELECT node_id, counts_json FROM status_rollup"
+    r_before, r_after = _table(before_path, roll_sql), _table(after_path, roll_sql)
+    assert {before[k][0] for k in r_before if r_before[k] != r_after[k]} == ancestors
+
 
 def test_validate_ok_and_detects_corruption(tmp_path):
     out = tmp_path / "p.ad2v"
-    pipeline.extract_to_file(FIXTURE, FIXTURE / "specs", out)
+    pipeline.extract_to_file(FIXTURE, FIXTURE / "specs", out, test_results=[JUNIT])
     assert validate(out) == []
     conn = sqlite3.connect(out)
     conn.execute("UPDATE nodes SET subtree_hash = ? WHERE kind = 'system'", ("0" * 64,))
     conn.execute("DELETE FROM glyphs WHERE node_id = (SELECT id FROM nodes WHERE kind = 'queue' LIMIT 1)")
-    conn.execute("UPDATE meta SET value = '9.9' WHERE key = 'format_version'")
     conn.execute("UPDATE nodes SET qualified_name = 'tampered' WHERE kind = 'datastore'")
+    conn.execute(
+        "DELETE FROM node_status WHERE node_id = (SELECT id FROM nodes WHERE kind = 'queue' LIMIT 1)"
+    )
+    conn.execute("DELETE FROM workflow_step_nodes WHERE seq = 0")
+    conn.execute(
+        "UPDATE status_rollup SET counts_json = '{}'"
+        " WHERE node_id = (SELECT id FROM nodes WHERE kind = 'system')"
+    )
+    conn.execute("UPDATE links SET link_id = 'l_00000000000000000000' WHERE rowid = 1")
     conn.commit()
     conn.close()
     problems = "\n".join(validate(out))
-    assert "format_version" in problems
     assert "without a glyph" in problems
     assert "subtree_hash" in problems
     assert "id does not match" in problems
+    assert "node_status covers" in problems
+    assert "workflow_step_nodes" in problems
+    assert "status_rollup" in problems
+    assert "link_id(spec, code, method)" in problems
+
+
+def test_validate_rejects_old_format(tmp_path):
+    out = tmp_path / "p.ad2v"
+    pipeline.extract_to_file(FIXTURE, FIXTURE / "specs", out)
+    conn = sqlite3.connect(out)
+    conn.execute("UPDATE meta SET value = '0.1' WHERE key = 'format_version'")
+    conn.commit()
+    conn.close()
+    problems = validate(out)
+    assert len(problems) == 1 and "0.1" in problems[0] and "re-run `ad2v extract`" in problems[0]
 
 
 def test_cli_commands(tmp_path, capsysbinary):
     out = tmp_path / "p.ad2v"
-    assert main(["extract", "--repo", str(FIXTURE), "--spec", str(FIXTURE / "specs"), "--out", str(out)]) == 0
+    argv = ["extract", "--repo", str(FIXTURE), "--spec", str(FIXTURE / "specs"), "--out", str(out)]
+    assert main([*argv, "--test-results", str(JUNIT)]) == 0
     text = capsysbinary.readouterr().out.decode("utf-8")
-    for needle in ("io_in_loop", "unbounded_retry", "POST /v1/reconciliations", "REQ-099", "Workflows"):
+    for needle in (
+        "io_in_loop",
+        "unbounded_retry",
+        "POST /v1/reconciliations",
+        "REQ-099",
+        "Workflows",
+        "Status counts",
+        "Top 5 of 5 risky behaviors",
+        "1 unmatched",
+        "test_removed_export_endpoint",
+    ):
         assert needle in text
     assert main(["validate", str(out)]) == 0
     assert capsysbinary.readouterr().out.startswith(b"OK")
@@ -129,7 +182,24 @@ def test_cli_commands(tmp_path, capsysbinary):
     assert capsysbinary.readouterr().out.decode("utf-8") == dump.canonical_dump(out)
     assert main(["inspect", str(out), "--risk", "llm_in_loop"]) == 0
     listing = capsysbinary.readouterr().out.decode("utf-8")
-    assert "classify_unmatched@loop#1" in listing and "match_batch" not in listing
+    assert "classify_unmatched@loop#" in listing and "match_batch" not in listing
+    assert main(["inspect", str(out), "--top-risk", "2"]) == 0
+    top = capsysbinary.readouterr().out.decode("utf-8").splitlines()
+    assert len(top) == 4 and "fetch_statement@retry#" in top[2] and top[2].startswith("1 ")
+    assert main(["status", str(out), "--status", "drift"]) == 0
+    drift = capsysbinary.readouterr().out.decode("utf-8")
+    assert "GET /reconciliations/{run_id}/unmatched" in drift and "orphan" not in drift
+    assert main(["status", str(out), "--side", "code", "--format", "json"]) == 0
+    items = json.loads(capsysbinary.readouterr().out)
+    assert items and all(i["side"] == "code" and i["status"] != "none" for i in items)
+    assert main(["status", str(out), "--all"]) == 0
+    assert b"none " in capsysbinary.readouterr().out
+    assert main(["dump", str(out), "--normative-only"]) == 0
+    assert capsysbinary.readouterr().out.decode("utf-8") == dump.canonical_dump(out, normative_only=True)
+    html = tmp_path / "tokens.html"
+    assert main(["preview-tokens", "--out", str(html)]) == 0
+    capsysbinary.readouterr()
+    assert html.read_text(encoding="utf-8").startswith("<!doctype html>")
     assert main(["inspect", str(out), "--node", "api/recon_api/matching.py::match_batch"]) == 0
     detail = capsysbinary.readouterr().out.decode("utf-8")
     assert '"annotated_as -> REQ-002 (x1)"' in detail and '"base_shape": "rounded_box"' in detail
@@ -179,9 +249,20 @@ def test_rules_file_change_changes_rules_hash(tmp_path):
     assert (
         pipeline.build(FIXTURE, FIXTURE / "specs", rules_path=crlf).epoch.rules_hash == base.epoch.rules_hash
     )
+    # comment-only change: rules_hash is over canonicalized content (ADR-0012), so it does not move
+    comment = tmp_path / "comment.yaml"
+    comment.write_text(
+        python_rules_path().read_text(encoding="utf-8") + "\n# local tweak\n", encoding="utf-8"
+    )
+    assert (
+        pipeline.build(FIXTURE, FIXTURE / "specs", rules_path=comment).epoch.rules_hash
+        == base.epoch.rules_hash
+    )
     # semantic change: different hash and epoch id, and the canonical dump shows it
     edited = tmp_path / "python.yaml"
-    edited.write_text(python_rules_path().read_text(encoding="utf-8") + "\n# local tweak\n", encoding="utf-8")
+    text = python_rules_path().read_text(encoding="utf-8")
+    assert "    fan_out: 2\n" in text
+    edited.write_text(text.replace("    fan_out: 2\n", "    fan_out: 2.5\n"), encoding="utf-8")
     changed = pipeline.build(FIXTURE, FIXTURE / "specs", rules_path=edited)
     assert changed.epoch.rules_hash != base.epoch.rules_hash
     assert changed.epoch.epoch_id != base.epoch.epoch_id

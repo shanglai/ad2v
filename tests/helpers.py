@@ -11,6 +11,7 @@ from ad2v.manifest import Config
 from ad2v.manifest import load as load_manifest
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "payments-recon"
+JUNIT = FIXTURE / "test-results" / "junit.xml"
 
 
 def write_tree(root: Path, files: dict[str, str]) -> None:

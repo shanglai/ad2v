@@ -1,24 +1,28 @@
--- ad2v file format v0.1 -- SQLite DDL
--- Normative reference: docs/spec/ad2v-format-v0.1.md
+-- ad2v file format v0.2 -- SQLite DDL
+-- Normative reference: docs/spec/ad2v-format-v0.2.md
 -- Column classes: N = normative (deterministic), I = informative (LLM/runtime/wall-clock).
 -- Every JSON column holds canonical JSON (sorted keys, no whitespace, UTF-8).
 
 PRAGMA foreign_keys = ON;
 
--- Key/value metadata. Keys: format_version (N), generator (I), generator_version (I),
--- repo_root_name (I), created_at (I), repo_manifest (N), rules_version (N).
+-- Key/value metadata. `class` says whether the value is normative (N) or informative (I).
+-- Keys: format_version (N), rules_version (N), system_name (N), generator (I), generator_version (I),
+-- repo_root_name (I), created_at (I).
 CREATE TABLE meta (
     key   TEXT PRIMARY KEY, -- N
-    value TEXT NOT NULL   -- N/I (class depends on the key, see spec §5)
+    value TEXT NOT NULL,  -- N/I (the row's `class`)
+    class TEXT NOT NULL CHECK (class IN ('N','I')) -- N
 );
 
 CREATE TABLE epochs (
-    epoch_id        TEXT PRIMARY KEY,           -- N  e_ + sha256(parent|repo_tree_hash|spec_tree_hash|rules_hash)[:20]
+    epoch_id        TEXT PRIMARY KEY,           -- N  e_ + sha256(parent|repo|spec|rules|config|test_results hashes)[:20]
     parent_epoch_id TEXT REFERENCES epochs(epoch_id), -- N
     repo_commit     TEXT,                       -- N  git HEAD if <repo>/.git is readable, else NULL
     repo_tree_hash  TEXT NOT NULL,              -- N
     spec_tree_hash  TEXT NOT NULL,              -- N
-    rules_hash      TEXT NOT NULL,              -- N  tree hash of the normalized extractor rules files
+    rules_hash      TEXT NOT NULL,              -- N  sha256 of the merged, canonicalized rules (built-in + overlay)
+    config_hash     TEXT NOT NULL,              -- N  sha256 of the canonical JSON of the parsed manifest ({} if none)
+    test_results_hash TEXT NOT NULL,            -- N  tree hash of the normalized test-result files
     attrs_json      TEXT NOT NULL DEFAULT '{}', -- N  extraction config echo (rules/manifest hashes)
     created_at      TEXT                        -- I  excluded from canonical dump
 );
@@ -124,22 +128,33 @@ CREATE TABLE workflow_steps (
     FOREIGN KEY (epoch_id, workflow_id) REFERENCES workflows(epoch_id, workflow_id)
 );
 
--- ---------------------------------------------------------------------------------------------
--- Tables below are created empty in v0.1 producers (P1). Their columns are fixed now.
--- ---------------------------------------------------------------------------------------------
+-- Derived index: which workflows pass through a node.
+CREATE TABLE workflow_step_nodes (
+    epoch_id    TEXT NOT NULL,                  -- N
+    workflow_id TEXT NOT NULL,                  -- N
+    seq         INTEGER NOT NULL,               -- N
+    node_id     TEXT NOT NULL,                  -- N
+    PRIMARY KEY (epoch_id, workflow_id, seq, node_id),
+    FOREIGN KEY (epoch_id, workflow_id, seq) REFERENCES workflow_steps(epoch_id, workflow_id, seq),
+    FOREIGN KEY (epoch_id, node_id) REFERENCES nodes(epoch_id, id)
+);
+CREATE INDEX idx_wsn_node ON workflow_step_nodes(epoch_id, node_id);
 
--- spec<->code links. status vocabulary and state machine: spec §6.
+-- spec<->code links, populated by v0.2 producers (pairing, spec §6).
+
 CREATE TABLE links (
     epoch_id      TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
-    link_id       TEXT NOT NULL,                -- N  l_ + sha256(spec_node_id|code_node_id)[:20]
+    link_id       TEXT NOT NULL,                -- N  l_ + sha256(spec_node_id|code_node_id|method)[:20]
     spec_node_id  TEXT,                         -- N  NULL for orphan code
-    code_node_id  TEXT,                         -- N  NULL for missing spec items
+    code_node_id  TEXT,                         -- N  NULL for missing/specified spec items
+    method        TEXT NOT NULL                 -- N  how the pair was found; 'none' for unpaired rows
+                  CHECK (method IN ('annotation','route_match','manifest','name_match','none','llm')),
     status        TEXT NOT NULL -- N/I (I when provenance='llm')
                   CHECK (status IN ('specified','implemented','verified','drift',
                   'orphan','stale','needs_review','missing')),
     provenance    TEXT NOT NULL CHECK (provenance IN ('deterministic','runtime','llm')), -- N
     evidence_json TEXT NOT NULL DEFAULT '[]',   -- N/I
-    confidence    REAL,                         -- I  required when provenance='llm'
+    confidence    REAL NOT NULL,                -- N/I  1.0 for deterministic links
     model         TEXT,                         -- I
     model_version TEXT,                         -- I
     prompt_hash   TEXT,                         -- I
@@ -154,6 +169,43 @@ CREATE TABLE links (
 );
 CREATE INDEX idx_links_spec ON links(epoch_id, spec_node_id);
 CREATE INDEX idx_links_code ON links(epoch_id, code_node_id);
+
+-- One effective status per node (both sides), derived from `links` (spec §6.4).
+CREATE TABLE node_status (
+    epoch_id     TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
+    node_id      TEXT NOT NULL,                 -- N
+    status       TEXT NOT NULL                  -- N
+                 CHECK (status IN ('drift','needs_review','missing','orphan','stale','verified',
+                 'implemented','specified','none')),
+    reasons_json TEXT NOT NULL,                 -- N  {precedence: [...], reasons: [...]} (spec §6.4)
+    PRIMARY KEY (epoch_id, node_id),
+    FOREIGN KEY (epoch_id, node_id) REFERENCES nodes(epoch_id, id)
+);
+CREATE INDEX idx_node_status_status ON node_status(epoch_id, status);
+
+-- Counts of effective statuses over all descendants (not the node itself), for far-zoom glyphs.
+CREATE TABLE status_rollup (
+    epoch_id    TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
+    node_id     TEXT NOT NULL,                  -- N
+    counts_json TEXT NOT NULL,                  -- N  {status: count}, zero counts omitted
+    PRIMARY KEY (epoch_id, node_id),
+    FOREIGN KEY (epoch_id, node_id) REFERENCES nodes(epoch_id, id)
+);
+
+-- Ingested test outcomes (JUnit XML), matched to test function nodes.
+CREATE TABLE test_results (
+    epoch_id     TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
+    test_node_id TEXT NOT NULL,                 -- N
+    outcome      TEXT NOT NULL CHECK (outcome IN ('passed','failed','skipped')), -- N
+    source_file  TEXT NOT NULL,                 -- N  result file name (repo-relative if inside the repo)
+    duration_ms  INTEGER NOT NULL,              -- N  as recorded in the input file
+    PRIMARY KEY (epoch_id, test_node_id),
+    FOREIGN KEY (epoch_id, test_node_id) REFERENCES nodes(epoch_id, id)
+);
+
+-- ---------------------------------------------------------------------------------------------
+-- Tables below are created empty by v0.2 producers. Their columns are fixed now.
+-- ---------------------------------------------------------------------------------------------
 
 CREATE TABLE summaries (
     epoch_id      TEXT NOT NULL REFERENCES epochs(epoch_id), -- N

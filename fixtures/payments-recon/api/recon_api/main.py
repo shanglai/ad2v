@@ -9,6 +9,11 @@ app = FastAPI(title="payments-recon")
 app.include_router(router, prefix="/v1")
 
 
+@app.get("/v1/health")
+def health() -> dict:
+    return {"status": "ok"}
+
+
 @app.get("/internal/debug/stats")
 def debug_stats() -> dict:
     # Not in any spec: an orphan candidate for P2.

@@ -1,237 +1,255 @@
-# REPORT: ad2v P1 (format spec v0.1, IR, deterministic extractor)
+# REPORT: ad2v P2 (pairing, statuses, severity, visual tokens, format v0.2)
 
-Reviewer summary: P1 is complete. The format spec, schema, IR, the Python/Gherkin/OpenAPI/Markdown
-extractors, static workflows with projection, fixture, CLI and tests are done. No LLM calls exist
-anywhere. **66 tests pass.** The canonical dump is byte-identical across repeated runs, a CRLF+BOM
-copy and a renamed checkout. Adding an unrelated function creates exactly one new id and changes no
-existing id.
+**Summary.** All seven milestones are done. ad2v now pairs spec items with code deterministically
+(annotation, route match with path normalization, manifest, exact-slug name match). It derives
+link statuses, one effective status per node and roll-ups, ingests JUnit results for `verified`,
+scores risky behaviors with a rules-driven severity, and ships dark and light visual tokens that
+pass WCAG contrast checks and a "status without color" test. Format → **v0.2**. There are still no
+LLM calls anywhere. **128 tests pass.** The normative dump is identical across repeated runs, a
+CRLF+BOM copy, a renamed checkout and an unrelated edit.
 
-Environment: Windows 11, Python 3.12.3, pip + venv (`uv` was not installed; see ADR-0008).
+Environment: Windows 11, Python 3.12.3, pip + venv. The P1 report was moved to
+[`docs/reports/P1.md`](docs/reports/P1.md). This file is also at `docs/reports/P2.md`.
 
 ## 1. Milestones
 
-| Milestone | Scope | State | Commit |
-|---|---|---|---|
-| M1 | IR, SQLite schema v0.1, ids/hashing, store, canonical dump, format spec | done | `f0eb889` |
-| M2 | Glyph grammar v0.1 + `glyphs.py` | done | `ac9803c` |
-| M3 | tree-sitter Python extractor, `CodeExtractor` protocol, `rules/python.yaml` | done | `9586d56` |
-| M4 | Gherkin, OpenAPI 3.x, Markdown/EARS spec extractors + convention doc | done | `485139a` |
-| M5 | Static workflows, spec workflows, `project()` + ADRs 0002–0009 | done | `db94e08` |
-| M6 | `fixtures/payments-recon` + `expected.yaml` golden tests | done | `833a1fb` |
-| M7 | CLI, `validate`, determinism / ID-stability / rules-hash tests, perf smoke, docs, this report | done | in final commit |
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | Schema v0.2 (`spec_root`, `workflow_step_nodes`, `meta.class`, `links.method`, `node_status`, `status_rollup`, `test_results`, epoch `config_hash`/`test_results_hash`), `--normative-only`, `validate` rejects < 0.2, format spec v0.2 + regenerated N/I appendix | done |
+| M2 | Pairing: `annotation`, `route_match` (servers base path, prefix map, positional params, `//`, trailing `/`, optional case folding), `manifest`, `name_match` | done |
+| M3 | Link statuses (`missing`, `specified`, `implemented`, `verified`, structural `drift`, scoped `orphan`, `needs_review`), precedence, `node_status`, `status_rollup`, state machine in the spec | done |
+| M4 | JUnit XML ingestion (stdlib), documented pytest matching rules, `ad2v status`, extract summary with status counts and top-10 severity | done |
+| M5 | Severity with rules-file weights + overlay (`rules_hash` of merged rules), `inspect --top-risk`, content-anchored behavior ids, containment projection (default) | done |
+| M6 | `visual-tokens-v0.2.md`, `schema/themes/{dark,light}.json`, contrast + color-alone tests, `ad2v preview-tokens` | done |
+| M7 | Fixture extension (JUnit, param-name mismatch, `as_of` drift, ambiguous `/health`, manifest pairing, rules overlay), `expected.yaml`, performance re-check, docs | done |
 
-Changes that landed in M7 on top of earlier milestones: read-only file access for readers,
-`epochs.rules_hash` (ADR-0010), `model` added to the `summaries`/`narrations` primary keys, a
-generated per-column N/I appendix in the format spec, the setuptools build backend (ADR-0008), and
-the `direct_calls_touch` rule (issue 3).
+**Commit.** There is a single final commit (per the session rules): **hash: see `git log -1`**. Files
+changed (69):
+
+- **Moved/renamed:** `REPORT.md` → `docs/reports/P1.md`, `schema/ad2v-v0.1.sql` →
+  `schema/ad2v-v0.2.sql`, `docs/spec/glyph-grammar-v0.1.md` → `-v0.2.md`. Deleted and replaced:
+  `docs/spec/ad2v-format-v0.1.md` → `ad2v-format-v0.2.md`, `schema/ir-v0.1.schema.json` →
+  `ir-v0.2.schema.json`.
+- **New source:** `src/ad2v/{pairing,severity,junit,rules,tokens,preview}.py`.
+- **Changed source:** `cli, ddl, dump, glyphs, ids, ir, manifest, pipeline, resources, store,
+  validate, workflows, __init__`, `extract/code/python.py`, `extract/code/rules/python.yaml`,
+  `extract/spec/{__init__,openapi}.py`.
+- **New schema:** `schema/themes/{dark,light}.json`.
+- **Docs:** `docs/spec/visual-tokens-v0.2.md`, ADRs 0011–0016 (new), ADRs 0009 and 0010
+  (amended), `docs/dependencies.md`, `docs/reports/P2-tokens.html`, `README.md`, `status.md`,
+  `issues.md`, `pending.md`, `REPORT.md`, `docs/reports/P2.md`.
+- **Fixture:** `ad2v.yaml`, `rules-overlay.yaml`, `expected.yaml`, `specs/openapi.yaml`,
+  `test-results/junit.xml`, `api/recon_api/{main,routes}.py`, `api/tests/{test_matching,test_routes}.py`,
+  `worker/recon_worker/health.py`.
+- **Tests:** `test_pairing.py`, `test_severity_rules_junit.py` and `test_tokens.py` are new. The
+  other test files were updated.
+- **Build:** `pyproject.toml` (version 0.2.0, themes in package data, a per-file lint exception for
+  the HTML template).
 
 ## 2. Tests
 
-`pytest`: **66 passed, 0 failed** (~8–16 s on this machine). `ruff check` and `ruff format --check`
+**128 passed, 0 failed** (`pytest`, 7–17 s on this machine). `ruff check` and `ruff format --check`
 are clean.
 
-| test file | tests | covers |
+| file | tests | covers |
 |---|---|---|
-| `test_ids.py` | 11 | normalization, id/hash formulas, Merkle order independence |
-| `test_store.py` | 6 | write/read, dump determinism, FK and LLM-provenance CHECKs |
-| `test_glyphs.py` | 3 | closed shape set, modifiers roll-up, gateway trapezoid |
-| `test_python_extractor.py` | 14 | structure, imports/calls, resources, risks, ports, spec refs, never executes code, CRLF/BOM, syntax errors |
-| `test_spec_extractors.py` | 4 | Markdown/EARS, Gherkin (Background, Outline, Rule, duplicates), OpenAPI spans/refs |
-| `test_workflows.py` | 5 | projection invariant (500 seeded random traces), trace order/parallel/cycles/limits |
-| `test_fixture_golden.py` | 10 | `expected.yaml` fully satisfied |
-| `test_determinism_and_cli.py` | 10 | determinism, ID stability, rules hash, validate, CLI, LF-only stdout |
-| `test_schema_doc.py` | 3 | every DDL column marked N/I; spec appendix in sync |
+| `test_pairing.py` (new) | 19 | path normalization (7 cases), slug, route match + `param_name_mismatch`, required-query drift, `**kwargs` exemption, path-param-count drift, ambiguity → `needs_review`, manifest (found / target missing / unknown id), name match (single / ambiguous), `specified`, `missing`, orphan scope (ports/containers/components only; functions/modules `none`), port via handler, `verified` needs a passing linked test and nothing is verified without results, failing test → evidence, unresolved ref → `needs_review`, precedence order, roll-up counts |
+| `test_severity_rules_junit.py` (new) | 15 | severity formula (7 cases incl. cap and max-not-sum), rank tie-break, deep-merge semantics, overlay → hash + weights, manifest overlay must exist, JUnit matching rules (class, param suffix, rootdir suffix, ambiguity, `file` tiebreak), worst outcome wins, malformed/missing XML errors, test results move the epoch, `--normative-only` drops LLM rows/columns |
+| `test_tokens.py` (new) | 13 | **contrast**: status strokes ≥ 3:1 on background and surface, text ≥ 4.5:1, badge glyph ≥ 4.5:1, ramp/edges ≥ 3:1, in both themes; **no two statuses differ by color alone**; normative mapping; glow vs halo; WCAG math; preview self-contained (no external refs, no scripts) and complete (10 shapes × 9 statuses) |
+| `test_fixture_golden.py` | 16 | `expected.yaml`: counts, statuses per named item, link evidence, roll-ups, top-3 severity, test matching, overlay in `rules_hash`, `spec_root` hierarchy |
+| `test_python_extractor.py` | 18 | P1 coverage + anchored ids, **inserted loop keeps other ids**, whitespace-insensitive anchors, function params, query builders are not IO |
+| `test_workflows.py` | 8 | **projection property tests, both modes** (500 call-depth traces + 300 containment traces on random trees, seed 987654), examples, ancestry, step nodes, traces |
+| `test_determinism_and_cli.py` | 11 | determinism (normative dump), ID stability **plus identical links/statuses after an unrelated edit, with roll-ups changing only on ancestors**, validate (7 corruption kinds + old format), CLI (`status`, `--top-risk`, `--normative-only`, `preview-tokens`), rules hash |
+| others | 28 | ids (incl. link id and all six epoch inputs), store (incl. CHECKs on LLM links), glyphs, spec extractors, schema-doc sync |
 
-Line coverage (pytest-cov), total **94%**:
+Coverage (line), total **95%**. New modules: `pairing` 98%, `junit` 98%, `severity` 100%,
+`rules` 100%, `tokens` 100%, `preview` 100%. Extended modules: `dump` 100%, `store` 100%,
+`workflows` 99%, `validate` 93%. All new modules are ≥ 90%.
 
-| module | coverage |
-|---|---|
-| `ids.py` | 100% |
-| `glyphs.py` | 100% |
-| `store.py`, `dump.py` | 100% |
-| `workflows.py` (incl. `project`) | 98% |
-| `extract/code/python.py` | 94% |
-| `extract/spec/markdown.py` / `gherkin.py` / `openapi.py` | 100% / 97% / 95% |
-| `validate.py` | 91% |
-| `pipeline.py` | 84% (mostly the `.git` HEAD reader branches) |
-| `ddl.py` | 78% (the regeneration entry point is not under test) |
+Confirmed:
+- **Determinism**: two runs, a copy with every text file (including `junit.xml`) converted to CRLF
+  and BOMs added, and a copy under another directory name all give **identical normative dumps**.
+  After an unrelated function is added, the only new id is that function's, the `links` and
+  `node_status` rows of all existing nodes are identical, and `status_rollup` changes only on the
+  four ancestors.
+- **Projection**: the partition invariant holds in both modes. Increasing the depth never merges
+  steps. In containment mode, each coarse step highlights exactly its members' depth-k ancestors.
+- **Contrast**: passes for both themes. The test caught a real bug during the session: a light
+  badge at 3.46:1 whose earlier fix had silently not applied (issue 20).
 
-Confirmed passing:
+## 3. Fixture results (`fixtures/payments-recon`, with `test-results/junit.xml`)
 
-- **Determinism** (`test_extract_twice_identical`, `test_crlf_bom_copy_identical`,
-  `test_checkout_directory_name_does_not_matter`): two runs, a copy with every text file converted to
-  CRLF and BOMs added, and a copy under a different directory name all give identical canonical
-  dumps.
-- **ID stability** (`test_id_stability_after_adding_unrelated_function`): after a function is
-  inserted in the middle of `matching.py`, the only new id is that function's. No id disappears. The
-  `subtree_hash` changes for exactly the four ancestors (module, component, container, system),
-  and siblings keep their `content_hash` even though their lines moved.
-- **Rules hash** (`test_rules_file_change_changes_rules_hash`): editing the rules file changes
-  `rules_hash`, the epoch id and the dumped `epochs` row. A CRLF-only change does not.
-- **Projection invariant**: property tests use a seeded PRNG (987654), not `hypothesis`, because
-  `hypothesis` is MPL-2.0 (ADR-0002).
+16 code files, 3 spec files, 1 JUnit file → 105 nodes, 185 edges, 13 workflows (10 code + 3 spec).
 
-## 3. Fixture extraction summary (`fixtures/payments-recon`)
+**Spec side** (effective status, main reason):
 
-14 code files (272 lines) and 3 spec files give 94 nodes and 162 edges in about 0.2 s.
+| spec item | status | why |
+|---|---|---|
+| REQ-001 | verified | annotated `start_run` + passing `test_req_001_start_run_returns_run_result` |
+| REQ-002 | verified | annotated `match_batch` + passing `test_req_002_…` |
+| REQ-003 | verified | annotated `amounts_match` + passing `test_req_003_…` |
+| REQ-004 | implemented | annotated `classify_unmatched`; its linked test **failed** (evidence `tests_failed`) |
+| REQ-005, REQ-006 | implemented | annotations, no linked tests |
+| REQ-007, REQ-008 | specified | no deterministic pair (absence not provable) |
+| `POST /reconciliations` | verified | route match + REQ-001 test via `x-ad2v-refs` |
+| `GET /reconciliations/{run_id}` | implemented | route match with evidence `param_name_mismatch` (`run_id` vs `id`) |
+| `GET /reconciliations/{run_id}/unmatched` | **drift** | OpenAPI requires query `as_of`; handler `list_unmatched(run_id)` lacks it |
+| `POST /reconciliations/{run_id}/approve` | **missing** | no route |
+| `GET /health` | **needs_review** | two candidate routes (`http:api:…` and `http:worker:…`) |
+| CMP-002 (Nightly worker) | implemented | `pairing.components: {CMP-002: worker}` |
+| CMP-001, the Gherkin feature, 4 scenarios | specified | no rule pairs them |
 
-| kind | n | kind | n | kind | n |
-|---|---|---|---|---|---|
-| system | 1 | http_route | 4 | loop | 2 |
-| container | 2 | mcp_tool | 1 | retry | 1 |
-| component | 3 | cli_command | 2 | fan_out | 1 |
-| module | 14 | event_consumer | 1 | transaction | 0 (not risky) |
-| class | 1 | datastore | 1 | llm_call | 1 |
-| function | 22 | queue | 2 | spec_doc | 3 |
-| | | external_service | 1 | spec_component | 3 |
-| | | llm_endpoint | 1 | requirement | 8 |
-| | | | | scenario | 4 (incl. Background) |
-| | | | | scenario_step | 11 |
-| | | | | spec_endpoint | 4 |
+**Code side**:
 
-**Risky behaviors** (all five planted patterns found; no others):
+| code item | status | why |
+|---|---|---|
+| `container:api` | **orphan** | no spec component maps to it (CMP-001 "Reconciliation API" ≠ slug "api") |
+| `container:worker` | implemented | manifest pairing |
+| `http:api:GET /internal/debug/stats` | **orphan** | no endpoint, no annotation, unlinked container |
+| `http:api:GET /v1/reconciliations/{run_id}/unmatched` | drift | see above |
+| `http:api:GET/worker:GET /v1/health` | needs_review | ambiguous |
+| `http:api:POST /v1/reconciliations` | verified | |
+| `mcp:api:reconciliation_summary` | implemented | via its annotated handler (REQ-006) |
+| worker CLI commands, event consumer | implemented | inherited from `container:worker` |
+| `db.py::record_run` | needs_review | dangling `# ad2v: REQ-099` |
+| `db.py::fetch_ledger_entry` and other un-annotated api functions | none | never orphan |
 
-| node | risk |
-|---|---|
-| `matching.py::match_batch@loop#1` | `io_in_loop` (N+1, found transitively through `db.fetch_ledger_entry` → `session.execute`) |
-| `classify.py::classify_unmatched@loop#1` and its `@llm_call#1` | `llm_in_loop` |
-| `bank_client.py::fetch_statement@retry#1` | `unbounded_retry` (tenacity, no `stop=`) |
-| `bank_client.py::fetch_all_statements@fan_out#1` | `fan_out` (`asyncio.gather(*genexpr)`) |
+**Roll-ups** (descendant counts): `container:api` = {drift 1, implemented 7, needs_review 2, none 24,
+orphan 3, verified 8}; `container:worker` = {implemented 16, needs_review 1}.
 
-The `with session.begin()` in `record_run` is detected as a candidate but not emitted, because it
-has no risk. `behavior.emit_all: true` emits non-risky candidates. That is tested for loops and
-fan-outs, not specifically for this transaction.
+**Top-3 severity** (the overlay raises `unbounded_retry` base 4 → 6):
 
-**Resources** are named from environment variables: `datastore:env:RECON_DB_URL`,
-`external_service:env:BANK_API_URL`, `llm_endpoint:env:RECON_CLASSIFIER_MODEL`,
-`queue:env:RECON_EVENTS_TOPIC` (publishes) and `queue:env:RECON_UPLOADS_SUBSCRIPTION` (consumes).
+| rank | node | severity |
+|---|---|---|
+| 1 | `bank_client.py::fetch_statement@retry#297043df` (unbounded retry, 1 workflow) | 9.0 = 6 × 1.5 |
+| 2 | `classify.py::classify_unmatched@llm_call#67251e28` (LLM in loop) | 7.5 = 5 × 1.5 |
+| 3 | `classify.py::classify_unmatched@loop#bc51e9e6` (LLM in loop) | 7.5 (tie broken by id) |
 
-**Ports**: 4 HTTP routes (router prefix `/reconciliations` combined with the `include_router`
-prefix `/v1`), the MCP tool `reconciliation_summary`, the Typer commands `run-nightly` and
-`listen-uploads`, and the Pub/Sub event consumer `handle_statement_uploaded`.
+The N+1 loop in `match_batch` is 4th (3 × 1.7 = 5.1; reached by 3 workflows). `rules_hash` equals
+the hash of built-in + overlay, and differs from the built-in-only hash (asserted).
 
-**Workflows**: 11 in total: 8 static code workflows (one per port) and 3 spec workflows (one per
-scenario, with the Background step first). `POST /v1/reconciliations` traces through fan-out →
-retry → bank API, then the N+1 loop → ledger DB, then `record_run` → DB writes (12 steps). None is
-truncated.
+**Test-result matching**: 5 test cases, **4 matched** (3 passed, 1 failed): `test_req_003_…`,
+`test_req_002_…`, `test_req_001_…` passed and `test_req_004_…` failed. **1 unmatched**:
+`api.tests.test_legacy::test_removed_export_endpoint[csv]` (`not_found`; the module does not exist).
+It is reported in the summary and in `epochs.attrs_json.unmatched_tests`, not raised as an error.
 
-**How the P2 candidates appear today**:
+## 4. Performance re-check vs P1
 
-- **Dangling ref**: `# ad2v: REQ-099` on `db.py::record_run` is kept in the node's `spec_ref` and
-  written to `unresolved_refs(src=record_run, ref='REQ-099', reason='not_found')`. No edge is
-  written. The `extract` summary prints it.
-- **Missing candidate**: `spec_endpoint POST /v1/reconciliations/{run_id}/approve` (OpenAPI,
-  `x-ad2v-refs: [REQ-007]`) and the scenario "Approve a reconciliation run" (`@REQ-007`) have no
-  `http_route` with the same `(method, path)`.
-- **Orphan candidate**: `http_route GET /internal/debug/stats` has no `spec_endpoint` and no
-  annotation.
-- Resolved annotations: 7 code functions → REQ-001..006 via `annotated_as`, including the test
-  `test_req_003_*` from its name. Scenarios, endpoints and the feature → requirements/component.
+Same commits as P1, measured on this laptop, medians of 5 runs. The clones were deleted afterwards.
 
-## 4. Performance smoke
-
-Shallow clones in `bench/` (gitignored), measured on this Windows 11 laptop, Python 3.12.3. The
-clones were **deleted after measuring**.
-
-| repo (commit) | .py files | LOC | nodes / edges | workflows (steps) | build, median of 5 | SQLite write, median of 5 | .ad2v size |
-|---|---|---|---|---|---|---|---|
-| fastapi/full-stack-fastapi-template (`cb740b6`) | 43 | 2,918 | 251 / 594 | 26 (116) | 0.16 s | 0.39 s | 0.66 MB |
-| Netflix/dispatch (`dd2837e`) | 717 | 84,041 | 5,352 / 12,329 | 301 (10,540) | 3.65 s | 1.86 s | 11.42 MB |
-
-- Both were deterministic across two runs (identical dumps) and passed `ad2v validate` with 0
-  problems. No workflow hit `max_steps`.
-- **Variance**: build time is stable (dispatch 3.2–3.9 s). SQLite write time is not (dispatch
-  1.8–7.2 s). End-to-end first runs occasionally took much longer (13–40 s on the small repo in one
-  session), which points to the filesystem/antivirus on new files rather than the extractor (issue
-  13). Peak Python heap for dispatch was about 100 MB (tracemalloc, which itself slows the run).
-- Findings on dispatch: 290 HTTP routes, 11 CLI commands, 7 resources, 158 `io_in_loop` (21 also
-  `nested_loop_io`), 1 `unbounded_retry`, 1 `fan_out`.
-
-**Precision of `io_in_loop`, stated honestly.** Before the `direct_calls_touch` fix, a 6-loop
-sample had 4 true positives. Both false positives came from `sqlalchemy.inspect()`. After the fix,
-a seeded sample of **10 of the 158 flagged loops were all true positives** (per-item service or DB
-calls such as `tag_service.get_or_create(db_session=…)` inside a `for`). **10/10 is a small sample:
-the Wilson 95% lower bound on precision is ≈ 0.72.** **Recall has not been measured.** There is no
-labeled set of loops, and known gaps (issues 5–7: instance-attribute clients, untyped parameters,
-app factories) certainly cause misses. A labeled corpus is in `pending.md`.
-
-## 5. Deviations from the prompt
-
-| # | deviation | ADR | rationale |
+| repo | P1 build / write / size | P2 build / write / size | Δ |
 |---|---|---|---|
-| 1 | `hypothesis` not used; seeded randomized property tests instead | 0002 | `hypothesis` is MPL-2.0 (copyleft) |
-| 2 | Extra normative table `unresolved_refs` | 0003 | dangling references cannot be FK-valid edges; a placeholder node would pollute the map |
-| 3 | Gherkin Feature is always `spec_component`; `@REQ-x` tags are *references*, not definitions; `annotated_as` also spec → spec | 0005 | one definition per ID keeps identity independent of file order |
-| 4 | Extra risk flag `slow_io_in_transaction` | 0006 | otherwise transactions could never be emitted by default |
-| 5 | Ports are children of their container (`exposes` + `calls port→handler`); port qualified names include the container | 0004 | notches stay visible on collapsed containers; same route in two services |
-| 6 | Build backend setuptools (not hatchling); argparse CLI; no `uv` | 0008 | hatchling depends on `pathspec` (MPL-2.0); `uv` not installed |
-| 7 | `epochs.rules_hash` column, included in the epoch id and canonical dump | 0010 | output depends on the rules file; the prompt's hashes covered only code and specs |
-| 8 | `workflows.attrs_json`, `glyphs.variant/size_weight/has_interior`, `layout.algorithm`, `tours.workflow_id` columns | 0001, glyph grammar | needed to encode truncation, the class/function variants, size channel, LOD, and deterministic layouts |
-| 9 | `summaries`/`narrations` primary keys include `model` | spec §5 | several models' outputs must coexist without a key change in P3 |
-| 10 | Workflow projection is by **call depth** (not containment) | 0009 | gives the partition invariant by construction; a containment projection can be added |
+| fastapi/full-stack-fastapi-template (`cb740b6`, 2,918 LOC) | 0.16 s / 0.39 s / 0.66 MB | 0.16 s / 0.12 s / 0.85 MB | build ±0; size +29% |
+| Netflix/dispatch (`dd2837e`, 84,041 LOC) | 3.65 s / 1.86 s / 11.42 MB | 3.51 s / 0.93 s / 16.13 MB | build ±0; size +41% |
 
-Everything else follows the prompt, including all six principles, the closed kind/edge enums (plus
-the flag above) and the required tables.
+Pairing and severity add no measurable build time. Write times are noisy on this machine (P1 issue
+13) and are not a real improvement. The size growth comes from the new derived tables, mostly
+`workflow_step_nodes` (issue 19). Both files are deterministic across runs and pass `validate`.
 
-## 6. Open questions and decisions needed for P2 (ranked)
+Status counts: neither repo has specs or annotations, so every port, container and component is
+`orphan` and everything else is `none`. Template: 42 orphan (2 containers, 14 components, 23 routes,
+3 CLI commands) and 209 none. Dispatch: 462 orphan and 4,882 none. This is correct per the rules,
+but a spec-less map is all red dashes at the port level (issue 18).
 
-1. **Pairing policy for routes vs. endpoints.** Exact `(method, path)` match, or normalize path
-   templates (`{id}` vs `{run_id}`, trailing slashes, mount prefixes that differ from the OpenAPI
-   `servers` base path)? The fixture needs only exact matching, but real repos won't. Decide before
-   writing `links`.
-2. **Epoch storage model.** Keep full snapshots per epoch (simple, what P1 writes, ~11 MB per
-   epoch for 84k LOC), or store deltas keyed by `subtree_hash`? This affects file size and every
-   reader.
-3. **What does "stale" key on?** The `content_hash` of the paired nodes only, or `subtree_hash`
-   (catches changes in callees and children)? `subtree_hash` is stricter but noisier.
-4. **Requirement ↔ code granularity.** Link a requirement to the annotated function only, or also
-   to the workflows or ports that reach it? This decides how "verified" is computed (a test that
-   calls the function vs. a scenario mapped to a port).
-5. **Behavior-ordinal stability.** Accept that inserting a loop before another renumbers it
-   (issue 9), or switch to a content-anchored identity (e.g. ordinal among loops with the same
-   iterable text)? Changing it later changes ids, so decide early.
-6. **Rules governance.** Who may edit `rules/python.yaml` per project (a manifest overlay?), and
-   does an overlay join `rules_hash`? ADR-0010 says yes. The overlay mechanism is not built.
-7. **Monorepos without a manifest.** Is "top-level dir with pyproject/Dockerfile" good enough, or
-   should P2 read workspace files (uv/poetry workspaces, docker-compose services) to infer
-   containers and `replicas`?
+**Top-10 severity.** The template has **no risky behaviors**, as in P1, so its top-10 list is empty.
+To give a real verdict, I ran the same check on dispatch and read each of the 10 loops:
 
-## 7. Dependencies and licenses
+| # | sev | node | manual verdict |
+|---|---|---|---|
+| 1 | 8.0 | `incident_cost/service.py::calculate_incident_response_cost_with_cost_model@loop` | **genuine**: nested per-event DB lookup (`participant_service.get_…` per event per activity) |
+| 2 | 7.5 | `database/manage.py::setup_fulltext_search@loop` | real IO in loop (one trigger sync per table), but **low impact**: one-time setup |
+| 3 | 5.7 | `definition/service.py::create@loop` | **genuine** N+1: `term_service.get_or_create` per term |
+| 4 | 5.7 | `term/service.py::create@loop` | **genuine** N+1: `definition_service.upsert` per definition |
+| 5 | 5.4 | `entity/service.py::find_entities@loop` | **genuine** N+1: `get_by_value_or_create` per entity |
+| 6 | 5.4 | `entity_type/service.py::create@loop#ab21…` | **genuine**: `find_entities` (queries) per signal instance |
+| 7 | 5.4 | `entity_type/service.py::create@loop#cfb9…` | **genuine** N+1: `signal_service.get` per signal |
+| 8 | 5.0 | `dispatch_aws/plugin.py::…consume@loop` | intended SQS long-poll `while True`. The real concern is the per-message DB work nested inside |
+| 9 | 5.0 | `cli.py::consume_signals@loop` | **genuine** nested per-org/project/plugin DB work |
+| 10 | 5.0 | `task/scheduled.py::sync_tasks@loop` | **genuine**: per-task DB create/update inside per-document loop |
 
-Full list: [`docs/dependencies.md`](docs/dependencies.md). **No copyleft dependency in runtime,
-development or build.**
+Verdict: **10/10 do IO in a loop, and 8/10 are the kind of N+1 a reviewer should look at.** #2 is
+low-impact setup, and #8 is an intended poll loop. The first run had a **false positive at #3**:
+`database/service.py::apply_filter_specific_joins`, where `query.join(...)` only builds SQL, but
+its reach of 52 workflows amplified it. I fixed it in the rules (SQLAlchemy query-builder methods
+are pure, with a regression test), and dispatch's risky count went 160 → 152. Caveat: #8–#10 have
+reach 0 (scheduled or CLI entry points the extractor does not recognize), so they rank below loops
+that are probably less important in production (issue 17). Recall is still unmeasured (P1 issue 4).
 
-- Runtime: tree-sitter (MIT), tree-sitter-python 0.25.0 (MIT), gherkin-official (MIT), PyYAML
-  (MIT), jsonschema (MIT). Transitive: attrs, jsonschema-specifications, referencing, rpds-py
-  (MIT), typing_extensions (PSF-2.0).
-- Dev: pytest (MIT), pytest-cov (MIT), coverage (Apache-2.0), ruff (MIT). Transitive: iniconfig,
-  pluggy (MIT), packaging (Apache-2.0/BSD), Pygments (BSD-2), colorama (BSD-3).
-- Build: setuptools (MIT, no dependencies).
-- Rejected: hypothesis (MPL-2.0), hatchling (pulls in pathspec, MPL-2.0).
+## 5. The behavior-id change (ADR-0011)
 
-## 8. Schema concerns for P2–P5
+Behavior nodes are now named `<enclosing>@<kind>#<sha256(normalized header)[:8]>[~n]` instead of
+`#<ordinal>`. **In the fixture, all 5 emitted behavior nodes changed ids, and no other id changed
+because of this.** The full old → new id table is in ADR-0011. (Other fixture ids changed because
+the fixture itself changed: `{id}` in a route, new `/health` routes and tests, and spec-endpoint
+names without the `/v1` base path now that `servers` carries it. Those are intended fixture edits.)
 
-1. **Full snapshot per epoch.** `epoch_id` is in every primary key, so multi-epoch files work
-   without schema changes. The cost is size: every epoch repeats every node. If P2 chooses deltas,
-   it will need new tables (e.g. `node_versions`) plus views, not changes to `nodes`. That is
-   allowed, but readers will have to learn the view.
-2. **Link history.** `links` has one row per (epoch, link). The state machine (spec §6) is spread
-   across epochs. "When did this become drift?" needs a join across epochs or a future
-   `link_events` table.
-3. **`workflow_steps.node_ids_json` is not indexable.** "Which workflows pass through node X?" (a
-   core viewer/MCP question) needs a JSON scan. P4/P5 will probably want a derived
-   `workflow_step_nodes` table.
-4. **Evidence lines are noisy.** `edges.attrs.lines` shifts on unrelated edits. That is fine inside
-   an epoch, but a structural diff must ignore it or it reports false changes.
-5. **Informative rows in the canonical dump.** P3's LLM rows (summaries, narrations, links with
-   `provenance='llm'`) will be in the dump. Dump equality across runs then holds only if LLM
-   outputs are cached by `input_hash`/`prompt_hash`. The spec should say that the determinism
-   guarantee covers normative rows, and that tooling may offer `--normative-only`.
-6. **`meta.value` is mixed N/I per key.** It works, but a reader has to know the key list. A
-   `meta.class` column would have been cleaner. It can be added without changing meanings.
-7. **Layout is keyed by `(node_id, lod, algorithm)`.** Viewers with user-adjusted layouts (pinned
-   nodes) will need `source='user'` rows or a separate table. `algorithm` could carry `user`, but
-   that should be decided explicitly in P4.
-8. **Spec-side roots have no parent.** `spec_doc` nodes are roots, and the code side has a
-   `system` root. A viewer that wants one tree must synthesize a root. Adding a `spec_root` kind
-   later is additive, but it changes depth numbers on the spec side.
+Why it is safe now: there are no external `.ad2v` consumers, and P3 has not yet stored epochs, so
+no stored link or history refers to the old ids. From now on, inserting or deleting an unrelated
+construct no longer renames its siblings (tested). Editing a loop's *header* still renames it, and
+that is acceptable (ADR-0011).
+
+## 6. Deviations from the prompt
+
+| # | deviation / interpretation | ADR |
+|---|---|---|
+| 1 | Unpaired items are stored as links with `method = 'none'` (a fifth method value), and `llm` is reserved in the CHECK for P4 | 0015 |
+| 2 | Extra node status **`none`** (not a link status), needed for "functions are never orphan": code no coverage applies to renders neutral | 0015, 0016 |
+| 3 | Inheritance passes down only `verified`/`implemented`/`specified`. Problem statuses stay local | 0015 |
+| 4 | `spec_component` is `missing` only when a manifest mapping's target does not exist. Otherwise an unpaired component is `specified` (reading "covered by name_match" as "all components" would contradict the specified-vs-missing principle) | 0015 |
+| 5 | Ports inherit their handler's links (`via_handler`). Linked tests include tests for IDs in the spec item's own `spec_ref` (e.g. `x-ad2v-refs`). A failing test is evidence, not `drift` | 0015 |
+| 6 | Severity formula read as `(base + bonus) × reach_factor`, with `base` = max over flags | 0014 |
+| 7 | Two extra epoch inputs, `config_hash` and `test_results_hash`, both in the epoch id. `rules_hash` is over canonical merged content, so comment-only rule edits no longer change it (a P1 test was inverted) | 0012 |
+| 8 | `path_prefix_map` applies to both sides, on segment boundaries. `case_insensitive` lowercases the whole path (parameters are already `{}`) | 0015 |
+| 9 | `stale` placed between `orphan` and `verified` in the precedence (the prompt's list omits it) | 0015 |
+| 10 | `node_status.reasons_json` is an object `{precedence, reasons}`, not a list | spec §6.4 |
+| 11 | `project()` signature: `project(steps, depth, mode="containment", ancestry_map=...)`. The prompt's `project(trace, mode=…, depth=k)` has the same semantics, but the ancestry map is explicit | 0013 |
+| 12 | Top-10 severity judged on dispatch as well, because the prompt's template repo has zero risky behaviors | n/a |
+| 13 | Style for `stale` (clock badge) and `none` (thin) added to the tokens, so every node status renders | 0016 |
+
+## 7. Open questions for P3 (ranked)
+
+1. **Epoch storage layout.** With `node_versions` + `epoch_members` (decided), do `links`,
+   `node_status` and `status_rollup` also dedupe by content, or stay per epoch? They are derived and
+   cheap to recompute, but `workflow_step_nodes` is already the largest table (dispatch ~10.5k
+   steps). Proposal: store derived tables per epoch only for the head epoch, and recompute on
+   demand for history.
+2. **Incremental invalidation granularity.** A `rules_hash` change invalidates all code-side
+   results, a `config_hash` change invalidates pairing, and a `test_results_hash` change invalidates
+   statuses only. Is the Merkle unit the module (`subtree_hash` of the module) or the function?
+   Transitive IO (the fixpoint over the call graph) means one edited function can change risk flags
+   in far-away loops. Reusing results needs the *call-graph closure*, not just subtree hashes.
+3. **Epoch diff contract.** Which rows count as "changed" for the diff: nodes by `content_hash`,
+   edges ignoring `attrs.lines`, links by `(link_id, status)`? It needs an explicit ignore-list per
+   column, probably in the spec's Appendix A as a third class ("volatile").
+4. **`stale` semantics with anchored ids.** A header edit renames a behavior node (a new id), so its
+   old links become orphan-like instead of `stale`. Should P3 add a rename-detection pass (same
+   span + similar header) that turns delete+add into "renamed", before computing `stale`?
+5. **Test results across epochs.** Test results are a separate input. Should a new JUnit file with
+   unchanged code create a new epoch (today: yes, a different epoch id)? Alternative: model test
+   results as an overlay layer on an epoch.
+6. **Narrations and projection mode.** Narrations are keyed by `(detail_level, span_start)`, but
+   spans differ between containment and call-depth modes. Add `mode` to the narrations key before
+   P4 writes any.
+
+## 8. Dependencies
+
+**No dependency was added in P2.** JUnit parsing uses `xml.etree.ElementTree`, and the preview uses
+`html` (both stdlib). The runtime, development and build dependency set is unchanged from P1: all
+MIT / BSD / Apache-2.0 / PSF-2.0, with setuptools as the build backend. **No copyleft** anywhere,
+including transitive and build-time dependencies. Details: [`docs/dependencies.md`](docs/dependencies.md).
+
+## 9. Visual tokens preview
+
+**Open [`docs/reports/P2-tokens.html`](docs/reports/P2-tokens.html)**, a self-contained static page
+(regenerate it with `ad2v preview-tokens --out tokens.html`). It shows all 10 base shapes × 9
+statuses in dark and light side by side, a grayscale copy that proves the statuses survive without
+color, and the severity ramp.
+
+**How the light theme shows "verified" without glow.** A glow is a blur of light around the outline.
+On near-black it adds a lot of luminance, but on off-white it adds almost none and disappears. The
+light theme instead draws `verified` as a **saturated dark-blue outline** (`#0B47B8`, 7.6:1 on the
+background, slightly thicker than `implemented`) over a **soft halo**: a 7 px, 60%-opacity light-blue
+(`#8FBCFF`) stroke underneath. The halo gives the same "lit" reading as the dark theme's bloom. The
+status never depends on it: `verified` = solid + emphasis, while `implemented` = solid + none. That
+difference is in the non-color signature the tests check, so the status survives even in grayscale
+or print.

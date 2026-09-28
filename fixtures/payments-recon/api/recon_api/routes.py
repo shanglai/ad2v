@@ -23,9 +23,10 @@ async def start_run(req: RunRequest) -> dict:
     return result
 
 
-@router.get("/{run_id}")
-def get_run(run_id: str) -> dict:
-    run = db.get_run(run_id)
+@router.get("/{id}")
+def get_run(id: str) -> dict:
+    # The spec calls this parameter {run_id}: pairs anyway, with param_name_mismatch evidence.
+    run = db.get_run(id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
     return run

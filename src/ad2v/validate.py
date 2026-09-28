@@ -80,6 +80,32 @@ def load_ir(conn: sqlite3.Connection) -> dict[str, Any]:
         {"src": r["src"], "ref": r["ref"], "ref_kind": r["ref_kind"], "reason": r["reason"]}
         for r in conn.execute("SELECT * FROM unresolved_refs ORDER BY src, ref")
     ]
+    links = [
+        {
+            "link_id": r["link_id"],
+            "spec_node_id": r["spec_node_id"],
+            "code_node_id": r["code_node_id"],
+            "status": r["status"],
+            "method": r["method"],
+            "provenance": r["provenance"],
+            "confidence": r["confidence"],
+            "evidence": json.loads(r["evidence_json"]),
+        }
+        for r in conn.execute("SELECT * FROM links ORDER BY link_id")
+    ]
+    statuses = [
+        {"node_id": r["node_id"], "status": r["status"], "reasons": json.loads(r["reasons_json"])}
+        for r in conn.execute("SELECT * FROM node_status ORDER BY node_id")
+    ]
+    tests = [
+        {
+            "test_node_id": r["test_node_id"],
+            "outcome": r["outcome"],
+            "source_file": r["source_file"],
+            "duration_ms": r["duration_ms"],
+        }
+        for r in conn.execute("SELECT * FROM test_results ORDER BY test_node_id")
+    ]
     return {
         "format_version": ir.FORMAT_VERSION,
         "nodes": nodes,
@@ -87,6 +113,9 @@ def load_ir(conn: sqlite3.Connection) -> dict[str, Any]:
         "glyphs": glyphs,
         "workflows": workflows,
         "unresolved_refs": unresolved,
+        "links": links,
+        "node_status": statuses,
+        "test_results": tests,
     }
 
 
@@ -96,10 +125,12 @@ def validate(path: Path) -> list[str]:
     conn = store.open_readonly(Path(path))
     try:
         meta = store.read_meta(conn)
-        if meta.get("format_version") != ir.FORMAT_VERSION:
-            problems.append(
-                f"format_version is {meta.get('format_version')!r}, expected {ir.FORMAT_VERSION!r}"
-            )
+        version = meta.get("format_version")
+        if version not in ir.SUPPORTED_FORMAT_VERSIONS:
+            return [
+                f"format_version is {version!r}; supported: {', '.join(ir.SUPPORTED_FORMAT_VERSIONS)}."
+                " Files older than 0.2 are not migrated: re-run `ad2v extract` with ad2v >= 0.2."
+            ]
         for r in conn.execute("PRAGMA foreign_key_check"):
             problems.append(f"foreign key violation in {r[0]} rowid={r[1]} -> {r[2]}")
         integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
@@ -152,6 +183,49 @@ def validate(path: Path) -> list[str]:
                 kind = "declares" if n["side"] == "spec" else "contains"
                 if (n["parent_id"], kind, nid) not in edge_keys:
                     problems.append(f"node {nid}: parent_id without a matching {kind} edge")
+        problems.extend(_check_v02(conn, doc, nodes, kids))
     finally:
         conn.close()
+    return problems
+
+
+def _check_v02(
+    conn: sqlite3.Connection, doc: dict[str, Any], nodes: dict[str, Any], kids: dict[str, list[str]]
+) -> list[str]:
+    """v0.2 derived-table consistency: statuses, roll-ups, workflow_step_nodes, link ids."""
+    problems: list[str] = []
+    status = {s["node_id"]: s["status"] for s in doc["node_status"]}
+    if set(status) != set(nodes):
+        problems.append(
+            f"node_status covers {len(status)} of {len(nodes)} nodes (must be exactly one per node)"
+        )
+    for lk in doc["links"]:
+        if lk["link_id"] != ids.link_id(lk["spec_node_id"], lk["code_node_id"], lk["method"]):
+            problems.append(f"link {lk['link_id']}: id does not match link_id(spec, code, method)")
+        if lk["provenance"] == "deterministic" and lk["confidence"] != 1.0:
+            problems.append(f"link {lk['link_id']}: deterministic link with confidence != 1.0")
+    derived = sorted(
+        (w["workflow_id"], s["seq"], n) for w in doc["workflows"] for s in w["steps"] for n in s["node_ids"]
+    )
+    stored = sorted(
+        (r[0], r[1], r[2]) for r in conn.execute("SELECT workflow_id, seq, node_id FROM workflow_step_nodes")
+    )
+    if sorted(set(derived)) != stored:
+        problems.append("workflow_step_nodes does not match workflow_steps")
+    rollup = {r[0]: json.loads(r[1]) for r in conn.execute("SELECT node_id, counts_json FROM status_rollup")}
+    memo: dict[str, dict[str, int]] = {}
+
+    def counts(nid: str) -> dict[str, int]:
+        if nid not in memo:
+            acc: dict[str, int] = {}
+            for c in kids[nid]:
+                acc[status.get(c, "none")] = acc.get(status.get(c, "none"), 0) + 1
+                for k, v in counts(c).items():
+                    acc[k] = acc.get(k, 0) + v
+            memo[nid] = acc
+        return memo[nid]
+
+    expected = {nid: counts(nid) for nid in nodes if kids[nid]}
+    if rollup != expected:
+        problems.append("status_rollup does not recompute from node_status")
     return problems

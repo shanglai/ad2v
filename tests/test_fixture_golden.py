@@ -6,19 +6,20 @@ import pytest
 import yaml
 
 from ad2v import ids, ir, pipeline
+from ad2v import rules as rules_mod
 
-from helpers import FIXTURE, node
+from helpers import FIXTURE, JUNIT, node
 
 EXPECTED = yaml.safe_load((FIXTURE / "expected.yaml").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
 def result():
-    return pipeline.build(FIXTURE, FIXTURE / "specs")
+    return pipeline.build(FIXTURE, FIXTURE / "specs", test_results=[JUNIT])
 
 
 def _q(g, nid):
-    return g.nodes[nid].qualified_name
+    return g.nodes[nid].qualified_name if nid else None
 
 
 def test_counts_per_kind(result):
@@ -41,8 +42,7 @@ def test_named_nodes(result):
 
 
 def test_risks(result):
-    g = result.graph
-    got = {n.qualified_name: n.attrs["risk"] for n in g.nodes.values() if n.attrs.get("risk")}
+    got = {n.qualified_name: n.attrs["risk"] for n in result.graph.nodes.values() if n.attrs.get("risk")}
     assert got == EXPECTED["risks"]
 
 
@@ -80,31 +80,74 @@ def test_workflows(result):
     by_side = Counter(w.side for w in result.workflows)
     assert by_side["code"] == EXPECTED["workflows"]["code"]
     assert by_side["spec"] == EXPECTED["workflows"]["spec"]
-    for name, sequence in EXPECTED["workflows"]["traces"].items():
-        wf = next(w for w in result.workflows if w.name == name)
+    for entry, sequence in EXPECTED["workflows"]["traces"].items():
+        wf = next(w for w in result.workflows if _q(g, w.entry_node_id) == entry)
         flat = [_q(g, nid) for s in wf.steps for nid in s.node_ids]
         it = iter(flat)
         missing = [q for q in sequence if q not in it]  # subsequence check
-        assert not missing, f"{name}: {missing} not found in order in {flat}"
+        assert not missing, f"{entry}: {missing} not found in order in {flat}"
         assert not wf.attrs.get("truncated")
 
 
-def test_p2_candidates(result):
+def test_spec_root_hierarchy(result):
     g = result.graph
-    routes = {
-        (n.attrs["method"], n.attrs["path"]): n.qualified_name
-        for n in g.nodes.values()
-        if n.kind == "http_route"
+    root = node(g, "spec_root", "payments-recon")
+    docs = [n for n in g.nodes.values() if n.kind == "spec_doc"]
+    assert docs and all(d.parent_id == root.id for d in docs)
+    assert root.parent_id is None
+
+
+def test_statuses(result):
+    g, st = result.graph, result.pairing.statuses
+    for side in ("spec", "code"):
+        for kind, qname, status in EXPECTED["statuses"][side]:
+            nid = ids.node_id(side, kind, qname)
+            assert nid in g.nodes, (kind, qname)
+            assert st[nid].status == status, (qname, st[nid])
+    assert set(st) == set(g.nodes)
+    # functions, classes and modules are never orphan
+    assert not [
+        n
+        for n, s in st.items()
+        if s.status == "orphan" and g.nodes[n].kind in ("function", "class", "module")
+    ]
+
+
+def test_link_evidence(result):
+    g = result.graph
+    have = {
+        (_q(g, lk.spec_node_id), _q(g, lk.code_node_id), e["kind"])
+        for lk in result.pairing.links
+        for e in lk.evidence
     }
-    endpoints = {
-        (n.attrs["method"], n.attrs["path"]): n.qualified_name
-        for n in g.nodes.values()
-        if n.kind == "spec_endpoint"
-    }
-    assert (
-        sorted(endpoints[k] for k in endpoints.keys() - routes.keys()) == EXPECTED["p2_candidates"]["missing"]
-    )
-    assert sorted(routes[k] for k in routes.keys() - endpoints.keys()) == EXPECTED["p2_candidates"]["orphan"]
+    for spec_q, code_q, kind in EXPECTED["link_evidence"]:
+        assert (spec_q, code_q, kind) in have
+
+
+def test_rollups(result):
+    for qname, counts in EXPECTED["rollups"].items():
+        assert result.pairing.rollup[ids.node_id("code", "container", qname)] == counts
+
+
+def test_severity_top3(result):
+    g = result.graph
+    top = [[_q(g, n), g.nodes[n].attrs["severity"]] for n in result.ranked_behaviors[:3]]
+    assert top == EXPECTED["severity_top3"]
+    assert [g.nodes[n].attrs["severity_rank"] for n in result.ranked_behaviors[:3]] == [1, 2, 3]
+
+
+def test_test_results_matching(result):
+    g = result.graph
+    got = {_q(g, t.test_node_id): t.outcome for t in result.tests.results.values()}
+    assert got == EXPECTED["test_results"]["matched"]
+    unmatched = [{k: u[k] for k in ("classname", "name", "reason")} for u in result.tests.unmatched]
+    assert unmatched == EXPECTED["test_results"]["unmatched"]
+
+
+def test_rules_overlay_in_rules_hash(result):
+    overlay = FIXTURE / EXPECTED["rules"]["overlay"]
+    assert result.epoch.rules_hash == rules_mod.load(None, overlay)["_hash"]
+    assert result.epoch.rules_hash != rules_mod.load()["_hash"]
 
 
 def test_every_node_is_well_formed(result):

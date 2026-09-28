@@ -1,0 +1,5 @@
+# Project-specific rules overlay (deep-merged over ad2v's built-in rules).
+# This team treats retry-forever as the worst risk: raise its base severity from 4 to 6.
+severity:
+  base:
+    unbounded_retry: 6

@@ -11,7 +11,7 @@
 #   by_service_arg       first positional literal selects the kind (boto3.client("sqs"))
 #   direct_calls_touch   do library-level calls do IO? default: false for datastore, true otherwise
 #   touch_functions      library-level callables that do IO even when direct_calls_touch is false
-rules_version: "0.1.0"
+rules_version: "0.2.0"
 
 resources:
   # --- datastores -------------------------------------------------------------------------
@@ -24,7 +24,12 @@ resources:
            Boolean, ForeignKey, Table, MetaData, func, and_, or_, not_, orm.relationship,
            orm.declarative_base, orm.DeclarativeBase, orm.Mapped, orm.mapped_column]
     pure_methods: [scalars, scalar_one, scalar_one_or_none, fetchone, fetchall, first, all, one,
-                   mappings, close, begin, begin_nested, connect, __enter__, __exit__]
+                   mappings, close, begin, begin_nested, connect, __enter__, __exit__,
+                   # query builders: IO is attributed to where the query is created, not refined
+                   join, outerjoin, filter, filter_by, where, order_by, group_by, having, limit,
+                   offset, options, select_from, distinct, subquery, with_entities, correlate,
+                   union, union_all, execution_options, add_columns, params, returning, values,
+                   label, alias, cte, exists]
   psycopg:
     kind: datastore
     constructors: [connect, AsyncConnection.connect, Connection.connect]
@@ -194,3 +199,23 @@ ports:
   events:
     - {constructor: google.cloud.pubsub_v1.SubscriberClient, method: subscribe, callback_kwarg: callback, callback_arg: 1, source_arg: 0}
     - {constructor: google.cloud.pubsub.SubscriberClient, method: subscribe, callback_kwarg: callback, callback_arg: 1, source_arg: 0}
+
+# Deterministic risk severity (format spec §3.8). Covered by rules_hash; a manifest
+# `rules_overlay` may change any weight.
+#   severity = (max base over the node's risk flags + nesting bonuses) * reach_factor
+#   reach_factor = unreachable if no code workflow passes through the node, otherwise
+#                  min(cap, reachable + per_extra_workflow * (workflows - 1))
+severity:
+  base:
+    llm_in_loop: 5
+    unbounded_retry: 4
+    io_in_loop: 3
+    slow_io_in_transaction: 3
+    fan_out: 2
+  nesting_bonus:
+    nested_loop_io: 2
+  reach:
+    unreachable: 1.0
+    reachable: 1.5
+    per_extra_workflow: 0.1
+    cap: 2.5

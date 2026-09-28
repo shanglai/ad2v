@@ -48,14 +48,22 @@ class Config:
     workflow_max_depth: int = 12
     workflow_max_steps: int = 5000
     test_ref_prefixes: tuple[str, ...] = ("REQ", "CMP")
-    manifest_hash: str | None = None
     manifest_path: str | None = None
+    # pairing (format spec §6.1)
+    pairing_components: dict[str, str] = field(default_factory=dict)  # spec id -> container/component
+    path_prefix_map: dict[str, str] = field(default_factory=dict)
+    case_insensitive: bool = False
+    rules_overlay: Path | None = None
+    config_hash: str = ids.sha256_hex(ids.canonical_json({}))
 
     def echo(self) -> dict[str, Any]:
         """Normative echo of the effective configuration, stored in epochs.attrs."""
         return {
             "behavior_emit_all": self.behavior_emit_all,
-            "manifest_hash": self.manifest_hash,
+            "pairing_case_insensitive": self.case_insensitive,
+            "pairing_components": dict(sorted(self.pairing_components.items())),
+            "path_prefix_map": dict(sorted(self.path_prefix_map.items())),
+            "rules_overlay": self.rules_overlay.name if self.rules_overlay else None,
             "test_ref_prefixes": list(self.test_ref_prefixes),
             "workflow_max_depth": self.workflow_max_depth,
             "workflow_max_steps": self.workflow_max_steps,
@@ -85,7 +93,7 @@ def load(repo: Path, manifest: Path | None = None) -> Config:
     data = yaml.safe_load(text) or {}
     if not isinstance(data, dict):
         raise ManifestError("manifest must be a mapping")
-    cfg.manifest_hash = ids.content_hash(text)
+    cfg.config_hash = ids.sha256_hex(ids.canonical_json(data))
     cfg.manifest_path = path.name
     system = data.get("system") or {}
     if isinstance(system, str):
@@ -115,4 +123,20 @@ def load(repo: Path, manifest: Path | None = None) -> Config:
     spec_ids = data.get("spec_ids") or {}
     if "test_name_prefixes" in spec_ids:
         cfg.test_ref_prefixes = tuple(str(p).upper() for p in spec_ids["test_name_prefixes"])
+    pairing = data.get("pairing") or {}
+    if not isinstance(pairing, dict):
+        raise ManifestError("pairing must be a mapping")
+    comps = pairing.get("components") or {}
+    if not isinstance(comps, dict):
+        raise ManifestError("pairing.components must map spec ids to container/component names")
+    cfg.pairing_components = {str(k): str(v) for k, v in comps.items()}
+    prefixes = pairing.get("path_prefix_map") or {}
+    if not isinstance(prefixes, dict):
+        raise ManifestError("pairing.path_prefix_map must be a mapping")
+    cfg.path_prefix_map = {str(k): str(v or "") for k, v in prefixes.items()}
+    cfg.case_insensitive = bool(pairing.get("case_insensitive", False))
+    if data.get("rules_overlay"):
+        cfg.rules_overlay = (path.parent / str(data["rules_overlay"])).resolve()
+        if not cfg.rules_overlay.is_file():
+            raise ManifestError(f"rules_overlay not found: {data['rules_overlay']}")
     return cfg

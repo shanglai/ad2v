@@ -1,6 +1,6 @@
 # ADR-0009: Workflow trace and projection semantics
 
-- Status: accepted (P1)
+- Status: accepted (P1). §4 amended by ADR-0013 (containment projection is now the default).
 - Decisions:
   1. **Depth** is call depth: the port is 0 and its handler 1. A resource touch is one level below
      the function that makes it.

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ad2v"
-version = "0.1.0"
+version = "0.2.0"
 description = "agent development to viz: compare a repository against its SDD specs and emit one .ad2v SQLite file"
 readme = "README.md"
 license = "Apache-2.0"
@@ -39,7 +39,7 @@ packages = ["ad2v", "ad2v.extract", "ad2v.extract.code", "ad2v.extract.spec", "a
 
 [tool.setuptools.package-data]
 "ad2v.extract.code" = ["rules/*.yaml"]
-"ad2v._schema" = ["*.sql", "*.json"]
+"ad2v._schema" = ["*.sql", "*.json", "themes/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -55,6 +55,7 @@ ignore = ["ANN401"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN"]
+"src/ad2v/preview.py" = ["E501"]  # HTML/CSS template text
 
 [tool.ruff.lint.isort]
 known-first-party = ["ad2v"]

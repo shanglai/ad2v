@@ -1,0 +1,67 @@
+{
+  "name": "light",
+  "class": "informative",
+  "description": "Off-white map. Glow vanishes on white, so verified uses a saturated outline plus a soft halo.",
+  "background": "#F7F8FA",
+  "surface": "#FFFFFF",
+  "grid": "#E3E7EE",
+  "text": "#141B2B",
+  "text_muted": "#4D586B",
+  "edge": "#6B7689",
+  "status": {
+    "specified": {
+      "stroke": "#4F72C4",
+      "fill": "#EEF3FC"
+    },
+    "implemented": {
+      "stroke": "#1D5FD1",
+      "fill": "#E4EEFD"
+    },
+    "verified": {
+      "stroke": "#0B47B8",
+      "fill": "#DCE9FF"
+    },
+    "drift": {
+      "stroke": "#A85D00",
+      "fill": "#FFF3E0"
+    },
+    "orphan": {
+      "stroke": "#C62828",
+      "fill": "#FDECEC"
+    },
+    "missing": {
+      "stroke": "#5C6D8F",
+      "fill": "#F7F8FA"
+    },
+    "needs_review": {
+      "stroke": "#7A3FC4",
+      "fill": "#F3ECFC"
+    },
+    "stale": {
+      "stroke": "#697386",
+      "fill": "#F0F2F5"
+    },
+    "none": {
+      "stroke": "#7D8799",
+      "fill": "#F2F4F7"
+    }
+  },
+  "emphasis": {
+    "kind": "halo",
+    "color": "#8FBCFF",
+    "width": 7,
+    "opacity": 0.6
+  },
+  "badge": {
+    "warning": "#9A5800",
+    "warning_text": "#FFFFFF",
+    "clock": "#697386"
+  },
+  "severity_ramp": [
+    "#6B7A93",
+    "#9C7A00",
+    "#B96500",
+    "#C84E17",
+    "#C62828"
+  ]
+}

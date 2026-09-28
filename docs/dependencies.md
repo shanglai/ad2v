@@ -3,7 +3,7 @@
 Policy: **no copyleft dependencies** (GPL, LGPL, AGPL, MPL, EPL, CDDL…), including transitive,
 development and build-time dependencies. ad2v itself is Apache-2.0.
 
-Checked on 2026-09-28 from installed package metadata (`License-Expression` / classifiers), versions
+Checked on 2026-09-28 (P1, re-checked in P2) from installed package metadata (`License-Expression` / classifiers), versions
 as resolved in the development environment.
 
 ## Runtime
@@ -21,7 +21,13 @@ as resolved in the development environment.
 | ↳ rpds-py | 2026.6.3 | MIT | transitive |
 | ↳ typing_extensions | 4.16.0 | PSF-2.0 | transitive |
 
-Standard library: `sqlite3`, `hashlib`, `json`, `argparse`, `pathlib`, `urllib.parse`.
+Standard library: `sqlite3`, `hashlib`, `json`, `argparse`, `pathlib`, `urllib.parse`,
+`xml.etree.ElementTree` (JUnit ingestion, P2), `html` (token preview, P2).
+
+**P2 added no dependency.** JUnit XML is parsed with the standard library, as the P2 prompt required
+(no lxml). `defusedxml` (PSF-2.0, not copyleft) was considered as hardening against malicious XML
+and deferred: test-result files come from the user's own CI, and Python 3.12's bundled expat already
+limits entity-expansion attacks (see issues.md).
 
 ## Development
 

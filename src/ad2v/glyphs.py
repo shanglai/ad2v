@@ -1,4 +1,4 @@
-"""Glyph grammar v0.1 (docs/spec/glyph-grammar-v0.1.md). Normative and deterministic.
+"""Glyph grammar v0.2 (docs/spec/glyph-grammar-v0.2.md). Normative and deterministic.
 
 Encoding channels: shape = kind, modifiers = attributes, line/glow = link status (reserved,
 P2), size = weight. A channel never carries another channel's information.
@@ -43,6 +43,7 @@ KIND_SHAPES: dict[str, tuple[str, str]] = {
     "fan_out": ("diamond", "fan_out"),
     "transaction": ("rounded_box", "transaction"),
     "llm_call": ("hexagon", "llm_call"),
+    "spec_root": ("folded_sheet", "spec_root"),
     "spec_doc": ("folded_sheet", "spec_doc"),
     "spec_component": ("folded_sheet", "spec_component"),
     "requirement": ("folded_sheet", "requirement"),
