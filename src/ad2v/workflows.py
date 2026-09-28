@@ -17,9 +17,19 @@ class _Budget(Exception):
 
 
 def trace_port(
-    graph: ir.Graph, facts: CodeFacts, port_id: str, handler_id: str, max_depth: int, max_steps: int
+    graph: ir.Graph,
+    facts: CodeFacts,
+    port_id: str,
+    handler_id: str | Sequence[str],
+    max_depth: int,
+    max_steps: int,
 ) -> tuple[list[ir.WorkflowStep], bool]:
-    """Finest-level DFS trace from an entry port. Returns (steps, truncated)."""
+    """Finest-level DFS trace from an entry port. Returns (steps, truncated).
+
+    A port bound to several handlers (the same route declared twice) is traced as one workflow whose
+    first step holds all of them, like a call with several possible targets.
+    """
+    handlers = (handler_id,) if isinstance(handler_id, str) else tuple(sorted(set(handler_id)))
     steps: list[ir.WorkflowStep] = []
 
     def emit(node_ids: list[str], depth: int) -> None:
@@ -49,7 +59,7 @@ def trace_port(
     truncated = False
     try:
         emit([port_id], 0)
-        visit((handler_id,), (), 1, (port_id,))
+        visit(handlers, (), 1, (port_id,))
     except _Budget:
         truncated = True
     return steps, truncated
@@ -57,10 +67,13 @@ def trace_port(
 
 def build_all(graph: ir.Graph, facts: CodeFacts, config: Config) -> list[ir.Workflow]:
     out: list[ir.Workflow] = []
+    handlers: dict[str, list[str]] = {}
     for port_id, handler_id in sorted(facts.entry_ports):
+        handlers.setdefault(port_id, []).append(handler_id)
+    for port_id, hs in sorted(handlers.items()):
         port = graph.nodes[port_id]
         steps, truncated = trace_port(
-            graph, facts, port_id, handler_id, config.workflow_max_depth, config.workflow_max_steps
+            graph, facts, port_id, hs, config.workflow_max_depth, config.workflow_max_steps
         )
         attrs = {"max_depth": config.workflow_max_depth, "truncated": truncated, "port_kind": port.kind}
         out.append(ir.Workflow(port.name, "code", port_id, "static", steps, attrs=attrs))

@@ -3,7 +3,7 @@
 Policy: **no copyleft dependencies** (GPL, LGPL, AGPL, MPL, EPL, CDDL…), including transitive,
 development and build-time dependencies. ad2v itself is Apache-2.0.
 
-Checked on 2026-09-28 (P1, re-checked in P2) from installed package metadata (`License-Expression` / classifiers), versions
+Checked on 2026-09-28 (P1, re-checked in P2 and P3) from installed package metadata (`License-Expression` / classifiers), versions
 as resolved in the development environment.
 
 ## Runtime
@@ -28,6 +28,12 @@ Standard library: `sqlite3`, `hashlib`, `json`, `argparse`, `pathlib`, `urllib.p
 (no lxml). `defusedxml` (PSF-2.0, not copyleft) was considered as hardening against malicious XML
 and deferred: test-result files come from the user's own CI, and Python 3.12's bundled expat already
 limits entity-expansion attacks (see issues.md).
+
+**P3 added no dependency.** Multi-epoch storage, the parse cache (`zlib`), history (`zipfile`,
+`tempfile`, `subprocess`) and the diff use the standard library only. `ad2v history` runs the
+**git** command-line tool as an external program (`git rev-list`, `git diff-tree`, `git ls-tree`,
+`git show`, `git archive`); git (GPL-2.0) is neither linked nor imported nor redistributed, and only
+`ad2v history` needs it. Everything else works without git.
 
 ## Development
 
@@ -65,5 +71,6 @@ dependencies.
 
 ## Benchmarks
 
-The performance smoke used shallow clones of third-party repositories in `bench/` (gitignored).
-They were deleted after the measurements. Nothing from them is redistributed.
+The performance measurements (P1–P3) used shallow clones of third-party repositories in `bench/`
+(gitignored): dispatch (Apache-2.0) and full-stack-fastapi-template (MIT). They were deleted after
+the measurements. Nothing from them is redistributed.

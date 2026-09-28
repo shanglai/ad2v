@@ -11,8 +11,8 @@ from typing import Any
 
 from ad2v import ids
 
-FORMAT_VERSION = "0.2"
-SUPPORTED_FORMAT_VERSIONS = ("0.2",)
+FORMAT_VERSION = "0.3"
+SUPPORTED_FORMAT_VERSIONS = ("0.3",)
 
 SIDES = ("code", "spec")
 

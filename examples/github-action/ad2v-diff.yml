@@ -1,0 +1,73 @@
+# EXAMPLE ONLY: a GitHub Actions workflow that posts an ad2v epoch diff as a pull-request comment.
+# It is not wired to any repository and uses no secrets beyond the job's own GITHUB_TOKEN.
+# Copy it to .github/workflows/ad2v-diff.yml in your repository and adapt the paths.
+#
+# What it does:
+#   1. builds a two-epoch .ad2v file: the PR's merge base, then the PR head (`ad2v history`),
+#   2. renders `ad2v diff --format md` (at most ~60 lines),
+#   3. creates or updates a single PR comment with it.
+# ad2v only reads the code and ingests test-result files; it never runs repository code.
+
+name: ad2v diff
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write   # to post the comment
+
+jobs:
+  ad2v-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # history is needed for `git archive` of the base commit
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ad2v
+        run: pip install ad2v   # or: pip install git+https://github.com/<owner>/ad2v@<tag>
+
+      # Optional: produce JUnit results so links can be `verified` (paths are examples).
+      # - run: pip install -e . && pytest --junitxml=test-results/junit.xml
+
+      - name: Build epochs (merge base, then PR head)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          ad2v history --repo . --spec specs --test-results test-results/junit.xml \
+            --commits "$MERGE_BASE^!" --into pr.ad2v
+          ad2v history --repo . --spec specs --test-results test-results/junit.xml \
+            --commits "$MERGE_BASE..$HEAD_SHA" --into pr.ad2v
+          # For long PRs, compare the merge base with the head directly:
+          ad2v diff pr.ad2v --from "$MERGE_BASE" --to head --format md > ad2v-diff.md
+          cat ad2v-diff.md
+
+      - name: Post or update the PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = '<!-- ad2v-diff -->\n' + fs.readFileSync('ad2v-diff.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const mine = comments.find(c => c.body && c.body.startsWith('<!-- ad2v-diff -->'));
+            if (mine) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Keep the .ad2v file as an artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ad2v
+          path: pr.ad2v

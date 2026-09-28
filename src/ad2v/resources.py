@@ -13,17 +13,17 @@ def schema_dir() -> Path:
         return bundled
     for parent in _HERE.parents:
         candidate = parent / "schema"
-        if (candidate / "ad2v-v0.2.sql").is_file():
+        if (candidate / "ad2v-v0.3.sql").is_file():
             return candidate
     raise FileNotFoundError("ad2v schema directory not found")
 
 
 def ddl_path() -> Path:
-    return schema_dir() / "ad2v-v0.2.sql"
+    return schema_dir() / "ad2v-v0.3.sql"
 
 
 def ir_schema_path() -> Path:
-    return schema_dir() / "ir-v0.2.schema.json"
+    return schema_dir() / "ir-v0.3.schema.json"
 
 
 def python_rules_path() -> Path:

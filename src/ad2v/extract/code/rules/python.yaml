@@ -199,6 +199,29 @@ ports:
   events:
     - {constructor: google.cloud.pubsub_v1.SubscriberClient, method: subscribe, callback_kwarg: callback, callback_arg: 1, source_arg: 0}
     - {constructor: google.cloud.pubsub.SubscriberClient, method: subscribe, callback_kwarg: callback, callback_arg: 1, source_arg: 0}
+  # Entry points that are not HTTP/MCP/CLI frameworks (P3, ADR-0021). They map to existing port
+  # kinds with attrs.trigger: main blocks and Click -> cli_command; tasks and schedules -> event_consumer.
+  entry_points:
+    main_block: true                 # `if __name__ == "__main__":` -> cli_command, trigger main
+    celery:
+      app_constructors: [celery.Celery]
+      task_decorators: [celery.shared_task, celery.task]      # @shared_task -> trigger celery_task
+      app_task_methods: [task]                                # @app.task    -> trigger celery_task
+      beat_schedule_names: [beat_schedule, CELERYBEAT_SCHEDULE]  # {"x": {"task": "pkg.mod.fn"}} -> celery_beat
+    apscheduler:
+      scheduler_constructors:
+        - apscheduler.schedulers.background.BackgroundScheduler
+        - apscheduler.schedulers.blocking.BlockingScheduler
+        - apscheduler.schedulers.asyncio.AsyncIOScheduler
+        - apscheduler.schedulers.gevent.GeventScheduler
+        - apscheduler.schedulers.tornado.TornadoScheduler
+        - apscheduler.AsyncScheduler
+        - apscheduler.Scheduler
+      add_job_methods: [add_job, add_schedule]                # sched.add_job(fn, ...)  -> apscheduler
+      decorator_methods: [scheduled_job]                      # @sched.scheduled_job(...) -> apscheduler
+    schedule:
+      every_callables: [schedule.every]                       # schedule.every(5).minutes.do(fn) -> schedule
+      do_methods: [do]
 
 # Deterministic risk severity (format spec §3.8). Covered by rules_hash; a manifest
 # `rules_overlay` may change any weight.

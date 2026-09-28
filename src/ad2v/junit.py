@@ -87,6 +87,17 @@ def match_case(classname: str, name: str, file_attr: str | None, graph: ir.Graph
     return None, "not_found"
 
 
+def files_hash(paths: list[Path], repo: Path) -> str:
+    """test_results_hash of the given files, without parsing them (used before extraction)."""
+    files = {}
+    for path in paths:
+        path = Path(path)
+        if not path.is_file():
+            raise JUnitError(f"test results file not found: {path}")
+        files[_source_name(path, repo)] = ids.content_hash(ids.read_normalized(path))
+    return ids.tree_hash(files)
+
+
 def ingest(paths: list[Path], repo: Path, graph: ir.Graph) -> Ingested:
     out = Ingested()
     for path in sorted(paths, key=lambda p: _source_name(Path(p), repo)):

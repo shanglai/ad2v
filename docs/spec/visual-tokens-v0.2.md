@@ -26,7 +26,7 @@ fails if two statuses share a signature.
 | `orphan` | `status.orphan` | dashed | tinted | none | regular |
 | `missing` | `status.missing` | dotted | **hollow** (no fill) | none | regular |
 | `needs_review` | `status.needs_review` | dash-dot | tinted | none | regular |
-| `stale` (reserved, P3) | `status.stale` | solid | tinted | clock badge | regular |
+| `stale` | `status.stale` | solid | tinted | clock badge | regular |
 | `none` (no coverage applies) | `status.none` | solid | tinted | none | **thin** |
 
 Reference dash patterns at 2.2 px stroke: dotted `1.5 4.5` (round caps), dashed `7 5`,

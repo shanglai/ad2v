@@ -12,6 +12,7 @@ Pipeline (all passes iterate in sorted, source order):
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,14 +25,13 @@ from tree_sitter import Node as TSNode
 from ad2v import ids, ir
 from ad2v import rules as rules_mod
 from ad2v.extract.code.base import CodeFacts, Event, Layout
+from ad2v.extract.code.python_local import LOCAL_EXTRACTOR_VERSION, find_node, import_ops, local_facts
 from ad2v.extract.files import SourceFile
 from ad2v.manifest import Config
 from ad2v.resources import python_rules_path
 
 PY_LANGUAGE = Language(tsp.language())
 
-SPEC_ID_RE = re.compile(r"\b([A-Z][A-Z0-9]*-[0-9]+)\b")
-AD2V_MARK_RE = re.compile(r"\bad2v:\s*(.+)$")
 IO_KINDS = frozenset({"datastore", "external_service", "queue"})
 SLOW_TX_KINDS = frozenset({"external_service", "llm_endpoint", "queue"})
 COMPREHENSIONS = frozenset(
@@ -266,26 +266,19 @@ def join_route(*parts: str) -> str:
     return "/" + joined
 
 
-def _param_info(fn: TSNode) -> dict[str, Any]:
-    """Parameter names in order (without self/cls) and whether **kwargs is present."""
-    names: list[str] = []
-    var_kw = False
-    params = fn.child_by_field_name("parameters")
-    for p in params.named_children if params is not None else []:
-        first = p.named_children[0] if p.named_children else None
-        if "dictionary_splat_pattern" in (p.type, first.type if first is not None else ""):
-            var_kw = True
-        elif p.type == "identifier":
-            names.append(_text(p))
-        elif p.type in ("typed_parameter", "default_parameter", "typed_default_parameter"):
-            ident = p.child_by_field_name("name") or next(
-                (c for c in p.named_children if c.type == "identifier"), None
-            )
-            if ident is not None:
-                names.append(_text(ident))
-    if names and names[0] in ("self", "cls"):
-        names = names[1:]
-    return {"params": names, "var_kwargs": var_kw}
+def _is_main_guard(cond: TSNode) -> bool:
+    """`__name__ == "__main__"` (either order, either quote style)."""
+    if cond.type != "comparison_operator":
+        return False
+    parts = [c for c in cond.named_children]
+    if len(parts) != 2:
+        return False
+    texts = {
+        _text(parts[0]).strip(),
+        (_string_value(parts[1]) or "") if parts[1].type == "string" else _text(parts[1]),
+    }
+    texts |= {(_string_value(parts[0]) or "") if parts[0].type == "string" else _text(parts[0])}
+    return "__name__" in texts and "__main__" in texts and "==" in _text(cond)
 
 
 def dotted_text(n: TSNode) -> str | None:
@@ -346,6 +339,20 @@ class PythonExtractor:
         self.click_decos = set(cli.get("click_decorators", []))
         self.click_group_decos = set(cli.get("click_group_decorators", []))
         self.event_rules = ports.get("events", [])
+        ep = ports.get("entry_points", {})
+        self.main_block = bool(ep.get("main_block", False))
+        cel = ep.get("celery", {})
+        self.celery_ctors = set(cel.get("app_constructors", []))
+        self.celery_task_decos = set(cel.get("task_decorators", []))
+        self.celery_task_methods = set(cel.get("app_task_methods", []))
+        self.celery_beat_names = set(cel.get("beat_schedule_names", []))
+        aps = ep.get("apscheduler", {})
+        self.aps_ctors = set(aps.get("scheduler_constructors", []))
+        self.aps_add = set(aps.get("add_job_methods", []))
+        self.aps_decos = set(aps.get("decorator_methods", []))
+        sch = ep.get("schedule", {})
+        self.schedule_every = set(sch.get("every_callables", []))
+        self.schedule_do = set(sch.get("do_methods", []))
 
         # state
         self.graph: ir.Graph
@@ -364,18 +371,46 @@ class PythonExtractor:
         self.mounts: dict[tuple[str, str], list[tuple[tuple[str, str] | None, str]]] = {}
         self.event_ports: list[dict[str, Any]] = []
         self.click_groups: set[str] = set()
+        self.click_group_info: dict[str, tuple[str, str | None]] = {}  # group id -> (name, parent group id)
         self.ports: set[tuple[str, str]] = set()  # (port id, handler id)
+        self.entry_decls: list[dict[str, Any]] = []  # non-framework entry points (ADR-0021)
+        self.cache_hits = 0
+        self.timings = {"parse": 0.0, "local_facts": 0.0, "apply_local": 0.0, "global_walk": 0.0}
+        self.cache_misses = 0
+        self.new_cache_entries: dict[str, tuple[str, dict[str, Any]]] = {}  # path -> (hash, local facts)
 
     # =========================================================================================
     # entry point
     # =========================================================================================
 
-    def extract(self, graph: ir.Graph, layout: Layout, files: list[SourceFile]) -> CodeFacts:
+    def extract(
+        self,
+        graph: ir.Graph,
+        layout: Layout,
+        files: list[SourceFile],
+        cache: dict[tuple[str, str], dict[str, Any]] | None = None,
+    ) -> CodeFacts:
+        """Extract `files`. `cache` maps (path, content_hash) -> local facts (python_local)."""
         self.graph, self.layout = graph, layout
         facts = CodeFacts()
+        cache = cache or {}
+        local: dict[str, dict[str, Any]] = {}
+        clock = time.perf_counter
         for f in files:
             facts.files_read[f.path] = f.content_hash
+            t0 = clock()
             tree = self.parser.parse(f.text.encode("utf-8"))
+            t1 = clock()
+            self.timings["parse"] += t1 - t0
+            lf = cache.get((f.path, f.content_hash))
+            if lf is not None and lf.get("v") == LOCAL_EXTRACTOR_VERSION:
+                self.cache_hits += 1
+            else:
+                lf = local_facts(f.path, f.text, tree.root_node)
+                self.new_cache_entries[f.path] = (f.content_hash, lf)
+                self.cache_misses += 1
+            self.timings["local_facts"] += clock() - t1
+            local[f.path] = lf
             container = layout.container_for(f.path)
             parent = layout.parent_for_module(f.path)
             node = graph.add_node(
@@ -387,29 +422,34 @@ class PythonExtractor:
                     parent_id=parent,
                     path=f.path,
                     span_start_line=1,
-                    span_end_line=max(1, f.text.count("\n") + (0 if f.text.endswith("\n") else 1)),
+                    span_end_line=lf["end_line"],
                     content_hash=f.content_hash,
                     attrs={"language": "python"},
                 )
             )
             self.modules[f.path] = ModuleInfo(f.path, f.text, tree, node, container.name)
+        t0 = clock()
         self._build_index()
         for m in self._sorted_modules():
-            self._structure(m)
+            self._apply_defs(m, local[m.path])
         for m in self._sorted_modules():
-            self._imports(m)
+            self._apply_imports(m, local[m.path])
         for m in self._sorted_modules():
-            self._spec_refs(m)
+            self._apply_refs(m, local[m.path])
+        t1 = clock()
+        self.timings["apply_local"] += t1 - t0
         for m in self._sorted_modules():
             self._walk_module(m)
         for m in self._sorted_modules():
             for fi in m.functions:
                 self._walk_function(fi)
+        self._resolve_click_groups()
         for m in self._sorted_modules():
             for fi in m.functions:
                 self._ports_from_decorators(fi)
         self._finalize_behaviors(facts)
         self._finalize_ports(facts)
+        self.timings["global_walk"] += clock() - t1
         return facts
 
     def _sorted_modules(self) -> list[ModuleInfo]:
@@ -471,241 +511,109 @@ class PythonExtractor:
     # pass 2: structure
     # =========================================================================================
 
-    def _structure(self, m: ModuleInfo) -> None:
-        self._collect_defs(m, m.tree.root_node, m.node, None, None, top=True)
-
-    def _collect_defs(
-        self,
-        m: ModuleInfo,
-        body: TSNode,
-        parent: ir.Node,
-        class_info: ClassInfo | None,
-        parent_func: FuncInfo | None,
-        top: bool,
-    ) -> None:
-        for child in body.named_children:
-            outer = child
-            decorators: list[TSNode] = []
-            target = child
-            if child.type == "decorated_definition":
-                decorators = [d for d in child.named_children if d.type == "decorator"]
-                target = child.child_by_field_name("definition") or child
-            if target.type == "function_definition":
-                self._add_function(m, target, outer, decorators, parent, class_info, parent_func, top)
-            elif target.type == "class_definition":
-                self._add_class(m, target, outer, parent, parent_func, top)
-            elif target.type in (
-                "if_statement",
-                "try_statement",
-                "else_clause",
-                "elif_clause",
-                "except_clause",
-                "finally_clause",
-                "block",
-                "with_statement",
-                "for_statement",
-                "while_statement",
-            ):
-                # conditional definitions (if TYPE_CHECKING, try/except ImportError, …)
-                for sub in target.named_children:
-                    if sub.type in ("block", "else_clause", "elif_clause", "except_clause", "finally_clause"):
-                        self._collect_defs(m, sub, parent, class_info, parent_func, top)
-
-    def _qname_prefix(self, parent: ir.Node, m: ModuleInfo) -> str:
-        return f"{m.path}::" if parent.kind == "module" else f"{parent.qualified_name}."
-
     def _span_text(self, m: ModuleInfo, start: int, end: int) -> str:
         lines = m.text.split("\n")
         return "\n".join(lines[start - 1 : end])
 
-    def _add_function(
-        self,
-        m: ModuleInfo,
-        fn: TSNode,
-        outer: TSNode,
-        decorators: list[TSNode],
-        parent: ir.Node,
-        class_info: ClassInfo | None,
-        parent_func: FuncInfo | None,
-        top: bool,
-    ) -> None:
-        name = _text(fn.child_by_field_name("name"))
-        qname = self._qname_prefix(parent, m) + name
-        start, end = _line(outer), _end_line(outer)
-        is_test = bool(re.match(r"(test_.*|.*_test)\.py$", m.path.rsplit("/", 1)[-1])) and name.startswith(
-            "test"
-        )
-        attrs = {
-            "async": any(c.type == "async" for c in fn.children),
-            "decorators": [
-                dotted_text(self._deco_callee(d)) or _text(d)[1:].split("(")[0] for d in decorators
-            ],
-            "is_test": is_test,
-            **_param_info(fn),
-        }
-        node = self.graph.add_node(
-            ir.Node(
-                "code",
-                "function",
-                name,
-                qname,
-                parent_id=parent.id,
-                path=m.path,
-                span_start_line=start,
-                span_end_line=end,
-                content_hash=ids.content_hash(self._span_text(m, start, end)),
-                attrs=attrs,
+    def _apply_defs(self, m: ModuleInfo, lf: dict[str, Any]) -> None:
+        """Create class/function nodes and structure records from local facts (cached or fresh)."""
+        root = m.tree.root_node
+        for d in lf["defs"]:
+            pkind, pq = d["parent"]
+            parent_id = m.node.id if pkind == "module" else ids.node_id("code", pkind, pq)
+            kind = "function" if d["k"] == "f" else "class"
+            start, end = d["span"]
+            node = self.graph.add_node(
+                ir.Node(
+                    "code",
+                    kind,
+                    d["name"],
+                    d["qname"],
+                    parent_id=parent_id,
+                    path=m.path,
+                    span_start_line=start,
+                    span_end_line=end,
+                    content_hash=d["hash"],
+                    attrs=dict(d["attrs"]),
+                )
             )
-        )
-        fi = FuncInfo(
-            node,
-            fn,
-            outer,
-            m,
-            class_info.node.qualified_name if class_info else None,
-            parent_func,
-            decorators,
-        )
-        if node.id in self.funcs:
-            fi = self.funcs[node.id]  # duplicate definition (e.g. if/else): first wins
-        else:
-            self.funcs[node.id] = fi
-            m.functions.append(fi)
-        if top:
-            m.top_defs.setdefault(name, node.id)
-        if class_info is not None:
-            class_info.methods.setdefault(name, node.id)
-        if parent_func is not None:
-            parent_func.local_defs.setdefault(name, node.id)
-        body = fn.child_by_field_name("body")
-        if body is not None:
-            self._collect_defs(m, body, node, None, fi, top=False)
-
-    def _add_class(
-        self,
-        m: ModuleInfo,
-        cls: TSNode,
-        outer: TSNode,
-        parent: ir.Node,
-        parent_func: FuncInfo | None,
-        top: bool,
-    ) -> None:
-        name = _text(cls.child_by_field_name("name"))
-        qname = self._qname_prefix(parent, m) + name
-        start, end = _line(outer), _end_line(outer)
-        node = self.graph.add_node(
-            ir.Node(
-                "code",
-                "class",
-                name,
-                qname,
-                parent_id=parent.id,
-                path=m.path,
-                span_start_line=start,
-                span_end_line=end,
-                content_hash=ids.content_hash(self._span_text(m, start, end)),
-                attrs={},
-            )
-        )
-        ci = self.classes.get(qname)
-        if ci is None:
-            supers = cls.child_by_field_name("superclasses")
-            ci = ClassInfo(
-                node,
-                cls,
-                m,
-                bases=[
-                    b
-                    for b in (supers.named_children if supers else [])
-                    if b.type in ("identifier", "attribute")
-                ],
-            )
-            self.classes[qname] = ci
-        if top:
-            m.top_defs.setdefault(name, node.id)
-        if parent_func is not None:
-            parent_func.local_defs.setdefault(name, node.id)
-        body = cls.child_by_field_name("body")
-        if body is not None:
-            self._collect_defs(m, body, node, ci, parent_func, top=False)
-
-    @staticmethod
-    def _deco_callee(d: TSNode) -> TSNode:
-        expr = d.named_children[0] if d.named_children else d
-        return expr.child_by_field_name("function") if expr.type == "call" else expr
+            ts_type = "function_definition" if kind == "function" else "class_definition"
+            ts = find_node(root, d["ts"], ts_type)
+            outer = find_node(root, d["outer"], d["outer_type"])
+            parent_func = self.funcs.get(ids.node_id("code", "function", d["pfunc"])) if d["pfunc"] else None
+            if kind == "function":
+                class_info = self.classes.get(d["class"]) if d["class"] else None
+                decorators = [find_node(root, r, "decorator") for r in d["decos"]]
+                fi = FuncInfo(
+                    node,
+                    ts,
+                    outer,
+                    m,
+                    class_info.node.qualified_name if class_info else None,
+                    parent_func,
+                    decorators,
+                )
+                if node.id not in self.funcs:  # duplicate definition (e.g. if/else): first wins
+                    self.funcs[node.id] = fi
+                    m.functions.append(fi)
+                if class_info is not None:
+                    class_info.methods.setdefault(d["name"], node.id)
+            else:
+                if d["qname"] not in self.classes:
+                    bases = [find_node(root, [b[0], b[1]], b[2]) for b in d["bases"]]
+                    self.classes[d["qname"]] = ClassInfo(node, ts, m, bases=bases)
+            if d["top"]:
+                m.top_defs.setdefault(d["name"], node.id)
+            if parent_func is not None:
+                parent_func.local_defs.setdefault(d["name"], node.id)
 
     # -- imports and module-level assignments --------------------------------------------------
 
-    def _imports(self, m: ModuleInfo) -> None:
-        def visit(n: TSNode, in_def: bool) -> None:
-            for c in n.named_children:
-                if c.type == "import_statement":
-                    self._import_stmt(m, c)
-                elif c.type == "import_from_statement":
-                    self._import_from(m, c)
-                elif c.type in ("function_definition", "class_definition", "decorated_definition"):
-                    visit(c, True)
-                elif c.type == "expression_statement" and not in_def:
-                    a = c.named_children[0] if c.named_children else None
-                    if a is not None and a.type == "assignment":
-                        left = a.child_by_field_name("left")
-                        right = a.child_by_field_name("right")
-                        if left is not None and left.type == "identifier" and right is not None:
-                            m.raw_bindings[_text(left)] = ("expr", right)
-                else:
-                    visit(c, in_def)
+    def _apply_imports(self, m: ModuleInfo, lf: dict[str, Any]) -> None:
+        root = m.tree.root_node
+        for op in lf["ops"]:
+            kind = op[0]
+            if kind == "imp_root":
+                _, first, fq, line = op
+                m.raw_bindings.setdefault(first, ("import", first))
+                self._add_import_edge(m, self.resolve_fq(fq, m), line)
+            elif kind == "imp_alias":
+                _, alias, fq, line = op
+                m.raw_bindings[alias] = ("import", fq)
+                self._add_import_edge(m, self.resolve_fq(fq, m), line)
+            elif kind == "from_abs":
+                _, alias, dotted, name, line = op
+                m.raw_bindings[alias] = ("import", f"{dotted}.{name}")
+                self._add_import_edge(m, self.resolve_fq(f"{dotted}.{name}", m), line)
+            elif kind == "from_rel":
+                _, alias, base, dotted, name, line = op
+                v = self._relative(base, dotted, name)
+                m.raw_bindings[alias] = ("value", v)
+                self._add_import_edge(m, v, line)
+            elif kind == "assign":
+                _, name, rng, type_ = op
+                m.raw_bindings[name] = ("expr", find_node(root, rng, type_))
 
-        visit(m.tree.root_node, False)
+    def _local_import(self, n: TSNode, ctx: Ctx) -> None:
+        """An import inside a function binds in the function's scope and shadows module names."""
+        m = ctx.module
+        for op in import_ops(n, m.path):
+            kind = op[0]
+            if kind == "imp_root":
+                name, v = op[1], self.resolve_fq(op[1], m)
+            elif kind == "imp_alias":
+                name, v = op[1], self.resolve_fq(op[2], m)
+            elif kind == "from_abs":
+                name, v = op[1], self.resolve_fq(f"{op[2]}.{op[3]}", m)
+            else:  # from_rel
+                name, v = op[1], self._relative(op[2], op[3], op[4])
+            if isinstance(v, RepoSym) and v.attrs:
+                v = self.lookup(v)
+            ctx.local[name] = v
 
     def _add_import_edge(self, m: ModuleInfo, v: Value, line: int) -> None:
         if isinstance(v, RepoSym) and v.module != m.path:
             self.graph.add_edge(m.node.id, self.modules[v.module].node.id, "imports", lines=[line])
-
-    def _import_stmt(self, m: ModuleInfo, n: TSNode) -> None:
-        for c in n.named_children:
-            if c.type == "dotted_name":
-                fq = _text(c)
-                root = fq.split(".")[0]
-                m.raw_bindings.setdefault(root, ("import", root))
-                self._add_import_edge(m, self.resolve_fq(fq, m), _line(n))
-            elif c.type == "aliased_import":
-                fq = _text(c.child_by_field_name("name"))
-                alias = _text(c.child_by_field_name("alias"))
-                m.raw_bindings[alias] = ("import", fq)
-                self._add_import_edge(m, self.resolve_fq(fq, m), _line(n))
-
-    def _import_from(self, m: ModuleInfo, n: TSNode) -> None:
-        mod = n.child_by_field_name("module_name")
-        if mod is None:
-            return
-        relative_base: str | None = None
-        dotted = ""
-        if mod.type == "relative_import":
-            prefix = next((c for c in mod.children if c.type == "import_prefix"), None)
-            dots = len(_text(prefix)) if prefix is not None else 1
-            dn = next((c for c in mod.named_children if c.type == "dotted_name"), None)
-            dotted = _text(dn) if dn is not None else ""
-            parts = m.path.split("/")[:-1]
-            up = dots - 1
-            if up > len(parts):
-                return
-            relative_base = "/".join(parts[: len(parts) - up])
-        else:
-            dotted = _text(mod)
-        names = [c for c in n.children_by_field_name("name")]
-        for c in names:
-            if c.type == "aliased_import":
-                name = _text(c.child_by_field_name("name"))
-                alias = _text(c.child_by_field_name("alias"))
-            else:
-                name = alias = _text(c)
-            if relative_base is not None:
-                v = self._relative(relative_base, dotted, name)
-                m.raw_bindings[alias] = ("value", v)
-            else:
-                m.raw_bindings[alias] = ("import", f"{dotted}.{name}")
-                v = self.resolve_fq(f"{dotted}.{name}", m)
-            self._add_import_edge(m, v, _line(n))
 
     def _relative(self, base_dir: str, dotted: str, name: str) -> Value:
         if dotted:
@@ -1037,59 +945,12 @@ class PythonExtractor:
     # pass 3: explicit spec references
     # =========================================================================================
 
-    def _spec_refs(self, m: ModuleInfo) -> None:
-        spans: list[tuple[int, int, int, str]] = []  # (start, end, -depth, node id)
-        for fi in m.functions:
-            spans.append((fi.node.span_start_line or 0, fi.node.span_end_line or 0, 0, fi.node.id))
-        for ci in self.classes.values():
-            if ci.module is m:
-                spans.append((ci.node.span_start_line or 0, ci.node.span_end_line or 0, 0, ci.node.id))
-        starts = {s: nid for s, _, _, nid in sorted(spans, key=lambda x: (x[0], -(x[1] - x[0])))}
-        lines = m.text.split("\n")
-
-        def owner_of(line: int) -> str:
-            j = line  # 0-based index of the next line: contiguous comment block directly above a def?
-            while j < len(lines) and lines[j].strip().startswith("#"):
-                j += 1
-            if lines[line - 1].strip().startswith("#") and (j + 1) in starts:
-                return starts[j + 1]
-            inside = [(e - s, nid) for s, e, _, nid in spans if s <= line <= e]
-            if inside:
-                return sorted(inside)[0][1]
-            return m.node.id
-
-        def visit(n: TSNode) -> None:
-            if n.type == "comment":
-                mm = AD2V_MARK_RE.search(_text(n))
-                if mm:
-                    refs = SPEC_ID_RE.findall(mm.group(1))
-                    if refs:
-                        self._add_refs(owner_of(_line(n)), refs, "comment")
-                return
-            for c in n.children:
-                visit(c)
-
-        visit(m.tree.root_node)
-        # docstrings
-        targets: list[tuple[str, TSNode | None]] = [(m.node.id, m.tree.root_node)]
-        targets += [(fi.node.id, fi.ts.child_by_field_name("body")) for fi in m.functions]
-        targets += [
-            (ci.node.id, ci.ts.child_by_field_name("body")) for ci in self.classes.values() if ci.module is m
-        ]
-        for nid, body in targets:
-            if body is None or not body.named_children:
-                continue
-            first = body.named_children[0]
-            if (
-                first.type == "expression_statement"
-                and first.named_children
-                and first.named_children[0].type == "string"
-            ):
-                for ln in (_string_value(first.named_children[0]) or "").split("\n"):
-                    mm = AD2V_MARK_RE.search(ln.strip())
-                    if mm:
-                        self._add_refs(nid, SPEC_ID_RE.findall(mm.group(1)), "docstring")
-        # test names
+    def _apply_refs(self, m: ModuleInfo, lf: dict[str, Any]) -> None:
+        kinds = {"m": "module", "f": "function", "c": "class"}
+        for k, q, found, source in lf["refs"]:
+            nid = m.node.id if k == "m" else ids.node_id("code", kinds[k], q)
+            self._add_refs(nid, [r for r, _ in found], source, {r: fp for r, fp in found if fp})
+        # test names (config-dependent, so applied here rather than cached)
         prefixes = "|".join(re.escape(p.lower()) for p in self.config.test_ref_prefixes)
         if prefixes:
             pat = re.compile(rf"(?:^|_)({prefixes})_([0-9]+)(?=_|$)", re.IGNORECASE)
@@ -1099,12 +960,17 @@ class PythonExtractor:
                     if refs:
                         self._add_refs(fi.node.id, refs, "test_name")
 
-    def _add_refs(self, nid: str, refs: list[str], source: str) -> None:
+    def _add_refs(
+        self, nid: str, refs: list[str], source: str, fingerprints: dict[str, str] | None = None
+    ) -> None:
         node = self.graph.nodes[nid]
         node.spec_ref = sorted(set(node.spec_ref) | set(refs))
         srcs = node.attrs.setdefault("spec_ref_sources", {})
         for r in refs:
             srcs[r] = sorted(set(srcs.get(r, [])) | {source})
+        if fingerprints:  # `# ad2v: REQ-012@1a2b3c4d` re-annotation (format spec §6.6)
+            fps = node.attrs.setdefault("spec_ref_fingerprints", {})
+            fps.update(fingerprints)
 
     # =========================================================================================
     # pass 4: bodies
@@ -1113,6 +979,22 @@ class PythonExtractor:
     def _walk_module(self, m: ModuleInfo) -> None:
         ctx = Ctx(m.node.id, m.path, m, None, None, {})
         self._walk_block(m.tree.root_node, ctx)
+        if self.main_block:
+            for stmt in m.tree.root_node.named_children:
+                cond = stmt.child_by_field_name("condition") if stmt.type == "if_statement" else None
+                if cond is not None and _is_main_guard(cond):
+                    self.entry_decls.append(
+                        {
+                            "kind": "cli_command",
+                            "trigger": "main",
+                            "handler": m.node.id,
+                            "module": m.path,
+                            "qname": f"cli:{m.container}:__main__:{m.path}",
+                            "name": f"__main__ ({m.path})",
+                            "attrs": {"command": "__main__", "framework": "python"},
+                            "span": [_line(stmt), _end_line(stmt)],
+                        }
+                    )
         for ci in [c for c in self.classes.values() if c.module is m]:
             body = ci.ts.child_by_field_name("body")
             cctx = Ctx(ci.node.id, ci.node.qualified_name, m, None, ci.node.qualified_name, {})
@@ -1204,7 +1086,7 @@ class PythonExtractor:
             start=start,
             end=end,
             text=self._span_text(ctx.module, start, end),
-            attrs=attrs,
+            attrs={**attrs, "header": head},
         )
         if parent is not None:
             parent.children.append(cand)
@@ -1269,11 +1151,19 @@ class PythonExtractor:
         if t == "call":
             self._handle_call(n, ctx)
             return
+        if t in ("import_statement", "import_from_statement"):
+            if ctx.func is not None:  # module-level imports are bound by the local facts
+                self._local_import(n, ctx)
+            return
         if t == "assignment":
             right = n.child_by_field_name("right")
             if right is not None:
                 self._walk(right, ctx)
             left = n.child_by_field_name("left")
+            if left is not None and right is not None and _unwrap(right).type == "dictionary":
+                target = dotted_text(left) or ""
+                if target.rsplit(".", 1)[-1] in self.celery_beat_names:
+                    self._beat_schedule(_unwrap(right), ctx)
             is_module_scope = ctx.func is None and ctx.class_qname is None  # module_value() owns these
             if left is not None and left.type == "identifier" and right is not None and not is_module_scope:
                 ctx.local[_text(left)] = self.eval(right, ctx)
@@ -1361,6 +1251,14 @@ class PythonExtractor:
         fn_node = call.child_by_field_name("function")
         callee = self.eval(fn_node, ctx)
         pos, kw, raw = _call_args(call)
+        if (
+            fn_node is not None
+            and fn_node.type == "attribute"
+            and _text(fn_node.child_by_field_name("attribute")) in self.schedule_do
+            and pos
+            and self._chain_calls(fn_node.child_by_field_name("object"), self.schedule_every, ctx)
+        ):
+            self._scheduled_entry(pos[0], "schedule", "schedule", call, ctx)
         args_done = False
         target = self._callable_target(callee)
         if target is not None:
@@ -1490,6 +1388,10 @@ class PythonExtractor:
                     if k in kw:
                         prefix = _string_value(_unwrap(kw[k])) or ""
                 self.mounts.setdefault(inner.origin, []).append((obj.origin, prefix))
+        if obj.ctor in self.aps_ctors and method in self.aps_add:
+            fn_ref = kw.get("func") or (pos[0] if pos else None)
+            if fn_ref is not None:
+                self._scheduled_entry(fn_ref, "apscheduler", "apscheduler", call, ctx)
         for rule in self.event_rules:
             if obj.ctor == rule["constructor"] and method == rule["method"]:
                 cb = kw.get(rule.get("callback_kwarg", "callback"))
@@ -1578,6 +1480,10 @@ class PythonExtractor:
                         name or fi.node.name,
                         {"tool_name": name or fi.node.name, "framework": obj.ctor.split(".")[0]},
                     )
+                elif obj.ctor in self.celery_ctors and meth in self.celery_task_methods:
+                    self._event_entry(fi.node.id, "celery_task", "celery", {})
+                elif obj.ctor in self.aps_ctors and meth in self.aps_decos:
+                    self._event_entry(fi.node.id, "apscheduler", "apscheduler", {})
                 elif obj.ctor in self.typer_ctors and meth in self.typer_decos:
                     name = _string_value(_unwrap(kw["name"])) if "name" in kw else first
                     cmd = name or fi.node.name.replace("_", "-")
@@ -1588,17 +1494,17 @@ class PythonExtractor:
                         cmd,
                         {"command": cmd, "framework": "typer"},
                     )
+            elif isinstance(v, ExtSym) and v.fq in self.celery_task_decos:
+                self._event_entry(fi.node.id, "celery_task", "celery", {})
             elif isinstance(v, ExtSym) and v.fq in self.click_decos:
                 name = _string_value(_unwrap(kw["name"])) if "name" in kw else first
                 cmd = name or fi.node.name.replace("_", "-")
-                if v.fq.endswith(".group"):
-                    self.click_groups.add(fi.node.id)
                 self._make_port(
                     fi,
                     "cli_command",
                     f"cli:{fi.module.container}:{cmd}",
                     cmd,
-                    {"command": cmd, "framework": "click"},
+                    {"command": cmd, "framework": "click", "trigger": "click"},
                 )
             if callee_node is not None and callee_node.type == "attribute":
                 base = self.eval(callee_node.child_by_field_name("object"), mctx)
@@ -1606,14 +1512,132 @@ class PythonExtractor:
                 gid = self._callable_target(base)
                 if gid is not None and gid in self.click_groups and meth in self.click_group_decos:
                     name = _string_value(_unwrap(kw["name"])) if "name" in kw else first
-                    cmd = name or fi.node.name.replace("_", "-")
+                    cmd = " ".join([*self._click_group_path(gid), name or fi.node.name.replace("_", "-")])
                     self._make_port(
                         fi,
                         "cli_command",
                         f"cli:{fi.module.container}:{cmd}",
                         cmd,
-                        {"command": cmd, "framework": "click", "group": self.graph.nodes[gid].qualified_name},
+                        {
+                            "command": cmd,
+                            "framework": "click",
+                            "group": self.graph.nodes[gid].qualified_name,
+                            "trigger": "click",
+                        },
                     )
+
+    def _click_group_path(self, gid: str) -> list[str]:
+        """Names of the nested groups above a command, excluding the root group (the program itself)."""
+        path: list[str] = []
+        seen = set()
+        while gid in self.click_group_info and gid not in seen:
+            seen.add(gid)
+            name, parent = self.click_group_info[gid]
+            if parent is None:
+                break
+            path.insert(0, name)
+            gid = parent
+        return path
+
+    def _chain_calls(self, n: TSNode | None, fqs: set[str], ctx: Ctx) -> bool:
+        """Does an attribute/call chain (`schedule.every(5).minutes`) contain a call to one of `fqs`?"""
+        while n is not None and n.type in ("attribute", "call"):
+            if n.type == "call":
+                v = self.eval(n.child_by_field_name("function"), ctx)
+                if isinstance(v, ExtSym) and v.fq in fqs:
+                    return True
+                n = n.child_by_field_name("function")
+            else:
+                n = n.child_by_field_name("object")
+        return False
+
+    def _scheduled_entry(self, fn_ref: TSNode, trigger: str, framework: str, at: TSNode, ctx: Ctx) -> None:
+        handler = self._callable_target(self.eval(fn_ref, ctx))
+        if handler is None:
+            return
+        self._event_entry(handler, trigger, framework, {"line": _line(at)})
+
+    def _event_entry(self, handler: str, trigger: str, framework: str, extra: dict[str, Any]) -> None:
+        h = self.graph.nodes[handler]
+        m = self.modules.get(h.path, None)
+        if m is None:
+            return
+        self.entry_decls.append(
+            {
+                "kind": "event_consumer",
+                "trigger": trigger,
+                "handler": handler,
+                "module": m.path,
+                "qname": f"event:{m.container}:{trigger}:{h.qualified_name}",
+                "name": h.name,
+                "attrs": {"framework": framework, **{k: v for k, v in extra.items() if k != "line"}},
+                "span": None,
+            }
+        )
+
+    def _beat_schedule(self, d: TSNode, ctx: Ctx) -> None:
+        """Celery beat: {"name": {"task": "pkg.mod.fn", ...}} -> an entry per resolvable task."""
+        for pair in d.named_children:
+            if pair.type != "pair":
+                continue
+            key, value = pair.child_by_field_name("key"), pair.child_by_field_name("value")
+            if value is None or _unwrap(value).type != "dictionary":
+                continue
+            for inner in _unwrap(value).named_children:
+                if inner.type != "pair":
+                    continue
+                ik, iv = inner.child_by_field_name("key"), inner.child_by_field_name("value")
+                if ik is None or iv is None or _string_value(_unwrap(ik)) != "task":
+                    continue
+                task = _string_value(_unwrap(iv))
+                target = self._callable_target(self.resolve_fq(task, ctx.module)) if task else None
+                if target is not None:
+                    name = _string_value(_unwrap(key)) if key is not None else None
+                    self._event_entry(target, "celery_beat", "celery", {"schedule_name": name})
+
+    def _resolve_click_groups(self) -> None:
+        """Click groups, including nested ones (`@cli.group()` under `@click.group()`): a fixpoint."""
+        changed = True
+        while changed:
+            changed = False
+            for m in self._sorted_modules():
+                mctx = Ctx(m.node.id, m.path, m, None, None, {})
+                for fi in m.functions:
+                    if fi.node.id in self.click_groups:
+                        continue
+                    for d in fi.decorators:
+                        expr = d.named_children[0] if d.named_children else None
+                        if expr is None:
+                            continue
+                        callee = expr.child_by_field_name("function") if expr.type == "call" else expr
+                        v = self.eval(callee, mctx)
+                        is_group = (
+                            isinstance(v, ExtSym) and v.fq in self.click_decos and v.fq.endswith(".group")
+                        )
+                        parent = None
+                        if not is_group and callee is not None and callee.type == "attribute":
+                            base = self._callable_target(
+                                self.eval(callee.child_by_field_name("object"), mctx)
+                            )
+                            meth = _text(callee.child_by_field_name("attribute"))
+                            is_group = base in self.click_groups and meth == "group"
+                            parent = base if is_group else None
+                        if is_group:
+                            self.click_groups.add(fi.node.id)
+                            name = None
+                            if expr.type == "call":
+                                pos, kw, _ = _call_args(expr)
+                                name = (
+                                    _string_value(_unwrap(kw["name"] if "name" in kw else pos[0]))
+                                    if ("name" in kw or pos)
+                                    else None
+                                )
+                            self.click_group_info[fi.node.id] = (
+                                name or fi.node.name.replace("_", "-"),
+                                parent,
+                            )
+                            changed = True
+                            break
 
     def _make_port(
         self,
@@ -1624,6 +1648,7 @@ class PythonExtractor:
         attrs: dict[str, Any],
         handler: str | None = None,
         container: str | None = None,
+        span: list[int] | None = None,
     ) -> None:
         hid = handler or (fi.node.id if fi else None)
         if hid is None:
@@ -1642,8 +1667,8 @@ class PythonExtractor:
                 qname,
                 parent_id=cont.id,
                 path=hnode.path,
-                span_start_line=hnode.span_start_line,
-                span_end_line=hnode.span_start_line,
+                span_start_line=span[0] if span else hnode.span_start_line,
+                span_end_line=span[1] if span else hnode.span_start_line,
                 attrs=attrs,
                 content_hash=ids.attrs_hash(kind, name, attrs),
             )
@@ -1689,6 +1714,18 @@ class PythonExtractor:
                 {"framework": ep["framework"], "source": ep["source"]},
                 handler=ep["handler"],
                 container=self.modules[ep["module"]].container,
+            )
+        for e in sorted(self.entry_decls, key=lambda x: (x["qname"], x["handler"])):
+            attrs = {**e["attrs"], "trigger": e["trigger"]}
+            self._make_port(
+                None,
+                e["kind"],
+                e["qname"],
+                e["name"],
+                attrs,
+                handler=e["handler"],
+                container=self.modules[e["module"]].container,
+                span=e["span"],
             )
         facts.entry_ports = sorted(self.ports)
 

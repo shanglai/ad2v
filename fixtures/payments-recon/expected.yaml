@@ -11,7 +11,7 @@ counts:
   function: 27
   http_route: 6
   mcp_tool: 1
-  cli_command: 2
+  cli_command: 3         # 2 Typer commands + the `if __name__ == "__main__"` block (P3, ADR-0021)
   event_consumer: 1
   datastore: 1
   queue: 2
@@ -80,6 +80,7 @@ ports:
   cli_command:
     "cli:worker:run-nightly": worker/recon_worker/cli.py::run_nightly_cmd
     "cli:worker:listen-uploads": worker/recon_worker/cli.py::listen_uploads
+    "cli:worker:__main__:worker/recon_worker/cli.py": worker/recon_worker/cli.py   # handler = the module
   event_consumer:
     "event:worker:worker/recon_worker/events.py::handle_statement_uploaded": worker/recon_worker/events.py::handle_statement_uploaded
 
@@ -110,7 +111,7 @@ dangling_refs:
   - {src: api/recon_api/db.py::record_run, ref: REQ-099}
 
 workflows:
-  code: 10      # one per entry port
+  code: 11      # one per entry port
   spec: 3       # one per scenario (Background is prepended, not its own workflow)
   traces:       # workflow entry qname -> ordered qnames that must appear (subsequence)
     "http:api:POST /v1/reconciliations":
@@ -165,6 +166,7 @@ statuses:
     - [http_route, "http:worker:GET /v1/health", needs_review]
     - [mcp_tool, "mcp:api:reconciliation_summary", implemented]           # via its annotated handler
     - [cli_command, "cli:worker:run-nightly", implemented]                # inherited from container:worker
+    - [cli_command, "cli:worker:__main__:worker/recon_worker/cli.py", implemented]
     - [event_consumer, "event:worker:worker/recon_worker/events.py::handle_statement_uploaded", implemented]
     - [function, api/recon_api/db.py::record_run, needs_review]           # dangling REQ-099
     - [function, api/recon_api/matching.py::match_batch, verified]
@@ -180,7 +182,7 @@ link_evidence:   # [spec qname, code qname, evidence kind]
 
 rollups:   # counts of effective statuses over all descendants
   container:api: {drift: 1, implemented: 7, needs_review: 2, none: 24, orphan: 3, verified: 8}
-  container:worker: {implemented: 16, needs_review: 1}
+  container:worker: {implemented: 17, needs_review: 1}
 
 severity_top3:   # overlay raises unbounded_retry base 4 -> 6: 6 x 1.5 = 9
   - [api/recon_api/bank_client.py::fetch_statement@retry#297043df, 9.0]

@@ -53,7 +53,8 @@ def test_ports_and_handlers(result):
         assert got == ports
         for port_q, handler_q in ports.items():
             p = node(g, kind, port_q)
-            assert (p.id, "calls", node(g, "function", handler_q).id) in g.edges
+            handler_kind = "module" if handler_q.endswith(".py") else "function"
+            assert (p.id, "calls", node(g, handler_kind, handler_q).id) in g.edges
             assert g.nodes[p.parent_id].kind == "container"
             assert (p.parent_id, "exposes", p.id) in g.edges
 

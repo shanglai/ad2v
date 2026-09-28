@@ -92,7 +92,31 @@ def _q(graph: ir.Graph, nid: str | None) -> str | None:
     return graph.nodes[nid].qualified_name if nid else None
 
 
+SPEC_ITEM_KINDS = frozenset({"requirement", "scenario", "spec_component", "spec_endpoint"})
+
+
+def spec_coverage(graph: ir.Graph) -> str:
+    """'present' if the epoch has any spec item, else 'none' (format spec §6.2, orphan_policy)."""
+    return "present" if any(n.kind in SPEC_ITEM_KINDS for n in graph.nodes.values()) else "none"
+
+
+def assigns_orphans(graph: ir.Graph, config: Config) -> bool:
+    if config.orphan_policy == "off":
+        return False
+    if config.orphan_policy == "auto":
+        return spec_coverage(graph) == "present"
+    return True
+
+
 def pair(graph: ir.Graph, config: Config, tests: dict[str, ir.TestResult] | None = None) -> PairingResult:
+    """Structural pairing and statuses for one epoch without history (see ad2v.history for stale)."""
+    links, warnings = pair_links(graph, config, tests)
+    return finalize(graph, links, warnings)
+
+
+def pair_links(
+    graph: ir.Graph, config: Config, tests: dict[str, ir.TestResult] | None = None
+) -> tuple[list[ir.Link], list[dict[str, Any]]]:
     tests = tests or {}
     nodes = graph.nodes
     links = _Links()
@@ -217,7 +241,10 @@ def pair(graph: ir.Graph, config: Config, tests: dict[str, ir.TestResult] | None
     code_linked = {lk.code_node_id for lk in links.all() if lk.code_node_id and lk.spec_node_id}
     structural_linked = {c for c in code_linked if nodes[c].kind in STRUCTURAL_ORPHAN_KINDS}
     anc = _ancestors(graph)
-    for nid in sorted(n for k in ORPHAN_KINDS for n in by_kind[k]):
+    orphan_candidates = (
+        sorted(n for k in ORPHAN_KINDS for n in by_kind[k]) if assigns_orphans(graph, config) else []
+    )
+    for nid in orphan_candidates:
         node = nodes[nid]
         if nid in code_linked:
             continue
@@ -227,9 +254,19 @@ def pair(graph: ir.Graph, config: Config, tests: dict[str, ir.TestResult] | None
             continue
         links.add(ir.Link(None, nid, "orphan", "none", [{"kind": "no_spec_link"}]))
 
-    all_links = links.all()
-    statuses = _node_statuses(graph, all_links, anc)
-    return PairingResult(all_links, statuses, _rollup(graph, statuses), warnings)
+    return links.all(), warnings
+
+
+def finalize(
+    graph: ir.Graph,
+    links: list[ir.Link],
+    warnings: list[dict[str, Any]] | None = None,
+    extra_reasons: dict[str, list[dict[str, Any]]] | None = None,
+) -> PairingResult:
+    """Effective node statuses and roll-ups from final link statuses (format spec §6.4)."""
+    links = sorted(links, key=lambda lk: lk.link_id)
+    statuses = _node_statuses(graph, links, _ancestors(graph), extra_reasons or {})
+    return PairingResult(links, statuses, _rollup(graph, statuses), list(warnings or []))
 
 
 def _handler(graph: ir.Graph, port: ir.Node) -> str | None:
@@ -283,7 +320,10 @@ def _ancestors(graph: ir.Graph) -> dict[str, list[str]]:
 
 
 def _node_statuses(
-    graph: ir.Graph, links: list[ir.Link], anc: dict[str, list[str]]
+    graph: ir.Graph,
+    links: list[ir.Link],
+    anc: dict[str, list[str]],
+    extra_reasons: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, ir.NodeStatus]:
     nodes = graph.nodes
     own: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -307,6 +347,9 @@ def _node_statuses(
                 own[nid].append({**r, "kind": "via_handler", "handler": _q(graph, h)})
     for u in graph.unresolved:
         own[u.src].append({"status": "needs_review", "kind": "unresolved_ref", "ref": u.ref})
+    for nid, extra in sorted((extra_reasons or {}).items()):
+        if nid in nodes:
+            own[nid].extend(extra)
 
     out: dict[str, ir.NodeStatus] = {}
     for nid in sorted(nodes, key=lambda x: (len(anc[x]), x)):  # parents before children

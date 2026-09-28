@@ -1,0 +1,98 @@
+# What `ad2v history` MUST produce for the scripted history of payments-recon (format v0.3).
+# The repo is built by tests/history_scenario.py (a temporary git repo); asserted by tests/test_history.py.
+# Command: ad2v history --repo <tmp>/payments-recon --spec specs --test-results test-results/junit.xml
+#          --commits <first>^!  then  --commits <first>..HEAD  --into h.ad2v
+# Statuses are effective node statuses; `links` are [spec, code, link status, [history evidence kinds]].
+
+epochs:
+  - commit: "1 baseline"
+    change_kind: initial
+    lineage: []
+    statuses:
+      - [spec, requirement, REQ-001, verified]
+      - [spec, requirement, REQ-002, verified]
+      - [spec, requirement, REQ-003, verified]
+      - [spec, requirement, REQ-007, specified]
+      - [spec, spec_endpoint, "POST /reconciliations/{run_id}/approve", missing]
+
+  - commit: "2 rename amounts_match -> amounts_equal"
+    change_kind: code
+    lineage:
+      - [api/recon_api/matching.py::amounts_match, api/recon_api/matching.py::amounts_equal, same_content]
+    statuses:
+      - [spec, requirement, REQ-003, verified]              # carried across the rename
+      - [code, function, api/recon_api/matching.py::amounts_equal, verified]
+      - [spec, requirement, REQ-002, stale]                 # match_batch's call site changed too (real edit)
+    links:
+      - [REQ-003, api/recon_api/matching.py::amounts_equal, verified, []]
+      - [REQ-002, api/recon_api/matching.py::match_batch, stale, [code_changed_unverified]]
+
+  - commit: "3 edit REQ-003 spec text"
+    change_kind: spec
+    lineage: []
+    statuses:
+      - [spec, requirement, REQ-003, stale]
+      - [code, function, api/recon_api/matching.py::amounts_equal, stale]
+    links:
+      - [REQ-003, api/recon_api/matching.py::amounts_equal, stale, [spec_changed_since]]
+      - [REQ-003, api/tests/test_matching.py::test_req_003_amounts_within_one_cent_match, stale, [spec_changed_since]]
+
+  - commit: "4 add approve route"
+    change_kind: code
+    lineage: []
+    statuses:
+      - [spec, spec_endpoint, "POST /reconciliations/{run_id}/approve", implemented]
+      - [spec, requirement, REQ-007, implemented]
+      - [spec, requirement, REQ-003, stale]                 # stale persists until re-agreed
+
+  - commit: "5a change start_run body"
+    change_kind: code
+    lineage: []
+    statuses:
+      - [spec, requirement, REQ-001, stale]
+      - [code, function, api/recon_api/routes.py::start_run, stale]
+    links:
+      - [REQ-001, api/recon_api/routes.py::start_run, stale, [code_changed_unverified]]
+      - [REQ-001, api/tests/test_routes.py::test_req_001_start_run_returns_run_result, verified, []]
+
+  - commit: "5b tests-only: new passing JUnit run"
+    change_kind: tests_only
+    lineage: []
+    statuses:
+      - [spec, requirement, REQ-001, verified]
+      - [spec, requirement, REQ-002, verified]              # also re-verified by the fresh run
+      - [spec, requirement, REQ-003, stale]                 # a test run cannot clear a spec change
+    links:
+      - [REQ-001, api/recon_api/routes.py::start_run, verified, [retested]]
+
+  - commit: "6 edit loop header in match_batch"
+    change_kind: code
+    lineage:
+      - [api/recon_api/matching.py::match_batch@loop#81dc075c, api/recon_api/matching.py::match_batch@loop#a4e53c24, anchored_header]
+    statuses:
+      - [spec, requirement, REQ-002, stale]
+
+  - commit: "7 re-annotate REQ-003 with spec fingerprint"
+    change_kind: code
+    lineage: []
+    statuses:
+      - [spec, requirement, REQ-003, verified]
+      - [code, function, api/recon_api/matching.py::amounts_equal, verified]
+    links:
+      - [REQ-003, api/recon_api/matching.py::amounts_equal, verified, [reannotated]]
+      - [REQ-003, api/tests/test_matching.py::test_req_003_amounts_within_one_cent_match, verified, [reannotated]]
+
+diffs:   # by epoch seq: from -> to
+  "2->3":
+    counts: {"verified -> stale": 3}
+    spec_changed: [CMP-001, REQ-003]
+    new_risks: 0
+  "4->5":
+    counts: {"verified -> stale": 2}
+    spec_changed: []
+    modified: [api/recon_api/routes.py, api/recon_api/routes.py::start_run]
+  "1->8":   # across the whole history (lineage composed along the chain)
+    renamed:
+      - [api/recon_api/matching.py::amounts_match, api/recon_api/matching.py::amounts_equal, same_content]
+      - [api/recon_api/matching.py::match_batch@loop#81dc075c, api/recon_api/matching.py::match_batch@loop#a4e53c24, anchored_header]
+    added_contains: [api/recon_api/routes.py::approve_run, "http:api:POST /v1/reconciliations/{run_id}/approve"]

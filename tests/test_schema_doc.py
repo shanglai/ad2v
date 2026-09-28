@@ -3,14 +3,19 @@ from ad2v.resources import schema_dir
 
 from helpers import FIXTURE
 
-SPEC = FIXTURE.parent.parent / "docs" / "spec" / "ad2v-format-v0.2.md"
+SPEC = FIXTURE.parent.parent / "docs" / "spec" / "ad2v-format-v0.3.md"
 
 
 def test_every_column_is_marked_and_appendix_is_current():
     classes = ddl.column_classes()
     assert {
-        "nodes",
-        "edges",
+        "node_versions",
+        "epoch_nodes",
+        "edge_versions",
+        "epoch_edges",
+        "id_lineage",
+        "link_state",
+        "parse_cache",
         "links",
         "summaries",
         "narrations",
@@ -19,9 +24,14 @@ def test_every_column_is_marked_and_appendix_is_current():
         "tour_stops",
         "node_status",
         "status_rollup",
-        "test_results",
         "workflow_step_nodes",
     } <= set(classes)
+    volatile = {(t, c) for t, cols in classes.items() for c, k, _ in cols if k == "V"}
+    assert volatile == {
+        ("epoch_nodes", "span_start_line"),
+        ("epoch_nodes", "span_end_line"),
+        ("epoch_edges", "lines_json"),
+    }
     text = SPEC.read_text(encoding="utf-8")
     assert ddl.render() in text, "run `python -m ad2v.ddl` to regenerate Appendix A"
 
@@ -41,4 +51,4 @@ def test_informative_columns():
 
 def test_schema_files_present():
     d = schema_dir()
-    assert (d / "ad2v-v0.2.sql").is_file() and (d / "ir-v0.2.schema.json").is_file()
+    assert (d / "ad2v-v0.3.sql").is_file() and (d / "ir-v0.3.schema.json").is_file()

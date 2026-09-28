@@ -1,19 +1,40 @@
-"""End-to-end extraction: repo + specs -> IR -> .ad2v file."""
+"""End-to-end extraction: repo + specs -> IR -> an epoch in a .ad2v file.
+
+`build()` computes one epoch in memory (optionally against a parent epoch for lineage and
+history). `extract_to_file()` writes it: a fresh file (`--out`) or a new head epoch appended to
+an existing file (`--into`), reusing that file's parse cache.
+"""
 
 from __future__ import annotations
 
+import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-from ad2v import glyphs, ids, ir, junit, pairing, severity, store, workflows
+from ad2v import glyphs, history, ids, ir, junit, materialize, pairing, severity, store, workflows
 from ad2v import rules as rules_mod
 from ad2v.extract import files as filewalk
 from ad2v.extract.code.base import CodeFacts, Layout
 from ad2v.extract.code.python import PythonExtractor
-from ad2v.extract.spec import extract_specs
+from ad2v.extract.code.python_local import LOCAL_EXTRACTOR_VERSION
+from ad2v.extract.spec import extract_specs, spec_files, spec_tree_hash
 from ad2v.manifest import Config
 from ad2v.manifest import load as load_manifest
+
+CacheLoader = Callable[[str], dict[tuple[str, str], Any]]
+
+
+@dataclass
+class Parent:
+    """What a new epoch needs from its parent (loaded from the file)."""
+
+    epoch: store.Epoch
+    graph: ir.Graph
+    link_state: dict[str, dict[str, Any]]
+    tests: dict[str, ir.TestResult]
 
 
 @dataclass
@@ -28,8 +49,19 @@ class Result:
     pairing: pairing.PairingResult
     tests: junit.Ingested
     ranked_behaviors: list[str]
+    rules: dict[str, Any] = field(default_factory=dict)
+    lineage: history.Lineage = field(default_factory=history.Lineage)
+    link_state: list[dict[str, Any]] = field(default_factory=list)
+    cache_entries: dict[str, tuple[str, Any]] = field(default_factory=dict)
     elapsed_s: float = 0.0
-    stats: dict[str, int] = field(default_factory=dict)
+    stats: dict[str, Any] = field(default_factory=dict)
+    timings: dict[str, float] = field(default_factory=dict)
+    unchanged: bool = False  # inputs identical to the parent: no epoch was built
+    lineage_names: dict[str, str] = field(default_factory=dict)  # old id -> parent qualified name
+
+    @property
+    def derived(self) -> store.Derived:
+        return store.Derived(self.glyphs, self.workflows, self.pairing)
 
 
 def read_git_head(repo: Path) -> str | None:
@@ -56,79 +88,6 @@ def read_git_head(repo: Path) -> str | None:
     return None
 
 
-def build(
-    repo: Path,
-    spec: Path | None = None,
-    manifest: Path | None = None,
-    rules_path: Path | None = None,
-    test_results: list[Path] | None = None,
-) -> Result:
-    t0 = time.perf_counter()
-    repo = Path(repo).resolve()
-    config = load_manifest(repo, manifest)
-    rules = rules_mod.load(rules_path, config.rules_overlay)
-    r_hash = rules["_hash"]
-    graph = ir.Graph()
-    system_name = config.system_name or repo.name
-    layout = Layout(graph, config, repo, system_name)
-
-    extractor = PythonExtractor(config, rules)
-    rel = filewalk.walk(repo, config.exclude, extractor.suffixes)
-    spec_root = Path(spec).resolve() if spec is not None else None
-    if spec_root is not None and spec_root != repo and spec_root.is_relative_to(repo):
-        spec_rel = spec_root.relative_to(repo).as_posix()
-        rel = [p for p in rel if not p.startswith(spec_rel + "/")]
-    facts = extractor.extract(graph, layout, filewalk.load(repo, rel))
-
-    spec_files: dict[str, str] = {}
-    if spec_root is not None:
-        spec_files = extract_specs(graph, spec_root, config.exclude, root_name=system_name)
-
-    resolve_spec_refs(graph)
-    graph.link_contains()
-    graph.compute_subtree_hashes()
-
-    wfs = workflows.build_all(graph, facts, config)
-    ranked = severity.apply(graph, wfs, rules)
-    tests = junit.ingest(list(test_results or []), repo, graph)
-    paired = pairing.pair(graph, config, tests.results)
-    gl = glyphs.compute(graph)
-
-    repo_tree = ids.tree_hash(facts.files_read)
-    spec_tree = ids.tree_hash(spec_files)
-    epoch = store.Epoch(
-        epoch_id=ids.epoch_id(None, repo_tree, spec_tree, r_hash, config.config_hash, tests.files_hash),
-        repo_tree_hash=repo_tree,
-        spec_tree_hash=spec_tree,
-        rules_hash=r_hash,
-        config_hash=config.config_hash,
-        test_results_hash=tests.files_hash,
-        repo_commit=read_git_head(repo),
-        attrs={
-            **config.echo(),
-            "pairing_warnings": paired.warnings,
-            "rules_version": str(rules["rules_version"]),
-            "test_cases": tests.cases,
-            "unmatched_tests": tests.unmatched,
-        },
-    )
-    meta = {
-        "repo_root_name": repo.name,
-        "rules_version": str(rules["rules_version"]),
-        "system_name": system_name,
-    }
-    res = Result(graph, facts, wfs, gl, epoch, config, meta, paired, tests, ranked)
-    res.elapsed_s = time.perf_counter() - t0
-    res.stats = {
-        "files_code": len(facts.files_read),
-        "files_spec": len(spec_files),
-        "loc_code": sum(
-            (n.span_end_line or 0) for n in graph.nodes.values() if n.kind == "module" and n.side == "code"
-        ),
-    }
-    return res
-
-
 def resolve_spec_refs(graph: ir.Graph) -> None:
     """Turn explicit spec IDs into `annotated_as` edges or `unresolved_refs` rows."""
     by_qname: dict[str, list[str]] = {}
@@ -146,6 +105,209 @@ def resolve_spec_refs(graph: ir.Graph) -> None:
                 graph.unresolved.append(ir.UnresolvedRef(nid, ref, "spec_id", "not_found"))
 
 
+def _carry_tests(parent: Parent, graph: ir.Graph, lineage: history.Lineage) -> dict[str, ir.TestResult]:
+    """Test results carry forward when none are given (mapped through lineage, dropped if gone)."""
+    out = {}
+    for tid, t in sorted(parent.tests.items()):
+        nid = lineage.forward.get(tid, tid)
+        if nid in graph.nodes:
+            out[nid] = ir.TestResult(nid, t.outcome, t.source_file, t.duration_ms)
+    return out
+
+
+def build(
+    repo: Path,
+    spec: Path | None = None,
+    manifest: Path | None = None,
+    rules_path: Path | None = None,
+    test_results: list[Path] | None = None,
+    *,
+    parent: Parent | None = None,
+    cache_loader: CacheLoader | None = None,
+    name_hint: str | None = None,
+    repo_commit: str | None = None,
+    seq: int = 1,
+) -> Result:
+    t0 = time.perf_counter()
+    timings: dict[str, float] = {}
+
+    def lap(name: str, since: float) -> float:
+        now = time.perf_counter()
+        timings[name] = timings.get(name, 0.0) + now - since
+        return now
+
+    repo = Path(repo).resolve()
+    config = load_manifest(repo, manifest)
+    rules = rules_mod.load(rules_path, config.rules_overlay)
+    system_name = config.system_name or name_hint or repo.name
+    extractor = PythonExtractor(config, rules)
+    rel = filewalk.walk(repo, config.exclude, extractor.suffixes)
+    spec_root = Path(spec).resolve() if spec is not None else None
+    if spec_root is not None and spec_root != repo and spec_root.is_relative_to(repo):
+        spec_rel = spec_root.relative_to(repo).as_posix()
+        rel = [p for p in rel if not p.startswith(spec_rel + "/")]
+    files = filewalk.load(repo, rel)
+    specs = spec_files(spec_root, config.exclude) if spec_root is not None else []
+    tests_given = bool(test_results)
+    tr_paths = [Path(t) for t in test_results or []]
+    repo_tree = ids.tree_hash({f.path: f.content_hash for f in files})
+    spec_tree = spec_tree_hash(specs)
+    if tests_given:
+        tests_hash = junit.files_hash(tr_paths, repo)
+    else:
+        tests_hash = parent.epoch.test_results_hash if parent else ids.tree_hash({})
+    t = lap("read_inputs", t0)
+    hashes = (repo_tree, spec_tree, rules["_hash"], config.config_hash, tests_hash)
+    epoch = store.Epoch(
+        epoch_id=ids.epoch_id(parent.epoch.epoch_id if parent else None, *hashes),
+        repo_tree_hash=repo_tree,
+        spec_tree_hash=spec_tree,
+        rules_hash=rules["_hash"],
+        config_hash=config.config_hash,
+        test_results_hash=tests_hash,
+        parent_epoch_id=parent.epoch.epoch_id if parent else None,
+        repo_commit=repo_commit if repo_commit is not None else read_git_head(repo),
+        seq=seq,
+    )
+    epoch.change_kind = store.change_kind(parent.epoch if parent else None, epoch)
+    if parent is not None and epoch.input_hashes == parent.epoch.input_hashes:
+        res = Result(
+            ir.Graph(),
+            CodeFacts(),
+            [],
+            [],
+            epoch,
+            config,
+            {},
+            pairing.PairingResult([], {}, {}),
+            junit.Ingested(),
+            [],
+            rules=rules,
+            unchanged=True,
+        )
+        res.elapsed_s = time.perf_counter() - t0
+        return res
+
+    graph = ir.Graph()
+    layout = Layout(graph, config, repo, system_name)
+    cache = cache_loader(rules["_hash"]) if cache_loader is not None else None
+    facts = extractor.extract(graph, layout, files, cache)
+    t = lap("code_extraction", t)
+    timings.update({f"code.{k}": v for k, v in extractor.timings.items()})
+    if spec_root is not None:
+        extract_specs(graph, spec_root, config.exclude, root_name=system_name, files=specs)
+    resolve_spec_refs(graph)
+    graph.link_contains()
+    graph.compute_subtree_hashes()
+    t = lap("specs_refs_hashes", t)
+    wfs = workflows.build_all(graph, facts, config)
+    ranked = severity.apply(graph, wfs, rules)
+    t = lap("workflows_severity", t)
+    lineage = history.compute_lineage(parent.graph, graph) if parent is not None else history.Lineage()
+    if tests_given:
+        tests = junit.ingest(tr_paths, repo, graph)
+    else:
+        tests = junit.Ingested(results=_carry_tests(parent, graph, lineage) if parent else {})
+    tests_fresh = tests_given and (parent is None or tests_hash != parent.epoch.test_results_hash)
+    links, warnings = pairing.pair_links(graph, config, tests.results)
+    link_state = history.apply_history(
+        graph,
+        links,
+        epoch.epoch_id,
+        parent.graph if parent else None,
+        parent.link_state if parent else None,
+        lineage if parent else None,
+        tests_fresh,
+    )
+    paired = pairing.finalize(graph, links, warnings, lineage.ambiguous_reasons())
+    gl = glyphs.compute(graph)
+    t = lap("lineage_pairing_status", t)
+    coverage = pairing.spec_coverage(graph)
+    epoch.attrs = {
+        **config.echo(),
+        "pairing_warnings": paired.warnings,
+        "rules_version": str(rules["rules_version"]),
+        "spec_coverage": coverage,
+        "test_cases": tests.cases,
+        "tests_carried": parent is not None and not tests_given,
+        "tests_fresh": tests_fresh,
+        "unmatched_tests": tests.unmatched,
+    }
+    meta = {
+        "repo_root_name": repo.name,
+        "rules_version": str(rules["rules_version"]),
+        "spec_coverage": coverage,
+        "system_name": system_name,
+    }
+    res = Result(
+        graph,
+        facts,
+        wfs,
+        gl,
+        epoch,
+        config,
+        meta,
+        paired,
+        tests,
+        ranked,
+        rules,
+        lineage,
+        link_state,
+        dict(extractor.new_cache_entries),
+    )
+    res.timings = timings
+    if parent is not None:
+        res.lineage_names = {o: parent.graph.nodes[o].qualified_name for o, _, _, _ in lineage.rows}
+    res.elapsed_s = time.perf_counter() - t0
+    res.stats = {
+        "files_code": len(facts.files_read),
+        "files_spec": len(specs),
+        "loc_code": sum(
+            (n.span_end_line or 0) for n in graph.nodes.values() if n.kind == "module" and n.side == "code"
+        ),
+        "cache_hits": extractor.cache_hits,
+        "cache_misses": extractor.cache_misses,
+    }
+    return res
+
+
+def load_parent(conn: sqlite3.Connection) -> Parent | None:
+    head = store.head_epoch(conn)
+    if head is None:
+        return None
+    return Parent(
+        epoch=store.get_epoch(conn, head),
+        graph=store.load_graph(conn, head),
+        link_state=store.load_link_state(conn, head),
+        tests=store.load_tests(conn, head),
+    )
+
+
+def write_epoch(conn: sqlite3.Connection, res: Result, parent: Parent | None) -> None:
+    """Write a built epoch as the new head; keep derived rows only for head and pinned epochs."""
+    store.insert_epoch(conn, res.epoch, res.rules, res.config.config_json)
+    res.stats.update(
+        store.write_base(
+            conn,
+            res.epoch.epoch_id,
+            res.graph,
+            res.facts,
+            res.tests.results.values(),
+            res.lineage.rows,
+            res.link_state,
+        )
+    )
+    if parent is not None:  # drop first: the freed pages are reused by the new rows
+        pinned = conn.execute(
+            "SELECT pinned FROM epochs WHERE epoch_id = ?", (parent.epoch.epoch_id,)
+        ).fetchone()
+        if not (pinned and pinned[0]):
+            store.drop_derived(conn, parent.epoch.epoch_id)
+    store.write_derived(conn, res.epoch.epoch_id, res.derived)
+    store.write_parse_cache(conn, res.cache_entries, res.rules["_hash"], LOCAL_EXTRACTOR_VERSION)
+    store.set_meta(conn, {**res.meta, "head_epoch": res.epoch.epoch_id})
+
+
 def extract_to_file(
     repo: Path,
     spec: Path | None,
@@ -153,18 +315,59 @@ def extract_to_file(
     manifest: Path | None = None,
     rules_path: Path | None = None,
     test_results: list[Path] | None = None,
+    *,
+    into: bool = False,
+    use_cache: bool = True,
+    name_hint: str | None = None,
+    repo_commit: str | None = None,
 ) -> Result:
-    res = build(repo, spec, manifest, rules_path, test_results)
+    """`--out` (into=False): fresh single-epoch file. `--into`: append an epoch if inputs changed."""
+    out = Path(out)
     t0 = time.perf_counter()
-    store.write(
-        out,
-        res.graph,
-        res.epoch,
-        res.glyphs,
-        res.workflows,
-        res.meta,
-        pairing_result=res.pairing,
-        test_results=list(res.tests.results.values()),
-    )
-    res.elapsed_s += time.perf_counter() - t0
+    conn = store.open_rw(out) if into and out.exists() else store.create(out)
+    try:
+        t_parent = time.perf_counter()
+        parent = load_parent(conn)
+        t_parent = time.perf_counter() - t_parent
+        seq_row = conn.execute("SELECT COALESCE(MAX(seq), 0) FROM epochs").fetchone()
+        loader: CacheLoader | None = None
+        if use_cache:
+
+            def loader(rules_hash: str) -> dict[tuple[str, str], Any]:
+                return store.load_parse_cache(conn, rules_hash, LOCAL_EXTRACTOR_VERSION)
+
+        res = build(
+            repo,
+            spec,
+            manifest,
+            rules_path,
+            test_results,
+            parent=parent,
+            cache_loader=loader,
+            name_hint=name_hint,
+            repo_commit=repo_commit,
+            seq=int(seq_row[0]) + 1,
+        )
+        res.timings["load_parent"] = t_parent
+        if res.unchanged:
+            return res
+        t1 = time.perf_counter()
+        with conn:
+            conn.execute("PRAGMA defer_foreign_keys = ON")
+            write_epoch(conn, res, parent)
+        res.timings["write"] = time.perf_counter() - t1
+    finally:
+        conn.close()
+    res.elapsed_s = time.perf_counter() - t0
     return res
+
+
+def materialize_epoch(path: Path, epoch_ref: str) -> tuple[str, bool]:
+    conn = store.open_rw(Path(path))
+    try:
+        e = store.resolve_epoch(conn, epoch_ref)
+        with conn:
+            did = materialize.materialize(conn, e)
+        return e, did
+    finally:
+        conn.close()

@@ -8,15 +8,19 @@ Items consciously left out so far, grouped by the phase that should pick them up
   statuses (single epoch), findings for `unresolved_refs` (`needs_review`).
 - `workflow_step_nodes` derived index. Containment projection. Content-anchored behavior ids.
 
-## P3: storage, incremental, diff (was "P2" in P1's plan)
+## Done in P3 (moved from this list)
 
-- Structural diff between epochs (`missing`, `orphan`, `stale`) and a `parent_epoch_id` chain.
-- Merkle reuse: skip unchanged subtrees by `subtree_hash`. Invalidate all code-side results when
-  `rules_hash` changes (ADR-0010).
-- Content-addressed storage (`node_versions` + `epoch_members`, compatibility views shaped like
-  `nodes`/`edges`), decided in P2 (decision 2). Today each epoch is a full snapshot.
-- Structural diff should ignore `edges.attrs.lines`, which moves with unrelated edits.
-- `ad2v diff a.ad2v b.ad2v` CLI.
+- Content-addressed multi-epoch storage with v0.2-shaped views, epoch chain, parse cache,
+  `history`, `diff` (ignores volatile lines), lineage, `stale`, prune/GC.
+- Scheduler / job detection (Celery beat, APScheduler, `schedule`) and main blocks as entry ports.
+- Narrations keyed by projection mode. A "no specs" mode (`orphan_policy: auto`).
+
+## After P3: storage and incremental
+
+- Call-graph-closure invalidation, so global results (resolution, workflows, severity) can be
+  reused for unchanged regions instead of recomputed (issue 33).
+- `diff` between epochs of different files, or non-ancestor epochs (issue 37).
+- Report only the innermost flagged loop per IO site (issue 32).
 
 ## Extractor recall/precision (any phase)
 
@@ -26,7 +30,9 @@ Items consciously left out so far, grouped by the phase that should pick them up
 - Infer untyped parameter types from call sites (issue 6).
 - App factories: evaluate decorators in function scope (issue 7).
 - More port frameworks: Django URLconf, Starlette `Route`, FastAPI `add_api_route`, low-level MCP SDK
-  `@server.call_tool()`, Celery/Dramatiq tasks, Kafka consumer loops, AWS Lambda handlers.
+  `@server.call_tool()`, Dramatiq/RQ tasks, Kafka consumer loops, AWS Lambda handlers, project-specific
+  scheduler decorators (dispatch's `@scheduler.add(every(...))`) via rules overlays.
+- Calls through plugin registries / instances (issue 31).
 - More rules: aioboto3, motor, elasticsearch, celery, cohere, mistral, bedrock via `boto3`
   clients.
 - `name_source: literal_prefix` for f-string URLs (issue 8).
@@ -48,12 +54,7 @@ Items consciously left out so far, grouped by the phase that should pick them up
 ## Deferred from P2
 
 - Container inference from workspaces (uv/poetry) and docker-compose services (P2 decision 7).
-- Scheduler / job detection (APScheduler, Celery beat, cron-style CLI commands) as entry ports, so
-  severity reach covers scheduled jobs (issue 17).
 - Scenario ↔ workflow pairing (scenarios stay `specified` unless P4 judges them).
 - `test_results` for non-pytest JUnit producers (JUnit from Java/JS runners maps `classname`
   differently); only pytest's shape is documented and tested.
-- A narration must record the projection mode it was written for (containment vs call_depth), or
-  narrations must be keyed by mode. Decide before P4 writes narrations.
-- A "no specs loaded" presentation mode, so a repo without specs is not all orphan (issue 18).
 - Per-kind JSON Schema for link `evidence` items (today only `kind` is required).

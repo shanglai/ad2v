@@ -124,9 +124,9 @@ def test_validate_ok_and_detects_corruption(tmp_path):
     pipeline.extract_to_file(FIXTURE, FIXTURE / "specs", out, test_results=[JUNIT])
     assert validate(out) == []
     conn = sqlite3.connect(out)
-    conn.execute("UPDATE nodes SET subtree_hash = ? WHERE kind = 'system'", ("0" * 64,))
+    conn.execute("UPDATE node_versions SET subtree_hash = ? WHERE kind = 'system'", ("0" * 64,))
     conn.execute("DELETE FROM glyphs WHERE node_id = (SELECT id FROM nodes WHERE kind = 'queue' LIMIT 1)")
-    conn.execute("UPDATE nodes SET qualified_name = 'tampered' WHERE kind = 'datastore'")
+    conn.execute("UPDATE node_versions SET qualified_name = 'tampered' WHERE kind = 'datastore'")
     conn.execute(
         "DELETE FROM node_status WHERE node_id = (SELECT id FROM nodes WHERE kind = 'queue' LIMIT 1)"
     )
@@ -136,10 +136,17 @@ def test_validate_ok_and_detects_corruption(tmp_path):
         " WHERE node_id = (SELECT id FROM nodes WHERE kind = 'system')"
     )
     conn.execute("UPDATE links SET link_id = 'l_00000000000000000000' WHERE rowid = 1")
+    # an edge whose endpoint is not a node of the epoch (endpoints are checked, not FOREIGN KEYs)
+    conn.execute(
+        "UPDATE edge_versions SET dst = 'n_00000000000000000000' WHERE kind = 'calls' AND vid = "
+        "(SELECT MIN(vid) FROM edge_versions WHERE kind = 'calls')"
+    )
     conn.commit()
     conn.close()
     problems = "\n".join(validate(out))
     assert "without a glyph" in problems
+    assert "edges.dst: 1 id(s) not a node of this epoch" in problems
+    assert "key does not match its payload" in problems  # version rows are content-addressed
     assert "subtree_hash" in problems
     assert "id does not match" in problems
     assert "node_status covers" in problems
@@ -165,11 +172,11 @@ def test_cli_commands(tmp_path, capsysbinary):
     assert main([*argv, "--test-results", str(JUNIT)]) == 0
     text = capsysbinary.readouterr().out.decode("utf-8")
     for needle in (
-        "io_in_loop",
+        "hit rate",
         "unbounded_retry",
         "POST /v1/reconciliations",
         "REQ-099",
-        "Workflows",
+        "workflows",
         "Status counts",
         "Top 5 of 5 risky behaviors",
         "1 unmatched",
