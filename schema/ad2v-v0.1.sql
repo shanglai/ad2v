@@ -8,16 +8,17 @@ PRAGMA foreign_keys = ON;
 -- Key/value metadata. Keys: format_version (N), generator (I), generator_version (I),
 -- repo_root_name (I), created_at (I), repo_manifest (N), rules_version (N).
 CREATE TABLE meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
+    key   TEXT PRIMARY KEY, -- N
+    value TEXT NOT NULL   -- N/I (class depends on the key, see spec §5)
 );
 
 CREATE TABLE epochs (
-    epoch_id        TEXT PRIMARY KEY,           -- N  e_ + sha256(parent|repo_tree_hash|spec_tree_hash)[:20]
+    epoch_id        TEXT PRIMARY KEY,           -- N  e_ + sha256(parent|repo_tree_hash|spec_tree_hash|rules_hash)[:20]
     parent_epoch_id TEXT REFERENCES epochs(epoch_id), -- N
     repo_commit     TEXT,                       -- N  git HEAD if <repo>/.git is readable, else NULL
     repo_tree_hash  TEXT NOT NULL,              -- N
     spec_tree_hash  TEXT NOT NULL,              -- N
+    rules_hash      TEXT NOT NULL,              -- N  tree hash of the normalized extractor rules files
     attrs_json      TEXT NOT NULL DEFAULT '{}', -- N  extraction config echo (rules/manifest hashes)
     created_at      TEXT                        -- I  excluded from canonical dump
 );
@@ -53,8 +54,8 @@ CREATE TABLE edges (
     kind          TEXT NOT NULL,                -- N  closed enum, see spec §3.4
     weight        INTEGER NOT NULL DEFAULT 1,   -- N  occurrence count
     attrs_json    TEXT NOT NULL DEFAULT '{}',   -- N
-    provenance    TEXT NOT NULL DEFAULT 'deterministic'
-                  CHECK (provenance IN ('deterministic','runtime','llm')), -- N
+    provenance    TEXT NOT NULL DEFAULT 'deterministic' -- N
+                  CHECK (provenance IN ('deterministic','runtime','llm')),
     model         TEXT,                         -- I  required when provenance='llm'
     model_version TEXT,                         -- I
     prompt_hash   TEXT,                         -- I
@@ -133,8 +134,9 @@ CREATE TABLE links (
     link_id       TEXT NOT NULL,                -- N  l_ + sha256(spec_node_id|code_node_id)[:20]
     spec_node_id  TEXT,                         -- N  NULL for orphan code
     code_node_id  TEXT,                         -- N  NULL for missing spec items
-    status        TEXT NOT NULL CHECK (status IN ('specified','implemented','verified','drift',
-                  'orphan','stale','needs_review','missing')), -- N/I (I when provenance='llm')
+    status        TEXT NOT NULL -- N/I (I when provenance='llm')
+                  CHECK (status IN ('specified','implemented','verified','drift',
+                  'orphan','stale','needs_review','missing')),
     provenance    TEXT NOT NULL CHECK (provenance IN ('deterministic','runtime','llm')), -- N
     evidence_json TEXT NOT NULL DEFAULT '[]',   -- N/I
     confidence    REAL,                         -- I  required when provenance='llm'
@@ -164,7 +166,7 @@ CREATE TABLE summaries (
     input_hash    TEXT NOT NULL,                -- I
     confidence    REAL NOT NULL,                -- I
     created_at    TEXT,                         -- I
-    PRIMARY KEY (epoch_id, node_id, length),
+    PRIMARY KEY (epoch_id, node_id, length, model),
     FOREIGN KEY (epoch_id, node_id) REFERENCES nodes(epoch_id, id)
 );
 
@@ -181,7 +183,7 @@ CREATE TABLE narrations (
     input_hash    TEXT NOT NULL,                -- I
     confidence    REAL NOT NULL,                -- I
     created_at    TEXT,                         -- I
-    PRIMARY KEY (epoch_id, workflow_id, detail_level, span_start),
+    PRIMARY KEY (epoch_id, workflow_id, detail_level, span_start, model),
     FOREIGN KEY (epoch_id, workflow_id) REFERENCES workflows(epoch_id, workflow_id),
     CHECK (span_start <= span_end)
 );

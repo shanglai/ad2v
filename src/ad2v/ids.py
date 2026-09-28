@@ -59,8 +59,9 @@ def workflow_id(side: str, entry_node_id: str, source: str) -> str:
     return _short("w_", f"{side}|{entry_node_id}|{source}")
 
 
-def epoch_id(parent_epoch_id: str | None, repo_tree_hash: str, spec_tree_hash: str) -> str:
-    return _short("e_", f"{parent_epoch_id or ''}|{repo_tree_hash}|{spec_tree_hash}")
+def epoch_id(parent_epoch_id: str | None, repo_tree_hash: str, spec_tree_hash: str, rules_hash: str) -> str:
+    """Epoch identity covers every input that shapes the output: code, specs and extractor rules."""
+    return _short("e_", f"{parent_epoch_id or ''}|{repo_tree_hash}|{spec_tree_hash}|{rules_hash}")
 
 
 def content_hash(text: str) -> str:

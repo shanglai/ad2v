@@ -1,5 +1,16 @@
 # ad2v Python classification rules. Versioned: bump rules_version on any semantic change.
 # Library keys are dotted module prefixes, matched by longest prefix on whole dotted parts.
+#
+# Per-library keys:
+#   kind                 resource kind (datastore | queue | external_service | llm_endpoint)
+#   constructors         callables (relative to the library) that return a client bound to the resource
+#   pure                 library-level callables that never do IO
+#   pure_methods         methods on a bound client that never do IO (they return the same resource)
+#   name_kwargs          kwargs whose literal/env value names the resource (e.g. base_url, model)
+#   name_from_literal    accept plain string literals as names (topic names), not only URLs
+#   by_service_arg       first positional literal selects the kind (boto3.client("sqs"))
+#   direct_calls_touch   do library-level calls do IO? default: false for datastore, true otherwise
+#   touch_functions      library-level callables that do IO even when direct_calls_touch is false
 rules_version: "0.1.0"
 
 resources:

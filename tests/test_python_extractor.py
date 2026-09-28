@@ -483,3 +483,24 @@ def test_crlf_and_bom_are_equivalent(tmp_path):
 def test_syntax_errors_do_not_crash(tmp_path):
     g, _ = run_code(tmp_path, {"bad.py": "def f(:\n    pass\n\ndef g():\n    return 1\n"})
     assert "bad.py::g" in qnames(g, "function")
+
+
+def test_datastore_library_helpers_are_not_io(tmp_path):
+    g, _ = run_code(
+        tmp_path,
+        {
+            "h.py": """
+                from sqlalchemy import inspect
+                import requests
+
+                def cols(entities):
+                    return [inspect(e).columns for e in entities]
+
+                def fetch(urls):
+                    return [requests.get(u) for u in urls]
+            """,
+        },
+    )
+    risk = {n.qualified_name: n.attrs["risk"] for n in g.nodes.values() if "risk" in n.attrs}
+    assert risk == {"h.py::fetch@loop#1": ["io_in_loop"]}
+    assert qnames(g, "datastore") == []

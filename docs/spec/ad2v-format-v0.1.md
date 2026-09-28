@@ -46,10 +46,10 @@ Companion documents:
 | Canonical JSON | `json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`. Every `*_json` column holds canonical JSON. |
 | Node id | `"n_" + sha256_hex(side + "|" + kind + "|" + qualified_name)[:20]` |
 | Workflow id | `"w_" + sha256_hex(side + "|" + entry_node_id + "|" + source)[:20]` |
-| Epoch id | `"e_" + sha256_hex((parent_epoch_id or "") + "|" + repo_tree_hash + "|" + spec_tree_hash)[:20]` |
+| Epoch id | `"e_" + sha256_hex((parent_epoch_id or "") + "|" + repo_tree_hash + "|" + spec_tree_hash + "|" + rules_hash)[:20]` |
 | `content_hash` | For nodes with a source span: `sha256_hex(normalized text of lines span_start_line..span_end_line)` (lines joined with `\n`). For files (modules, `spec_doc`): the whole normalized file. For nodes without text (system, container, component, resources, ports): `sha256_hex(canonical_json({"kind","name","attrs"}))`. |
 | `subtree_hash` | `sha256_hex(join("\n", [content_hash] + ["<child_id>:<child_subtree_hash>" for children sorted by id]))`, where children are nodes whose `parent_id` is this node. |
-| Tree hashes | `repo_tree_hash` / `spec_tree_hash` = `sha256_hex(join("\n", ["<path>\t<content_hash(file)>" sorted by path]))` over the files that the extractor read. |
+| Tree hashes | `repo_tree_hash` / `spec_tree_hash` = `sha256_hex(join("\n", ["<path>\t<content_hash(file)>" sorted by path]))` over the files that the extractor read. `rules_hash` = the same tree hash over the extractor's rules files (`{"python.yaml": content_hash}` in v0.1). Extraction output depends on the rules, so they are an input of the epoch like code and specs. |
 
 ## 3. The IR
 
@@ -169,12 +169,28 @@ Every reference is recorded in the node's `spec_ref`. When a spec node has quali
 
 ### 3.7 Resource naming
 
-A resource is named by the first match, in order: (1) a string literal that contains `://`
-(credentials and query are stripped: `scheme://host[:port][/path]`); (2) an environment variable
-read (`os.environ[...]`, `os.getenv(...)`, `os.environ.get(...)`), giving `env:<VAR>`; (3) for
-libraries whose rule sets `name_from_literal`, a plain string literal; (4) otherwise
-`<library>:unknown`. Module-level constants are followed one hop. Arguments are searched first in
-the rule's `name_kwargs`, then positional arguments in order.
+A resource is named by the first match, in order:
+
+1. a string literal that contains `://`, with credentials, query and fragment stripped. Datastores
+   keep `scheme://host[:port][/path]`. External services, queues and LLM endpoints keep
+   `scheme://host[:port]`. For f-strings, only the literal prefix before the first `{...}` is used;
+2. an environment-variable read (`os.environ[...]`, `os.getenv(...)`, `os.environ.get(...)`),
+   giving `env:<VAR>` (a default value is ignored);
+3. for libraries whose rule sets `name_from_literal` (queues), a plain string literal;
+4. otherwise `<library>:unknown`.
+
+Arguments are searched first in the rule's `name_kwargs` (for which any literal counts, e.g.
+`model=`), then in positional arguments. Constants are followed through module scope and imports.
+A client built from another client inherits its resource (`sessionmaker(bind=engine)`). A touch on a
+client whose resource is still `unknown` may be named from the call's own arguments
+(`publisher.publish(TOPIC, ...)`).
+
+**What counts as a touch** (an IO edge): a call to a method of a client bound to a resource, unless
+the rule lists the method in `pure_methods`; or a library-level call, unless the rule lists it as a
+constructor or `pure`. For datastore libraries, library-level calls do not count
+(`direct_calls_touch: false`) unless listed in `touch_functions`: `sqlalchemy.inspect()` is not IO,
+while `session.execute()` is. The rules file `extract/code/rules/python.yaml` is versioned (`rules_version`,
+echoed in `meta` and `epochs.attrs_json` with its content hash).
 
 ## 4. Containers
 
@@ -200,8 +216,8 @@ epoch.
 | `workflows` | N; `model…confidence` I | `source` ∈ `static`, `runtime`, `llm_inferred` |
 | `workflow_steps` | N | §7 |
 | `links` | N/I | empty in v0.1 producers; §6 |
-| `summaries` | `node_id`, `length` N; rest I | `length` ∈ `label`, `card`, `deep` |
-| `narrations` | span columns N; `text`/provenance I | spans refer to fine step `seq` |
+| `summaries` | `node_id`, `length` N; rest I | `length` ∈ `label`, `card`, `deep`; keyed by `(node_id, length, model)` so several models can coexist |
+| `narrations` | span columns N; `text`/provenance I | spans refer to fine step `seq`; keyed by `(workflow_id, detail_level, span_start, model)` |
 | `layout` | N | `(node_id, lod, algorithm)` → box `x,y,z,w,h,d` |
 | `tours`, `tour_stops` | mixed | guided camera paths |
 
@@ -288,3 +304,210 @@ A conforming v0.1 file:
   recompute (§2).
 
 `ad2v validate` checks all of the above.
+
+## Appendix A: column classes (normative)
+
+Every column in the DDL is marked **N** (normative), **I** (informative) or **N/I** (depends on the row, e.g. `provenance`). This appendix is generated from the DDL comments and a test keeps it in sync.
+
+<!-- BEGIN COLUMN CLASSES (generated by `python -m ad2v.ddl`) -->
+
+**meta**
+
+| column | class | note |
+|---|---|---|
+| `key` | N |  |
+| `value` | N/I | (class depends on the key, see spec §5) |
+
+**epochs**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N | e_ + sha256(parent\|repo_tree_hash\|spec_tree_hash\|rules_hash)[:20] |
+| `parent_epoch_id` | N |  |
+| `repo_commit` | N | git HEAD if <repo>/.git is readable, else NULL |
+| `repo_tree_hash` | N |  |
+| `spec_tree_hash` | N |  |
+| `rules_hash` | N | tree hash of the normalized extractor rules files |
+| `attrs_json` | N | extraction config echo (rules/manifest hashes) |
+| `created_at` | I | excluded from canonical dump |
+
+**nodes**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `id` | N | n_ + sha256(side\|kind\|qualified_name)[:20] |
+| `side` | N |  |
+| `kind` | N | closed enum, see spec §3.2 |
+| `name` | N |  |
+| `qualified_name` | N |  |
+| `parent_id` | N | NULL for roots |
+| `path` | N | repo- or spec-root-relative, forward slashes |
+| `span_start_line` | N | 1-based, inclusive |
+| `span_end_line` | N | 1-based, inclusive |
+| `content_hash` | N |  |
+| `subtree_hash` | N |  |
+| `level_hint` | N | optional presentation hint |
+| `attrs_json` | N |  |
+| `spec_ref_json` | N | sorted list of explicit spec IDs |
+
+**edges**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `src` | N |  |
+| `dst` | N |  |
+| `kind` | N | closed enum, see spec §3.4 |
+| `weight` | N | occurrence count |
+| `attrs_json` | N |  |
+| `provenance` | N |  |
+| `model` | I | required when provenance='llm' |
+| `model_version` | I |  |
+| `prompt_hash` | I |  |
+| `input_hash` | I |  |
+| `confidence` | I |  |
+
+**unresolved_refs**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `src` | N | node carrying the reference |
+| `ref` | N | the referenced identifier, verbatim |
+| `ref_kind` | N | 'spec_id' |
+| `reason` | N | 'not_found' |
+
+**glyphs**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `node_id` | N |  |
+| `base_shape` | N | glyph grammar §2 |
+| `variant` | N | glyph grammar §3 |
+| `modifiers_json` | N | glyph grammar §4 |
+| `size_weight` | N | glyph grammar §6 |
+| `has_interior` | N | 0/1, LOD 2 availability |
+
+**workflows**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `workflow_id` | N | w_ + sha256(side\|entry_node_id\|source)[:20] |
+| `name` | N |  |
+| `side` | N |  |
+| `entry_node_id` | N |  |
+| `scenario_id` | N | spec-side workflows: the scenario node |
+| `source` | N |  |
+| `attrs_json` | N | e.g. truncated, max_depth |
+| `model` | I | required when source='llm_inferred' |
+| `model_version` | I |  |
+| `prompt_hash` | I |  |
+| `input_hash` | I |  |
+| `confidence` | I |  |
+
+**workflow_steps**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `workflow_id` | N |  |
+| `seq` | N | 0-based, contiguous |
+| `node_ids_json` | N | nodes lit together (parallel steps share a row) |
+| `depth` | N | call depth from the entry (entry = 0) |
+
+**links**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `link_id` | N | l_ + sha256(spec_node_id\|code_node_id)[:20] |
+| `spec_node_id` | N | NULL for orphan code |
+| `code_node_id` | N | NULL for missing spec items |
+| `status` | N/I | (I when provenance='llm') |
+| `provenance` | N |  |
+| `evidence_json` | N/I |  |
+| `confidence` | I | required when provenance='llm' |
+| `model` | I |  |
+| `model_version` | I |  |
+| `prompt_hash` | I |  |
+| `input_hash` | I |  |
+| `created_at` | I | excluded from canonical dump |
+
+**summaries**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `node_id` | N |  |
+| `length` | N |  |
+| `text` | I |  |
+| `model` | I |  |
+| `model_version` | I |  |
+| `prompt_hash` | I |  |
+| `input_hash` | I |  |
+| `confidence` | I |  |
+| `created_at` | I |  |
+
+**narrations**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `workflow_id` | N |  |
+| `detail_level` | N | projection level (workflows.project) |
+| `span_start` | N | first fine step seq (inclusive) |
+| `span_end` | N | last fine step seq (inclusive) |
+| `text` | I |  |
+| `model` | I |  |
+| `model_version` | I |  |
+| `prompt_hash` | I |  |
+| `input_hash` | I |  |
+| `confidence` | I |  |
+| `created_at` | I |  |
+
+**layout**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `node_id` | N |  |
+| `lod` | N |  |
+| `algorithm` | N | name@version of the deterministic layout |
+| `x` | N |  |
+| `y` | N |  |
+| `z` | N |  |
+| `w` | N |  |
+| `h` | N |  |
+| `d` | N |  |
+
+**tours**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `tour_id` | N |  |
+| `title` | N/I |  |
+| `source` | N |  |
+| `workflow_id` | N | optional: tour that replays a workflow |
+| `model` | I |  |
+| `model_version` | I |  |
+| `prompt_hash` | I |  |
+| `input_hash` | I |  |
+| `confidence` | I |  |
+| `created_at` | I |  |
+
+**tour_stops**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `tour_id` | N |  |
+| `seq` | N |  |
+| `node_id` | N | camera target |
+| `camera_json` | N | {lod, yaw, pitch, zoom} |
+| `text` | I |  |
+
+<!-- END COLUMN CLASSES -->

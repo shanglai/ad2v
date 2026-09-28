@@ -59,5 +59,6 @@ def test_rel_posix(tmp_path):
 
 def test_workflow_and_epoch_ids():
     assert ids.workflow_id("code", "n_x", "static").startswith("w_")
-    assert ids.epoch_id(None, "a", "b") == ids.epoch_id("", "a", "b")
-    assert ids.epoch_id("e_1", "a", "b") != ids.epoch_id(None, "a", "b")
+    assert ids.epoch_id(None, "a", "b", "r") == ids.epoch_id("", "a", "b", "r")
+    assert ids.epoch_id("e_1", "a", "b", "r") != ids.epoch_id(None, "a", "b", "r")
+    assert ids.epoch_id(None, "a", "b", "r2") != ids.epoch_id(None, "a", "b", "r")

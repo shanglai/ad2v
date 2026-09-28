@@ -52,11 +52,19 @@ def read_git_head(repo: Path) -> str | None:
     return None
 
 
-def build(repo: Path, spec: Path | None = None, manifest: Path | None = None) -> Result:
+def rules_hash(rules_files: dict[str, str]) -> str:
+    """Tree hash over {rules file name: content_hash of its normalized text} (format spec §2)."""
+    return ids.tree_hash(rules_files)
+
+
+def build(
+    repo: Path, spec: Path | None = None, manifest: Path | None = None, rules_path: Path | None = None
+) -> Result:
     t0 = time.perf_counter()
     repo = Path(repo).resolve()
     config = load_manifest(repo, manifest)
-    rules = load_rules()
+    rules = load_rules(rules_path)
+    r_hash = rules_hash({"python.yaml": rules["_hash"]})
     graph = ir.Graph()
     system_name = config.system_name or repo.name
     layout = Layout(graph, config, repo, system_name)
@@ -83,11 +91,12 @@ def build(repo: Path, spec: Path | None = None, manifest: Path | None = None) ->
     repo_tree = ids.tree_hash(facts.files_read)
     spec_tree = ids.tree_hash(spec_files)
     epoch = store.Epoch(
-        epoch_id=ids.epoch_id(None, repo_tree, spec_tree),
+        epoch_id=ids.epoch_id(None, repo_tree, spec_tree, r_hash),
         repo_tree_hash=repo_tree,
         spec_tree_hash=spec_tree,
+        rules_hash=r_hash,
         repo_commit=read_git_head(repo),
-        attrs={**config.echo(), "rules_hash": rules["_hash"], "rules_version": str(rules["rules_version"])},
+        attrs={**config.echo(), "rules_version": str(rules["rules_version"])},
     )
     meta = {
         "repo_root_name": repo.name,
@@ -123,8 +132,10 @@ def resolve_spec_refs(graph: ir.Graph) -> None:
                 graph.unresolved.append(ir.UnresolvedRef(nid, ref, "spec_id", "not_found"))
 
 
-def extract_to_file(repo: Path, spec: Path | None, out: Path, manifest: Path | None = None) -> Result:
-    res = build(repo, spec, manifest)
+def extract_to_file(
+    repo: Path, spec: Path | None, out: Path, manifest: Path | None = None, rules_path: Path | None = None
+) -> Result:
+    res = build(repo, spec, manifest, rules_path)
     t0 = time.perf_counter()
     store.write(out, res.graph, res.epoch, res.glyphs, res.workflows, res.meta)
     res.elapsed_s += time.perf_counter() - t0

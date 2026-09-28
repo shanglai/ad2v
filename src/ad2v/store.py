@@ -23,15 +23,36 @@ class Epoch:
     epoch_id: str
     repo_tree_hash: str
     spec_tree_hash: str
+    rules_hash: str
     parent_epoch_id: str | None = None
     repo_commit: str | None = None
     attrs: dict[str, Any] = field(default_factory=dict)
 
 
+class NotAnAd2vFile(ValueError):
+    pass
+
+
 def connect(path: Path) -> sqlite3.Connection:
+    """Read-write connection (creates the file). Used by the writer and by tests."""
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def open_readonly(path: Path) -> sqlite3.Connection:
+    """Open an existing .ad2v file read-only; never creates a file."""
+    path = Path(path)
+    if not path.is_file():
+        raise NotAnAd2vFile(f"no such file: {path}")
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("SELECT value FROM meta WHERE key = 'format_version'").fetchone()
+    except sqlite3.DatabaseError as e:
+        conn.close()
+        raise NotAnAd2vFile(f"not an ad2v file: {path} ({e})") from e
     return conn
 
 
@@ -61,13 +82,14 @@ def write(
             }
             conn.executemany("INSERT INTO meta(key, value) VALUES (?, ?)", sorted(all_meta.items()))
             conn.execute(
-                "INSERT INTO epochs VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO epochs VALUES (?,?,?,?,?,?,?,?)",
                 (
                     epoch.epoch_id,
                     epoch.parent_epoch_id,
                     epoch.repo_commit,
                     epoch.repo_tree_hash,
                     epoch.spec_tree_hash,
+                    epoch.rules_hash,
                     ids.canonical_json(epoch.attrs),
                     all_meta["created_at"],
                 ),

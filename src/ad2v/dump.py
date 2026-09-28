@@ -17,7 +17,7 @@ from ad2v import ids, store
 
 
 def iter_canonical(path: Path) -> Iterator[str]:
-    conn = store.connect(Path(path))
+    conn = store.open_readonly(Path(path))
     try:
         for table in store.table_names(conn):
             cols = [c for c in store.columns(conn, table) if c not in store.EXCLUDED_COLUMNS]

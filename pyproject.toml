@@ -1,6 +1,7 @@
 [build-system]
-requires = ["hatchling>=1.25"]
-build-backend = "hatchling.build"
+# setuptools has no dependencies (hatchling pulls pathspec, which is MPL-2.0; see docs/dependencies.md)
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "ad2v"
@@ -28,15 +29,20 @@ dev = [
 [project.scripts]
 ad2v = "ad2v.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/ad2v"]
+[tool.setuptools]
+# schema/ is the canonical location; it ships inside the wheel as the data package ad2v._schema
+packages = ["ad2v", "ad2v.extract", "ad2v.extract.code", "ad2v.extract.spec", "ad2v._schema"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"schema" = "ad2v/_schema"
+[tool.setuptools.package-dir]
+"" = "src"
+"ad2v._schema" = "schema"
+
+[tool.setuptools.package-data]
+"ad2v.extract.code" = ["rules/*.yaml"]
+"ad2v._schema" = ["*.sql", "*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
 
 [tool.ruff]
 line-length = 110

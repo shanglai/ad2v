@@ -1405,6 +1405,12 @@ class PythonExtractor:
         tail = fq[len(lib) + 1 :]
         if tail in rule.get("constructors", []) or tail in rule.get("pure", []):
             return False
+        # Module-level functions of datastore libraries are helpers (sqlalchemy.inspect, text, …);
+        # IO happens on engine/session/connection objects. Other kinds (requests.get,
+        # litellm.completion) do IO directly.
+        direct = rule.get("direct_calls_touch", rule["kind"] != "datastore")
+        if not direct and tail not in rule.get("touch_functions", []):
+            return False
         key = self._name_resource(lib, rule, pos, kw, ctx, construct=False)
         self._touch(key, tail.rsplit(".", 1)[-1], call, ctx)
         return False

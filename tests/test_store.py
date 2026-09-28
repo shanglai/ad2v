@@ -33,7 +33,9 @@ def _graph() -> ir.Graph:
 
 
 def _write(path, g):
-    epoch = store.Epoch(epoch_id=ids.epoch_id(None, "r", "s"), repo_tree_hash="r", spec_tree_hash="s")
+    epoch = store.Epoch(
+        epoch_id=ids.epoch_id(None, "r", "s", "x"), repo_tree_hash="r", spec_tree_hash="s", rules_hash="x"
+    )
     wf = ir.Workflow("w", "code", sorted(g.nodes)[0], "static", [ir.WorkflowStep(0, [sorted(g.nodes)[0]], 0)])
     glyphs = [ir.Glyph(n, "rounded_box", "module", {"ports": 0}, 1, False) for n in g.nodes]
     store.write(path, g, epoch, glyphs, [wf], {"repo_root_name": "x", "system_name": "s"})
