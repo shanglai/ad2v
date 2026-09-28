@@ -1,0 +1,116 @@
+{
+ "statuses": {
+  "specified": {
+   "token": "status.specified",
+   "line": "dotted",
+   "fill": "tinted",
+   "decoration": "none",
+   "weight": "regular"
+  },
+  "implemented": {
+   "token": "status.implemented",
+   "line": "solid",
+   "fill": "tinted",
+   "decoration": "none",
+   "weight": "regular"
+  },
+  "verified": {
+   "token": "status.verified",
+   "line": "solid",
+   "fill": "tinted",
+   "decoration": "emphasis",
+   "weight": "regular"
+  },
+  "drift": {
+   "token": "status.drift",
+   "line": "solid",
+   "fill": "tinted",
+   "decoration": "warning_badge",
+   "weight": "regular"
+  },
+  "orphan": {
+   "token": "status.orphan",
+   "line": "dashed",
+   "fill": "tinted",
+   "decoration": "none",
+   "weight": "regular"
+  },
+  "missing": {
+   "token": "status.missing",
+   "line": "dotted",
+   "fill": "hollow",
+   "decoration": "none",
+   "weight": "regular"
+  },
+  "needs_review": {
+   "token": "status.needs_review",
+   "line": "dash_dot",
+   "fill": "tinted",
+   "decoration": "none",
+   "weight": "regular"
+  },
+  "stale": {
+   "token": "status.stale",
+   "line": "solid",
+   "fill": "tinted",
+   "decoration": "clock_badge",
+   "weight": "regular"
+  },
+  "none": {
+   "token": "status.none",
+   "line": "solid",
+   "fill": "tinted",
+   "decoration": "none",
+   "weight": "thin"
+  }
+ },
+ "overlays": {
+  "ai": {
+   "glyph": "AI",
+   "color": "badge.ai",
+   "text": "badge.ai_text"
+  },
+  "suggestion": {
+   "glyph": "?",
+   "color": "badge.suggestion",
+   "text": "badge.suggestion_text"
+  },
+  "diff_added": {
+   "glyph": "+",
+   "color": "diff.added",
+   "text": "diff.badge_text"
+  },
+  "diff_removed": {
+   "glyph": "\u2212",
+   "color": "diff.removed",
+   "text": "diff.badge_text"
+  },
+  "diff_renamed": {
+   "glyph": "\u21ba",
+   "color": "diff.renamed",
+   "text": "diff.badge_text"
+  },
+  "diff_transition": {
+   "glyph": "\u2192",
+   "color": "diff.transition",
+   "text": "diff.badge_text"
+  }
+ },
+ "dasharray": {
+  "solid": null,
+  "dotted": "1.5 4.5",
+  "dashed": "7 5",
+  "dash_dot": "9 4 1.5 4"
+ },
+ "statusOrder": [
+  "drift",
+  "needs_review",
+  "missing",
+  "orphan",
+  "stale",
+  "verified",
+  "implemented",
+  "specified",
+  "none"
+ ]
+}

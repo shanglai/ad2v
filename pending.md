@@ -54,9 +54,28 @@ Items consciously left out so far, grouped by the phase that should pick them up
 - Batch / cached-context APIs to cut the dispatch cost (≈ 3.5k calls head-only).
 - `openai_compatible` live test against a local server (Ollama / vLLM).
 
-## P5/P6: viewer and MCP
+## Done in P5 (moved from this list)
 
-- Layout algorithm writing `layout` rows (LOD 0–2). Tours.
+- Deterministic layout (`nestgrid-v1`, LOD 0) and the three.js viewer: LOD map, status styling,
+  effective/suggestion overlays, replay, epoch diff, `ad2v view`, single-file demo.
+
+## After P5: viewer
+
+- **Denser layout for large repos** (issue 54). Dispatch fits 60 fps, but the home view is mostly
+  empty slabs. Try shelf or squarified packing inside a parent in `nestgrid-v2`, with the same
+  persisted-slot stability rule.
+- **Edge bundling / aggregation by level** at the system view (issue 54): today every visible
+  representative pair gets an edge, which becomes a hairball on dispatch.
+- **Dash aliasing** on very long dashed ribbons at high zoom (issue 55): clamp the dash phase per
+  segment, or split long ribbons.
+- Tours (`tours` table) in the viewer, and LOD 1–2 layout rows (today LOD is derived on screen).
+- Headed-GPU perf numbers on a discrete GPU. The M9 figures are from an Intel UHD integrated GPU,
+  headless with ANGLE D3D11.
+
+## P6: MCP
+
+- MCP-backed `DataSource`, and the conversational agent in the panel (the chat box is a
+  placeholder today).
 
 ## Deferred from P2
 

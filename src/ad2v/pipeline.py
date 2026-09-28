@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ad2v import glyphs, history, ids, ir, junit, materialize, pairing, severity, store, workflows
+from ad2v import glyphs, history, ids, ir, junit, layout, materialize, pairing, severity, store, workflows
 from ad2v import rules as rules_mod
 from ad2v.extract import files as filewalk
 from ad2v.extract.code.base import CodeFacts, Layout
@@ -359,6 +359,10 @@ def extract_to_file(
             conn.execute("PRAGMA defer_foreign_keys = ON")
             write_epoch(conn, res, parent)
         res.timings["write"] = time.perf_counter() - t1
+        t2 = time.perf_counter()
+        with conn:  # deterministic layout of the new epoch (inherits the parent's grid slots)
+            layout.ensure(conn, [res.epoch.epoch_id])
+        res.timings["layout"] = time.perf_counter() - t2
         if into and conn.execute("SELECT 1 FROM llm_results LIMIT 1").fetchone():
             from ad2v.llm import api as llm_api  # informative rows of the new head, from the cache only
             from ad2v.llm.config import from_data as llm_config
@@ -379,6 +383,7 @@ def materialize_epoch(path: Path, epoch_ref: str) -> tuple[str, bool]:
         e = store.resolve_epoch(conn, epoch_ref)
         with conn:
             did = materialize.materialize(conn, e)
-        return e, did
+            laid = layout.ensure(conn, [e])  # the viewer needs a layout for every materialized epoch
+        return e, did or bool(laid)
     finally:
         conn.close()

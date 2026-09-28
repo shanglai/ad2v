@@ -73,3 +73,33 @@ warning badge uses a darker amber (`#9A5800`) so that its white "!" reaches 5.6:
 | stale | 7.50 | 4.49 |
 | none | 4.21 | 3.41 |
 | text / text_muted | 16.26 / 8.71 | 16.18 / 6.76 |
+
+## 6. Overlay badges, links and diff tokens (P5)
+
+These are added to both palettes. They are **overlays**: they never replace the status style of §2,
+and like §2 each one carries a glyph as well as a color.
+
+| overlay | glyph | color token | text token | meaning |
+|---|---|---|---|---|
+| ai | `AI` | `badge.ai` | `badge.ai_text` | effective status comes from an LLM judgment (drift) |
+| suggestion | `?` | `badge.suggestion` | `badge.suggestion_text` | an open LLM link suggestion; the connector is dotted in `link.suggestion` |
+| diff_added | `+` | `diff.added` | `diff.badge_text` | node is new in the later epoch |
+| diff_removed | `−` | `diff.removed` | `diff.badge_text` | node is gone; drawn as a ghost at `diff.ghost_opacity` (0.35) |
+| diff_renamed | `↺` | `diff.renamed` | `diff.badge_text` | node matched through `id_lineage` |
+| diff_transition | `→` | `diff.transition` | `diff.badge_text` | effective status changed (the panel lists from → to) |
+
+`link.normative` colors spec ↔ code links drawn for a selection. The reference mapping is
+`tokens.OVERLAY_BADGES`, mirrored in `viewer/src/theme.ts` and checked by a parity test.
+
+Measured contrast (WCAG ratio of text token on badge color; links against the background):
+
+| token | dark | light |
+|---|---|---|
+| badge.ai | 8.91 | 5.32 |
+| badge.suggestion | 9.21 | 6.36 |
+| diff.added | 10.82 | 5.07 |
+| diff.removed | 6.89 | 5.20 |
+| diff.renamed | 12.40 | 5.67 |
+| diff.transition | 13.39 | 5.33 |
+| link.normative on bg | 11.75 | 7.58 |
+| link.suggestion on bg | 9.21 | 5.99 |

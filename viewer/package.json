@@ -1,0 +1,36 @@
+{
+  "name": "ad2v-viewer",
+  "version": "0.5.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run licenses && tsc --noEmit && vite build && node scripts/check-licenses.mjs --dist dist",
+    "build:demo": "npm run licenses && npm run fixtures && tsc --noEmit && vite build --mode demo && node scripts/check-licenses.mjs --dist demo-dist && node scripts/publish-demo.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests e2e scripts",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "licenses": "node scripts/check-licenses.mjs",
+    "fixtures": "node scripts/run-python.mjs scripts/make_fixtures.py",
+    "pretest": "node -e \"require('fs').existsSync('tests/fixtures/demo.ad2v')||process.exit(1)\" || npm run fixtures"
+  },
+  "dependencies": {
+    "sql.js": "^1.14.2",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3",
+    "@types/sql.js": "^1.4.11",
+    "@types/three": "^0.180.0",
+    "eslint": "^10.11.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.0",
+    "vite": "^7.3.6",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^4.1.11"
+  }
+}

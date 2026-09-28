@@ -20,8 +20,8 @@ Like mermaid.js, ad2v is an open **format** plus reference implementations. Lice
 | P1 | format spec v0.1, SQLite schema, IR, deterministic extractors (Python code, Gherkin / OpenAPI / Markdown specs), static workflows, canonical dump | done ([report](docs/reports/P1.md)) |
 | P2 | spec↔code pairing, single-epoch statuses, structural drift, roll-ups, risk severity, visual tokens (light + dark), format v0.2 | done ([report](docs/reports/P2.md)) |
 | P3 | content-addressed multi-epoch storage, parse cache, git history, epoch diff, lineage, `stale`, entry-point recognizers, orphan policy, format v0.3 | done ([report](docs/reports/P3.md)) |
-| **P4** | bring-your-own-model LLM layer (informative only): semantic judge, link suggestions, summaries, narrations, prose-spec extraction, evaluation; format **v0.4** | **done** ([report](REPORT.md)) |
-| P5 | three.js viewer | planned |
+| P4 | bring-your-own-model LLM layer (informative only): semantic judge, link suggestions, summaries, narrations, prose-spec extraction, evaluation; format v0.4 | done ([report](docs/reports/P4.md)) |
+| **P5** | three.js viewer: deterministic layout, LOD map, status styling, replay, epoch diff; `ad2v view` | **done** ([report](REPORT.md), [demo](docs/reports/P5-demo.html)) |
 | P6 | MCP server + MCP App | planned |
 
 Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
@@ -63,6 +63,21 @@ ad2v history --repo . --spec specs --commits HEAD~20..HEAD --into project.ad2v
 ad2v diff project.ad2v --from parent --to head --format md
 ```
 
+Open the map in a browser. The server binds 127.0.0.1 only and never writes the file:
+
+```bash
+ad2v view recon.ad2v
+```
+
+To browse history in the viewer, materialize the epochs you want to see first:
+
+```bash
+ad2v materialize project.ad2v --epochs last:5
+```
+
+A self-contained demo (the fixture's 8-epoch history, with demo LLM rows from the offline `fake`
+provider) opens from disk: [`docs/reports/P5-demo.html`](docs/reports/P5-demo.html).
+
 ## CLI
 
 ```text
@@ -74,7 +89,9 @@ ad2v diff     project.ad2v [--from <epoch>] [--to <epoch>] [--format table|json|
 ad2v log      project.ad2v [--format table|json]
 ad2v pin      project.ad2v <epoch> [--label v1.2]      ad2v unpin project.ad2v <epoch>
 ad2v prune    project.ad2v --keep-last N [--keep-pinned]
-ad2v materialize project.ad2v --epoch <epoch>
+ad2v materialize project.ad2v (--epoch <epoch> | --epochs last:N)   # last N + pinned
+ad2v layout   project.ad2v                 # nestgrid-v1 for epochs that lack a layout
+ad2v view     project.ad2v [--port 0] [--no-browser]
 ad2v status   project.ad2v [--epoch <epoch>] [--side spec|code] [--status stale] [--all] [--format table|json]
 ad2v inspect  project.ad2v [--epoch <epoch>] [--node <id|qualified_name>] [--kind loop] [--top-risk N]
 ad2v dump     project.ad2v [--epoch <id|head|all>] [--normative-only] [--out project.jsonl]
@@ -118,9 +135,13 @@ ad2v suggestions list|accept|reject project.ad2v [<id> --manifest ad2v.yaml]
   `verified`, `implemented`, `specified`) with their reasons.
 - `prune` keeps the last N epochs (and pinned ones), garbage-collects and vacuums.
 - `dump --normative-only` is the determinism contract: sorted JSONL, UTF-8, LF on every OS.
-- `validate` checks the format version (0.3), foreign keys and node references, version keys, the
+- `validate` checks the format version (0.4), foreign keys and node references, version keys, the
   epoch chain, glyph and status coverage, the IR JSON Schema, and that ids, link ids, Merkle hashes
   and roll-ups recompute.
+- `view` serves the built viewer on 127.0.0.1 (GET/HEAD only, strict CSP). The viewer is
+  read-only and never calls an LLM. Actions that change state are shown as CLI commands to copy.
+  It shows materialized epochs only. `extract` and `materialize` also write the deterministic
+  layout (`nestgrid-v1`, format spec §12), which keeps boxes in place across epochs.
 - `preview-tokens` writes one self-contained HTML page: every glyph × every status, dark and light
   (see [`docs/reports/P2-tokens.html`](docs/reports/P2-tokens.html)).
 
@@ -129,12 +150,12 @@ repository code or tests.
 
 ## Documents
 
-- [Format spec v0.4](docs/spec/ad2v-format-v0.4.md) (normative: the product; §11 the LLM layer)
+- [Format spec v0.4](docs/spec/ad2v-format-v0.4.md) (normative: the product; §11 the LLM layer, §12 layout and viewer)
 - [Glyph grammar v0.2](docs/spec/glyph-grammar-v0.2.md) and [visual tokens v0.2](docs/spec/visual-tokens-v0.2.md)
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
 - [DDL](schema/ad2v-v0.4.sql), [IR JSON Schema](schema/ir-v0.4.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
-- [REPORT.md](REPORT.md) (P4), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
+- [REPORT.md](REPORT.md) (P5), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
 ## Optional manifest (`ad2v.yaml`)
 
@@ -176,6 +197,18 @@ is a container.
 ```bash
 .venv/Scripts/ruff check src tests
 ```
+
+The viewer (Node ≥ 20) lives in `viewer/`:
+
+```bash
+cd viewer && npm ci && npm run build
+```
+
+`npm run build` type-checks, bundles into `viewer/dist` (which `ad2v view` serves and the wheel
+ships) and runs the license gate. `npm run build:demo` regenerates the test fixtures and
+`docs/reports/P5-demo.html`. `npm test` runs the unit tests (Vitest) and `npm run lint` runs
+ESLint. `npm run e2e` (after `build:demo`) runs the Playwright tour over the demo and writes `docs/reports/P5-screens/`. It needs
+`npx playwright install chromium` once.
 
 After editing `schema/ad2v-v0.4.sql`, regenerate the spec's column table with
 `python -m ad2v.ddl`. A test fails if you forget.

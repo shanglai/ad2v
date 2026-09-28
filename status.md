@@ -1,6 +1,22 @@
 # Status
 
-## P4 (done): BYOM LLM layer
+## P5 (done): the viewer
+
+Single final commit at the end. Root REPORT.md (P4) removed; it is at docs/reports/P4.md. P5 report: `REPORT.md` (copy in `docs/reports/P5.md`). ADRs 0034–0038.
+
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | Deterministic layout `nestgrid-v1` (Python, src/ad2v/layout.py; layout_grids table; ports + slots persisted, 20% track headroom) + `ad2v layout` + `materialize --epochs last:N`; stability 765/765 on the P3 history | done |
+| M2 | viewer/ (Vite 7, TS strict, ESLint), DataSource + LocalFileSource (sql.js), `ad2v view` (127.0.0.1, tested), single-file demo build, license gate (no lightningcss/MPL: Vite 7) | done |
+| M3 | three.js iso map: instanced shapes, LOD+hysteresis, ribbons (screen-space dashes), canvas-atlas labels/badges, navigation, perf HUD | done (perf measured in M9) |
+| M4 | LOD edges, portals, status styles from tokens (outlineFor), glow/halo, effective + suggestions toggles, themes; diff/AI/suggestion tokens | done |
+| M5 | Panel timeline cards (summary/fallback, links+judge, suggestions+copy cmd, risk, workflows, history), chat placeholder | done |
+| M6 | Replay (fine playhead, detail slider, narrations + fallback), TS projection parity with Python (all workflows/depths) | done |
+| M7 | Epoch scrubber, diff overlay (+/−ghost/↺/from→to), changes card | done |
+| M8 | Tests + e2e screenshots + license check | done: 215 pytest (layout 99%, view 96%), 34 vitest, 2 Playwright tours → 12 screenshots, license gate 158 pkgs OK, demo 4.26 MB |
+| M9 | Performance on dispatch | done: dispatch dd2837e (5,374 nodes, 17.7 MB file) via `ad2v view`, Intel UHD (ANGLE D3D11): first render 0.86 s, median 59.9 fps / p5 59.5 fps, ≤ 364 visible, ≤ 7 draw calls, heap ≤ 75 MB; fixture 60 fps. Fixed: camera clip planes + min zoom scale with map extent (dispatch home view was clipped), toolbar wrap, plural. bench/ deleted |
+
+## P4 (done, commit 128729b): BYOM LLM layer
 
 Single final commit at the end. Root REPORT.md (P3) removed; it is at docs/reports/P3.md.
 

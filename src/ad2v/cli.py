@@ -9,7 +9,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from ad2v import __version__, admin, diff, dump, gitsource, ir, materialize, pipeline, store
+from ad2v import __version__, admin, diff, dump, gitsource, ir, layout, materialize, pipeline, store
 from ad2v.cli_llm import register as register_llm
 from ad2v.junit import JUnitError
 from ad2v.llm.api import LLMRunError
@@ -384,8 +384,41 @@ def cmd_prune(a: argparse.Namespace) -> int:
 
 
 def cmd_materialize(a: argparse.Namespace) -> int:
-    e, did = pipeline.materialize_epoch(Path(a.file), a.epoch)
-    _out(f"{'materialized' if did else 'already materialized'} {e}\n")
+    if a.epochs:  # `last:N`: the N newest epochs plus every pinned one (what the viewer shows)
+        if not a.epochs.startswith("last:") or not a.epochs[5:].isdigit():
+            raise ValueError("--epochs must be last:N")
+        n = int(a.epochs[5:])
+        conn = store.open_readonly(Path(a.file))
+        try:
+            rows = store.epoch_rows(conn)
+            chosen = [r["epoch_id"] for r in rows[-n:]] if n else []
+            chosen += [r["epoch_id"] for r in rows if r["pinned"] and r["epoch_id"] not in chosen]
+        finally:
+            conn.close()
+    else:
+        chosen = [a.epoch]
+    for ref in chosen:
+        e, did = pipeline.materialize_epoch(Path(a.file), ref)
+        _out(f"{'materialized' if did else 'already materialized'} {e}\n")
+    return 0
+
+
+def cmd_view(a: argparse.Namespace) -> int:  # pragma: no cover - interactive (serve() is tested)
+    from ad2v import view
+
+    view.run(Path(a.file), a.port, not a.no_browser)
+    return 0
+
+
+def cmd_layout(a: argparse.Namespace) -> int:
+    conn = store.open_rw(Path(a.file))
+    try:
+        wanted = [store.resolve_epoch(conn, a.epoch)] if a.epoch else None
+        with conn:
+            done = layout.ensure(conn, wanted)
+    finally:
+        conn.close()
+    _out(f"laid out {len(done)} epoch(s) with {layout.ALGORITHM}\n" if done else "layout up to date\n")
     return 0
 
 
@@ -521,10 +554,25 @@ def parser() -> argparse.ArgumentParser:
     )
     pr.set_defaults(func=cmd_prune)
 
-    mt = sub.add_parser("materialize", help="write derived tables for an epoch")
+    mt = sub.add_parser("materialize", help="write derived tables for an epoch (or last:N + pinned)")
     mt.add_argument("file")
-    mt.add_argument("--epoch", required=True, help=epoch_help)
+    which = mt.add_mutually_exclusive_group(required=True)
+    which.add_argument("--epoch", help=epoch_help)
+    which.add_argument(
+        "--epochs", help="last:N — the N newest epochs plus pinned ones (the viewer shows these)"
+    )
     mt.set_defaults(func=cmd_materialize)
+
+    vw = sub.add_parser("view", help="open the viewer for a file (serves on 127.0.0.1 only)")
+    vw.add_argument("file")
+    vw.add_argument("--port", type=int, default=0, help="0 = any free port")
+    vw.add_argument("--no-browser", action="store_true")
+    vw.set_defaults(func=cmd_view)
+
+    ly = sub.add_parser("layout", help="deterministic layout (nestgrid-v1) of epochs that lack one")
+    ly.add_argument("file")
+    ly.add_argument("--epoch", help=f"{epoch_help} (default: every epoch)")
+    ly.set_defaults(func=cmd_layout)
 
     t = sub.add_parser("preview-tokens", help="write a static HTML preview of glyphs x statuses x themes")
     t.add_argument("--out", required=True)

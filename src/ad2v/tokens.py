@@ -44,12 +44,29 @@ STATUS_STYLES: dict[str, StatusStyle] = {
     "orphan": StatusStyle("status.orphan", "dashed", "tinted", "none"),
     "missing": StatusStyle("status.missing", "dotted", "hollow", "none"),
     "needs_review": StatusStyle("status.needs_review", "dash_dot", "tinted", "none"),
-    "stale": StatusStyle("status.stale", "solid", "tinted", "clock_badge"),  # reserved (P3)
+    "stale": StatusStyle("status.stale", "solid", "tinted", "clock_badge"),
     "none": StatusStyle("status.none", "solid", "tinted", "none", "thin"),
 }
 assert set(STATUS_STYLES) == set(ir.NODE_STATUSES)
 
 DASHARRAY = {"solid": None, "dotted": "1.5 4.5", "dashed": "7 5", "dash_dot": "9 4 1.5 4"}
+
+# Overlay badges (P5, visual tokens §6). The glyph is the non-color signature; color reinforces it.
+OVERLAY_BADGES: dict[str, tuple[str, str, str]] = {  # name -> (glyph, color token, text token)
+    "ai": ("AI", "badge.ai", "badge.ai_text"),  # LLM drift in effective mode
+    "suggestion": ("?", "badge.suggestion", "badge.suggestion_text"),  # open link suggestion
+    "diff_added": ("+", "diff.added", "diff.badge_text"),
+    "diff_removed": ("\u2212", "diff.removed", "diff.badge_text"),  # a translucent ghost as well
+    "diff_renamed": ("\u21ba", "diff.renamed", "diff.badge_text"),
+    "diff_transition": ("\u2192", "diff.transition", "diff.badge_text"),
+}
+
+
+def token(theme: dict[str, Any], dotted: str) -> Any:
+    cur: Any = theme
+    for part in dotted.split("."):
+        cur = cur[part]
+    return cur
 
 
 @cache

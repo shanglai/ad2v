@@ -36,3 +36,9 @@ desktop.ini
 .idea/
 .vscode/
 *.swp
+
+# Viewer (P5)
+node_modules/
+viewer/test-results/
+viewer/playwright-report/
+viewer/src/generated/

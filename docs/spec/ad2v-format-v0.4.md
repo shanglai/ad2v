@@ -83,7 +83,7 @@ tables) keeps its v0.2 shape: readers that query the `nodes`, `edges`, `unresolv
 8. **History is a pure function of the inputs.** An epoch's logical content (its view rows and
    derived rows) MUST equal what a fresh single-epoch extraction of the same inputs produces, except
    for the history-dependent parts that are defined in terms of the parent epoch: `id_lineage`,
-   `link_state` and the link and node statuses they change (§6.6, §6.7).
+   `link_state` and the link and node statuses they change (§6.6, §6.7), and the layout (§12.1).
 
 ## 2. Normalization and hashing (normative)
 
@@ -848,6 +848,70 @@ any spec file.
   phrase. Instruction-like phrases anywhere in the input add an `injection_suspected` warning,
   which blocks the drift overlay.
 
+## 12. Layout and the viewer (P5)
+
+### 12.1 Layout `nestgrid-v1` (normative for producers that write `layout`)
+
+The layout gives every node of a materialized epoch a box `(x, y, z, w, h, d)` in `layout`
+(`lod = 0`, `algorithm = 'nestgrid-v1'`). `x, y` are on the ground plane (y grows south), `z` is
+the height the box stands at and `d` its own height. The algorithm is deterministic and uses no
+randomness:
+
+1. **Region.** The code system sits at the origin. The spec root is a separate region to the west,
+   `SPEC_GAP = 8` units from the code side.
+2. **Children** are packed in a grid inside their parent (inner padding `PAD = 0.5`, track gap
+   `GAP = 0.3`), in stable order: kind order of `ir.NODE_KINDS`, then qualified name.
+3. **Leaves** get a log-bucketed side (`1 + 0.5 × ⌊log2(size_weight) / 2⌋`, at most 4). Leaves for
+   resources (datastore, queue, external service, LLM endpoint, UI) stand taller.
+4. **Ports** (HTTP routes, CLI commands, MCP tools, consumers, schedules) sit on the parent's east
+   and south edges, `PORT_STEP = 0.6` apart. A new port goes to the shorter edge.
+5. **Track sizes** are quantized to `1, 1.5, 2, 3, 4, 6, 8, 12, 16`, then ×1.25 per step on a 0.5
+   grid. A track that must grow is sized for `HEADROOM = 1.2` times what it needs. Tracks never
+   shrink.
+6. **Height.** `z = parent.z + parent.d`.
+
+**Grids are persisted** in `layout_grids` (N): per parent, the track sizes, each child's
+`(row, col)` slot and each port's `(edge, index)`. In a new epoch a parent starts from its parent
+epoch's grid, with ids mapped through `id_lineage`. Existing children keep their slot, removed
+children free it, new children fill free slots in stable order, and the grid grows only by
+appending a row or a column.
+
+**History dependence.** Like `id_lineage` and `link_state`, `layout` and `layout_grids` depend on
+the parent epoch. This is the one further exception to principle 8: a fresh single-epoch extraction
+MAY produce a different (still valid) layout than the same epoch reached through history. Both are
+deterministic functions of their inputs. On the P3 history fixture, 765 of 765 boxes of surviving
+nodes stay put across all epochs.
+
+Layout is written for the head by `extract` and by `materialize`. `ad2v layout` lays out the
+epochs that lack one. `ad2v materialize --epochs last:N` materializes (and lays out) the last N
+epochs plus the pinned ones. Layout rows are kept for every epoch that has them (they are not
+dropped with other derived rows) and are deleted by `prune`.
+
+### 12.2 The viewer (informative)
+
+`viewer/` is a static web app (TypeScript, three.js, sql.js). It reads a `.ad2v` file read-only
+through a `DataSource` interface. `LocalFileSource` runs SQL on the file in the browser, and a
+future MCP-backed source (P6) implements the same interface.
+
+- **Serving.** `ad2v view FILE` serves the built viewer and the file on `127.0.0.1` only, for
+  GET and HEAD only, under a strict CSP (`default-src 'self'`, plus `'wasm-unsafe-eval'` for
+  sql.js). The wheel ships the built viewer as `ad2v/_viewer`.
+- **Scope.** The viewer shows only materialized epochs. It never triggers LLM calls and never
+  writes the file or `ad2v.yaml`. Actions that change state (accept a suggestion, run the LLM
+  layer) are shown as copyable CLI commands.
+- **Camera and LOD.** The camera is an orthographic isometric view, with no rotation. A box's
+  level of detail follows its on-screen footprint: hidden under 8 px, silhouette under 40 px,
+  detail under 160 px, open above. A level drops only below 0.8 × its threshold (hysteresis).
+  Boxes outside the viewport are culled.
+- **Status styling** comes from the theme tokens (§6, `schema/themes/*.json`) through the same
+  mapping as `tokens.py`, checked by a parity test. Effective status shows an `AI` badge when it
+  comes from an LLM judgment.
+- **Replay.** The playhead lives on the fine (per-call) trace. Coarser levels are projections of
+  it (`workflows.project`, re-implemented in TypeScript and checked for parity with Python on
+  every workflow and depth), so changing the detail level never moves the playhead.
+- **Diff.** Two materialized epochs are compared through composed `id_lineage`. Nodes are shown as
+  added, removed (ghosts), renamed, or status transitions.
+
 ## Appendix A: column classes (normative)
 
 Every column in the DDL is marked **N** (normative), **I** (informative), **V** (volatile: deterministic, ignored by `ad2v diff`) or **N/I** (depends on the row, e.g. `provenance`). This appendix is generated from the DDL comments and a test keeps it in sync.
@@ -1179,6 +1243,15 @@ Every column in the DDL is marked **N** (normative), **I** (informative), **V** 
 | `w` | N |  |
 | `h` | N |  |
 | `d` | N |  |
+
+**layout_grids**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `node_id` | N | the parent node |
+| `algorithm` | N | e.g. nestgrid-v1 |
+| `grid_json` | N | {"cols": [...], "rows": [...], "slots": {child: [row, col]}} |
 
 **tours**
 

@@ -51,6 +51,7 @@ PHYSICAL_TABLES = frozenset(
         "llm_results",
         "llm_runs",
         "llm_run_results",
+        "layout_grids",
     }
 )
 # Informative per-epoch rows built from the LLM cache (P4). Dropped with the derived rows (and
@@ -170,6 +171,9 @@ def open_rw(path: Path) -> sqlite3.Connection:
             f"{path} has format {version[0] if version else '?'}; appending needs {ir.FORMAT_VERSION}"
             " (re-extract with --out to start a new file)"
         )
+    from ad2v import layout  # v0.4 files written before P5 lack the additive layout_grids table
+
+    conn.executescript(layout.DDL)
     return conn
 
 

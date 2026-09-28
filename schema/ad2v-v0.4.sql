@@ -383,6 +383,17 @@ CREATE TABLE layout (
     PRIMARY KEY (epoch_id, node_id, lod, algorithm)
 );
 
+-- Deterministic layout state (P5, spec §12): per parent node, the grid its children are packed in
+-- (track sizes and child slots), so the next epoch keeps every unchanged child in its slot.
+-- Kept for every epoch (like `layout`), deleted with its epoch by `prune`.
+CREATE TABLE layout_grids (
+    epoch_id  TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
+    node_id   TEXT NOT NULL,                    -- N  the parent node
+    algorithm TEXT NOT NULL,                    -- N  e.g. nestgrid-v1
+    grid_json TEXT NOT NULL,                    -- N  {"cols": [...], "rows": [...], "slots": {child: [row, col]}}
+    PRIMARY KEY (epoch_id, node_id, algorithm)
+);
+
 CREATE TABLE tours (
     epoch_id      TEXT NOT NULL,                -- N
     tour_id       TEXT NOT NULL,                -- N

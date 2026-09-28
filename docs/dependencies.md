@@ -3,7 +3,7 @@
 Policy: **no copyleft dependencies** (GPL, LGPL, AGPL, MPL, EPL, CDDL…), including transitive,
 development and build-time dependencies. ad2v itself is Apache-2.0.
 
-Checked on 2026-09-28 (P1, re-checked in P2, P3 and P4) from installed package metadata (`License-Expression` / classifiers), versions
+Checked on 2026-09-28 (P1, re-checked in P2, P3, P4 and P5) from installed package metadata (`License-Expression` / classifiers), versions
 as resolved in the development environment.
 
 ## Runtime
@@ -42,6 +42,37 @@ OAuth access token by running the **gcloud CLI** as an external program (`gcloud
 application-default print-access-token`); gcloud is not linked, imported or redistributed, and only
 the `vertex` provider needs it (CI can pass a token in `AD2V_ACCESS_TOKEN`).
 
+**P5 added no Python dependency.** `ad2v view` uses `http.server` and `webbrowser` from the
+standard library. `certifi` stays banned. The layout is pure Python.
+
+## Viewer (npm, P5)
+
+The viewer in `viewer/` has its own npm tree. `npm run build` and `npm run build:demo` run
+`scripts/check-licenses.mjs`. It walks **every** installed package (direct, transitive and
+development), evaluates SPDX expressions and **fails the build** on GPL, LGPL, AGPL, MPL, EPL,
+CDDL, CC-BY-SA or OFL, and on any font file in the build output. Last run (2026-09-28): 158
+packages (MIT 123, Apache-2.0 18, ISC 7, BSD-2-Clause 6, BSD-3-Clause 3, BlueOak-1.0.0 1). The
+full list is written to `viewer/scripts/licenses.json` (gitignored).
+
+| package | version | license | kind | why |
+|---|---|---|---|---|
+| three | 0.180.0 | MIT | runtime (bundled) | WebGL rendering |
+| sql.js | 1.14.2 | MIT | runtime (bundled, incl. wasm) | SQLite in the browser |
+| vite | 7.3.6 | MIT | build | bundler (Vite 8 rejected, see below) |
+| vite-plugin-singlefile | 2.3.3 | MIT | build | single-file demo |
+| typescript | 6.0.3 | Apache-2.0 | build | strict type checking |
+| eslint, @eslint/js | 10.x | MIT | dev | lint |
+| typescript-eslint | 8.71.0 | MIT | dev | lint |
+| vitest | 4.1.11 | MIT | dev | unit tests |
+| @playwright/test | 1.63.0 | Apache-2.0 | dev | e2e screenshots, perf bench |
+| @types/three, @types/sql.js, @types/node | | MIT | dev | types |
+
+No font ships: labels use the system UI font through Canvas 2D. three's example fonts are in
+`node_modules` but are never imported. The license check reports them as info.
+
+Playwright downloads Chromium builds into `%LOCALAPPDATA%\ms-playwright` for the e2e tests. They
+are development tools, not redistributed.
+
 ## Development
 
 | package | version | license |
@@ -70,6 +101,8 @@ the `vertex` provider needs it (CI can pass a token in `AD2V_ACCESS_TOKEN`).
 | hatchling | MIT, but depends on **pathspec (MPL-2.0)** | replaced by setuptools as build backend (ADR-0008) |
 | click / typer | BSD / MIT | not rejected on license; argparse avoids a dependency |
 | google-genai, google-cloud-aiplatform, openai, httpx, requests | Apache-2.0 / MIT, but depend on **certifi (MPL-2.0)** | replaced by stdlib `urllib` (ADR-0027) |
+| vite 8 | MIT, but depends on **lightningcss (MPL-2.0)** | Vite 7 instead (ADR-0035) |
+| troika-three-text and SDF fonts | MIT; bundled fonts are often **OFL** | Canvas 2D labels with the system font (ADR-0035) |
 
 ## Fixture-only names
 
@@ -79,6 +112,6 @@ dependencies.
 
 ## Benchmarks
 
-The performance measurements (P1–P3) used shallow clones of third-party repositories in `bench/`
+The performance measurements (P1–P3, P5) used shallow clones of third-party repositories in `bench/`
 (gitignored): dispatch (Apache-2.0) and full-stack-fastapi-template (MIT). They were deleted after
 the measurements. Nothing from them is redistributed.

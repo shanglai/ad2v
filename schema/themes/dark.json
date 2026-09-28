@@ -55,7 +55,11 @@
   "badge": {
     "warning": "#F5A524",
     "warning_text": "#0A0E16",
-    "clock": "#98A2B3"
+    "clock": "#98A2B3",
+    "ai": "#2EC4B6",
+    "ai_text": "#0A0E16",
+    "suggestion": "#FF8FC8",
+    "suggestion_text": "#0A0E16"
   },
   "severity_ramp": [
     "#7F93B3",
@@ -63,5 +67,17 @@
     "#F5A524",
     "#FF7A45",
     "#FF4D57"
-  ]
+  ],
+  "diff": {
+    "added": "#3DDC84",
+    "removed": "#8C9BB8",
+    "renamed": "#7FDBFF",
+    "transition": "#FFD166",
+    "badge_text": "#0A0E16",
+    "ghost_opacity": 0.35
+  },
+  "link": {
+    "normative": "#8CD2FF",
+    "suggestion": "#FF8FC8"
+  }
 }

@@ -98,3 +98,18 @@ def test_glyph_svg_encodes_status_without_color():
     assert "<text" in preview.glyph_svg("cloud", "drift", t)
     assert "stroke-dasharray" not in preview.glyph_svg("hexagon", "implemented", t)
     assert preview.glyph_svg("ring", "verified", t).count("<path") == 2  # halo + outline
+
+
+@pytest.mark.parametrize("theme_name", tokens.THEMES)
+def test_overlay_badges_and_diff_tokens(theme_name):
+    """P5: AI / suggestion / diff badges: unique glyphs, visible colors, readable glyph text."""
+    t = tokens.load_theme(theme_name)
+    glyphs_ = [g for g, _, _ in tokens.OVERLAY_BADGES.values()]
+    assert len(set(glyphs_)) == len(glyphs_)  # the glyph alone tells them apart
+    for name, (_glyph, color, text) in tokens.OVERLAY_BADGES.items():
+        c, tx = tokens.token(t, color), tokens.token(t, text)
+        assert tokens.contrast(c, t["background"]) >= NON_TEXT_MIN, (theme_name, name, c)
+        assert tokens.contrast(tx, c) >= TEXT_MIN, (theme_name, name, tx, c)
+    for key in ("normative", "suggestion"):
+        assert tokens.contrast(t["link"][key], t["background"]) >= NON_TEXT_MIN, (theme_name, key)
+    assert 0.2 <= t["diff"]["ghost_opacity"] <= 0.6

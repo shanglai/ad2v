@@ -12,6 +12,7 @@ EPOCH_TABLES = (  # per-epoch rows keyed by epoch_id, deleted with their epoch (
     "tour_stops",
     "tours",
     "layout",
+    "layout_grids",
     *store.LLM_DERIVED_TABLES,
     *store.DERIVED_DELETE_ORDER,
     "epoch_materialized",

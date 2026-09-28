@@ -68,3 +68,19 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 45 | low | The machine's gcloud default project is a different project; a request without an explicit quota project could be billed there. | **guarded**: every Vertex request names `llm.project` in the URL and sends `x-goog-user-project` |
 | 46 | low | `plan --epoch all` cannot know children's summary result ids for epochs not yet run, so parent summaries are counted once per distinct digest; the multi-epoch summary estimate is approximate. | accepted |
 | 47 | low | The `summaries.confidence` column is NOT NULL but summaries have no model confidence; ad2v stores 1.0 for a valid output. | accepted (ADR-0030) |
+
+## P5
+
+| # | Severity | Issue | Status |
+|---|---|---|---|
+| 48 | medium | Layout stability was 93.5% on the P3 history: ports reshuffled when the east/south split changed, and a growing track pushed every later track. | **fixed**: persisted port slots, quantized tracks with 20% headroom, never shrink: 765/765 (ADR-0034) |
+| 49 | medium | Vite 8 pulls in `lightningcss` (MPL-2.0). | **fixed**: Vite 7 + Vitest 4; the license gate fails the build on any copyleft package (ADR-0035) |
+| 50 | medium | Screen-space ribbons (outlines, edges) were invisible: back-face culling dropped them, and the quad triangulation was wrong. | **fixed**: `DoubleSide`, index order corrected |
+| 51 | high | On dispatch the home view was clipped: the camera stood a fixed 1,000 units from its target (the map is ~8,500 wide), and the minimum zoom (0.02) could not fit the whole map. | **fixed**: clip planes, camera distance and minimum zoom scale with the map extent (ADR-0037) |
+| 52 | low | The workflow selector grew with long workflow names and wrapped the toolbar onto two rows (dispatch). | **fixed**: capped width with ellipsis |
+| 53 | low | The fallback card pluralized `class` as "classs". | **fixed**, test added |
+| 54 | medium | Dispatch's layout is sparse: the system box is ~8,500 × 4,300 units and the dense code sits in one region, so the home view shows mostly empty slabs and an edge hairball between a few open components. | open (pending.md): tighter packing in a `nestgrid-v2`, edge bundling |
+| 55 | low | Very long dashed edges alias into a cross-hatch at high zoom (dispatch). | open (pending.md) |
+| 56 | low | Headed Chromium cannot be launched from the agent's sandbox (`spawn UNKNOWN`). | worked around: headless Chromium with hardware ANGLE (D3D11) on the real GPU (ADR-0038) |
+| 57 | low | Headless e2e uses SwiftShader, where frame rates are meaningless; e2e does not assert fps. | by design: fps is measured in the M9 bench on the GPU |
+
