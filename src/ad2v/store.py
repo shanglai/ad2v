@@ -140,10 +140,7 @@ def write(
                 )
                 conn.executemany(
                     "INSERT INTO workflow_steps VALUES (?,?,?,?,?)",
-                    [
-                        (e, wf.workflow_id, s.seq, ids.canonical_json(s.node_ids), s.depth)
-                        for s in wf.steps
-                    ],
+                    [(e, wf.workflow_id, s.seq, ids.canonical_json(s.node_ids), s.depth) for s in wf.steps],
                 )
     finally:
         conn.close()

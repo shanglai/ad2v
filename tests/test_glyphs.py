@@ -2,8 +2,15 @@ from ad2v import glyphs, ids, ir
 
 
 def _node(g, kind, qname, parent=None, **kw):
-    n = ir.Node(ir.side_of(kind), kind, qname, qname, parent_id=parent.id if parent else None,
-                content_hash=ids.sha256_hex(qname), **kw)
+    n = ir.Node(
+        ir.side_of(kind),
+        kind,
+        qname,
+        qname,
+        parent_id=parent.id if parent else None,
+        content_hash=ids.sha256_hex(qname),
+        **kw,
+    )
     return g.add_node(n)
 
 
@@ -19,7 +26,9 @@ def test_modifiers_roll_up_and_ports():
     c = _node(g, "container", "container:api", sysn, attrs={"replicas": 2, "container_kind": "service"})
     m = _node(g, "module", "a.py", c, span_start_line=1, span_end_line=10)
     f = _node(g, "function", "a.py::f", m, span_start_line=2, span_end_line=5)
-    loop = _node(g, "loop", "a.py::f@loop#1", f, span_start_line=3, span_end_line=4, attrs={"risk": ["io_in_loop"]})
+    loop = _node(
+        g, "loop", "a.py::f@loop#1", f, span_start_line=3, span_end_line=4, attrs={"risk": ["io_in_loop"]}
+    )
     route = _node(g, "http_route", "http:api:GET /x", c)
     llm = _node(g, "llm_endpoint", "llm_endpoint:x")
     db = _node(g, "datastore", "datastore:x")
@@ -29,8 +38,13 @@ def test_modifiers_roll_up_and_ports():
     g.link_contains()
     by = {gl.node_id: gl for gl in glyphs.compute(g)}
     assert len(by) == len(g.nodes)
-    assert by[c.id].modifiers == {"ports": 1, "replicas": 2, "has_loop_risk": True, "has_llm": True,
-                                  "external": False}
+    assert by[c.id].modifiers == {
+        "ports": 1,
+        "replicas": 2,
+        "has_loop_risk": True,
+        "has_llm": True,
+        "external": False,
+    }
     assert by[loop.id].base_shape == "ring"
     assert by[m.id].modifiers["has_loop_risk"] and not by[route.id].modifiers["has_loop_risk"]
     assert by[route.id].base_shape == "port_notch"

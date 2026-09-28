@@ -4,7 +4,7 @@
 |---|---|---|
 | M1 | IR, SQLite schema, ids/hashing, store, canonical dump, format spec | done |
 | M2 | Glyph grammar spec + `glyphs.py` | done |
-| M3 | Python code extractor (tree-sitter) + plugin interface | todo |
+| M3 | Python code extractor (tree-sitter) + plugin interface | done |
 | M4 | Spec extractors (Gherkin, OpenAPI, Markdown convention) | todo |
 | M5 | Static workflows + projection | todo |
 | M6 | Fixture `payments-recon` + `expected.yaml` golden tests | todo |

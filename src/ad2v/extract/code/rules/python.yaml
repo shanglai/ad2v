@@ -1,0 +1,185 @@
+# ad2v Python classification rules. Versioned: bump rules_version on any semantic change.
+# Library keys are dotted module prefixes, matched by longest prefix on whole dotted parts.
+rules_version: "0.1.0"
+
+resources:
+  # --- datastores -------------------------------------------------------------------------
+  sqlalchemy:
+    kind: datastore
+    constructors: [create_engine, create_async_engine, engine_from_config, sessionmaker,
+                   async_sessionmaker, scoped_session, Session, AsyncSession, orm.Session,
+                   orm.sessionmaker, ext.asyncio.create_async_engine, ext.asyncio.AsyncSession]
+    pure: [text, select, insert, update, delete, Column, Integer, String, Float, Numeric, DateTime,
+           Boolean, ForeignKey, Table, MetaData, func, and_, or_, not_, orm.relationship,
+           orm.declarative_base, orm.DeclarativeBase, orm.Mapped, orm.mapped_column]
+    pure_methods: [scalars, scalar_one, scalar_one_or_none, fetchone, fetchall, first, all, one,
+                   mappings, close, begin, begin_nested, connect, __enter__, __exit__]
+  psycopg:
+    kind: datastore
+    constructors: [connect, AsyncConnection.connect, Connection.connect]
+    pure_methods: [fetchone, fetchall, fetchmany, cursor, close]
+  psycopg2:
+    kind: datastore
+    constructors: [connect, pool.SimpleConnectionPool, pool.ThreadedConnectionPool]
+    pure_methods: [fetchone, fetchall, fetchmany, cursor, close]
+  asyncpg:
+    kind: datastore
+    constructors: [connect, create_pool]
+  sqlite3:
+    kind: datastore
+    constructors: [connect]
+    pure_methods: [fetchone, fetchall, fetchmany, cursor, close]
+  pymongo:
+    kind: datastore
+    constructors: [MongoClient]
+  redis:
+    kind: datastore
+    constructors: [Redis, StrictRedis, from_url, asyncio.Redis, asyncio.from_url]
+  google.cloud.bigquery:
+    kind: datastore
+    constructors: [Client]
+    pure: [QueryJobConfig, ScalarQueryParameter, SchemaField]
+    pure_methods: [result, to_dataframe]
+  google.cloud.firestore:
+    kind: datastore
+    constructors: [Client, AsyncClient]
+    pure_methods: [collection, document]
+  google.cloud.storage:
+    kind: datastore
+    constructors: [Client]
+    pure_methods: [bucket, blob]
+  # --- queues -----------------------------------------------------------------------------
+  google.cloud.pubsub:
+    kind: queue
+    constructors: [PublisherClient, SubscriberClient]
+    pure_methods: [topic_path, subscription_path, result]
+    name_from_literal: true
+  google.cloud.pubsub_v1:
+    kind: queue
+    constructors: [PublisherClient, SubscriberClient]
+    pure_methods: [topic_path, subscription_path, result]
+    name_from_literal: true
+  kafka:
+    kind: queue
+    constructors: [KafkaProducer, KafkaConsumer]
+    name_from_literal: true
+  confluent_kafka:
+    kind: queue
+    constructors: [Producer, Consumer]
+    name_from_literal: true
+  pika:
+    kind: queue
+    constructors: [BlockingConnection, ConnectionParameters, URLParameters]
+    name_from_literal: true
+  boto3:
+    # boto3.client("sqs") -> queue; service name decides the kind.
+    kind: external_service
+    constructors: [client, resource, session.Session, Session]
+    by_service_arg: {sqs: queue, sns: queue, kinesis: queue, s3: datastore, dynamodb: datastore,
+                     bedrock-runtime: llm_endpoint}
+  # --- external services ------------------------------------------------------------------
+  requests:
+    kind: external_service
+    constructors: [Session]
+    pure: [exceptions.HTTPError, exceptions.RequestException, Request]
+    pure_methods: [raise_for_status, json, close]
+  httpx:
+    kind: external_service
+    constructors: [Client, AsyncClient]
+    name_kwargs: [base_url]
+    pure: [HTTPError, HTTPStatusError, Timeout, Request, Response]
+    pure_methods: [raise_for_status, json, aclose, close]
+  aiohttp:
+    kind: external_service
+    constructors: [ClientSession]
+    name_kwargs: [base_url]
+    pure_methods: [raise_for_status, json, text, close]
+  urllib.request:
+    kind: external_service
+  # --- LLM endpoints ----------------------------------------------------------------------
+  openai:
+    kind: llm_endpoint
+    constructors: [OpenAI, AsyncOpenAI, AzureOpenAI, AsyncAzureOpenAI]
+    name_kwargs: [model]
+  anthropic:
+    kind: llm_endpoint
+    constructors: [Anthropic, AsyncAnthropic, AnthropicVertex, AnthropicBedrock]
+    name_kwargs: [model]
+  litellm:
+    kind: llm_endpoint
+    constructors: [Router]
+    name_kwargs: [model]
+  google.genai:
+    kind: llm_endpoint
+    constructors: [Client]
+    name_kwargs: [model]
+  vertexai:
+    kind: llm_endpoint
+    constructors: [init, generative_models.GenerativeModel]
+    name_kwargs: [model_name, model]
+  langchain_openai:
+    kind: llm_endpoint
+    constructors: [ChatOpenAI, OpenAIEmbeddings]
+    name_kwargs: [model, model_name]
+
+# Datastore access classification (reads vs writes).
+access:
+  read_methods: [get, fetch, fetchrow, fetchval, query, select, find, find_one, scalars, scalar,
+                 list_rows, get_document, stream, hget, hgetall, mget, exists, count, download_as_bytes,
+                 download_as_text]
+  write_methods: [add, add_all, insert, insert_one, insert_many, insert_rows, insert_rows_json,
+                  update, update_one, update_many, delete, delete_one, delete_many, merge, commit,
+                  flush, set, put, save, upsert, hset, setex, incr, create, upload_from_string,
+                  upload_from_filename, executemany, bulk_save_objects, load_table_from_json]
+  # `execute`-like methods: classified by the SQL verb of the first string argument.
+  sql_methods: [execute, exec_driver_sql, executescript, query]
+  sql_write_verbs: [INSERT, UPDATE, DELETE, MERGE, UPSERT, CREATE, DROP, ALTER, TRUNCATE, REPLACE]
+  sql_read_verbs: [SELECT, WITH, SHOW, EXPLAIN]
+  query_builders_write: [insert, update, delete]
+  query_builders_read: [select]
+  queue_publish_methods: [publish, send, send_message, produce, put, basic_publish, put_record,
+                          put_records, send_message_batch]
+  queue_consume_methods: [subscribe, pull, receive_message, poll, consume, basic_consume, get_records]
+
+behaviors:
+  retry:
+    # Decorators or callables; `bounded_by`: any of these kwargs makes the retry bounded.
+    - {callable: tenacity.retry, bounded_by: [stop]}
+    - {callable: tenacity.Retrying, bounded_by: [stop]}
+    - {callable: tenacity.AsyncRetrying, bounded_by: [stop]}
+    - {callable: backoff.on_exception, bounded_by: [max_tries, max_time]}
+    - {callable: backoff.on_predicate, bounded_by: [max_tries, max_time]}
+    - {callable: retrying.retry, bounded_by: [stop_max_attempt_number, stop_max_delay]}
+  fan_out:
+    # Calls that run their arguments concurrently. `over_collection` if an argument is starred
+    # or a comprehension, or for executor map-style methods.
+    callables: [asyncio.gather, asyncio.wait, asyncio.as_completed]
+    executor_constructors: [concurrent.futures.ThreadPoolExecutor, concurrent.futures.ProcessPoolExecutor,
+                            multiprocessing.Pool, multiprocessing.pool.ThreadPool]
+    executor_map_methods: [map, imap, imap_unordered, starmap]
+    executor_submit_methods: [submit, apply_async]
+    task_group_constructors: [asyncio.TaskGroup, anyio.create_task_group]
+  transaction:
+    # `with X.<method>():` where X is bound to a datastore, or these callables.
+    methods: [begin, begin_nested, transaction, atomic]
+    callables: [django.db.transaction.atomic]
+
+ports:
+  http:
+    app_constructors: [fastapi.FastAPI, fastapi.APIRouter, flask.Flask, flask.Blueprint,
+                       starlette.routing.Router]
+    method_decorators: [get, post, put, patch, delete, head, options, trace]
+    route_decorators: [route, api_route, add_api_route]
+    include_methods: [include_router, register_blueprint]
+    prefix_kwargs: [prefix, url_prefix]
+  mcp:
+    server_constructors: [mcp.server.fastmcp.FastMCP, fastmcp.FastMCP, mcp.server.FastMCP]
+    tool_decorators: [tool]
+  cli:
+    typer_constructors: [typer.Typer]
+    typer_decorators: [command]
+    click_decorators: [click.command, click.group]
+    click_group_decorators: [command, group]
+  events:
+    - {constructor: google.cloud.pubsub_v1.SubscriberClient, method: subscribe, callback_kwarg: callback, callback_arg: 1, source_arg: 0}
+    - {constructor: google.cloud.pubsub.SubscriberClient, method: subscribe, callback_kwarg: callback, callback_arg: 1, source_arg: 0}

@@ -9,11 +9,21 @@ def _graph() -> ir.Graph:
     g = ir.Graph()
     sysn = g.add_node(ir.Node("code", "system", "s", "s", content_hash=ids.sha256_hex("s")))
     mod = g.add_node(
-        ir.Node("code", "module", "m.py", "m.py", parent_id=sysn.id, path="m.py", content_hash=ids.sha256_hex("m"))
+        ir.Node(
+            "code", "module", "m.py", "m.py", parent_id=sysn.id, path="m.py", content_hash=ids.sha256_hex("m")
+        )
     )
     fn = g.add_node(
-        ir.Node("code", "function", "f", "m.py::f", parent_id=mod.id, content_hash=ids.sha256_hex("f"),
-                attrs={"async": False}, spec_ref=["REQ-2", "REQ-1"])
+        ir.Node(
+            "code",
+            "function",
+            "f",
+            "m.py::f",
+            parent_id=mod.id,
+            content_hash=ids.sha256_hex("f"),
+            attrs={"async": False},
+            spec_ref=["REQ-2", "REQ-1"],
+        )
     )
     g.add_edge(mod.id, fn.id, "calls", lines=[3])
     g.add_edge(mod.id, fn.id, "calls", lines=[1, 3])
@@ -90,4 +100,6 @@ def test_foreign_keys_enforced(tmp_path):
     conn = store.connect(p)
     e = conn.execute("SELECT epoch_id FROM epochs").fetchone()[0]
     with pytest.raises(sqlite3.IntegrityError):
-        conn.execute("INSERT INTO edges(epoch_id, src, dst, kind) VALUES (?,?,?,?)", (e, "n_x", "n_y", "calls"))
+        conn.execute(
+            "INSERT INTO edges(epoch_id, src, dst, kind) VALUES (?,?,?,?)", (e, "n_x", "n_y", "calls")
+        )
