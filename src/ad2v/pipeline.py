@@ -58,6 +58,7 @@ class Result:
     timings: dict[str, float] = field(default_factory=dict)
     unchanged: bool = False  # inputs identical to the parent: no epoch was built
     lineage_names: dict[str, str] = field(default_factory=dict)  # old id -> parent qualified name
+    sources: dict[str, str] = field(default_factory=dict)  # content_hash -> normalized file text
 
     @property
     def derived(self) -> store.Derived:
@@ -256,6 +257,7 @@ def build(
         dict(extractor.new_cache_entries),
     )
     res.timings = timings
+    res.sources = {f.content_hash: f.text for f in files} | {ids.content_hash(t): t for _, _, t in specs}
     if parent is not None:
         res.lineage_names = {o: parent.graph.nodes[o].qualified_name for o, _, _, _ in lineage.rows}
     res.elapsed_s = time.perf_counter() - t0
@@ -305,6 +307,7 @@ def write_epoch(conn: sqlite3.Connection, res: Result, parent: Parent | None) ->
             store.drop_derived(conn, parent.epoch.epoch_id)
     store.write_derived(conn, res.epoch.epoch_id, res.derived)
     store.write_parse_cache(conn, res.cache_entries, res.rules["_hash"], LOCAL_EXTRACTOR_VERSION)
+    store.write_sources(conn, res.sources)
     store.set_meta(conn, {**res.meta, "head_epoch": res.epoch.epoch_id})
 
 
@@ -356,6 +359,14 @@ def extract_to_file(
             conn.execute("PRAGMA defer_foreign_keys = ON")
             write_epoch(conn, res, parent)
         res.timings["write"] = time.perf_counter() - t1
+        if into and conn.execute("SELECT 1 FROM llm_results LIMIT 1").fetchone():
+            from ad2v.llm import api as llm_api  # informative rows of the new head, from the cache only
+            from ad2v.llm.config import from_data as llm_config
+
+            with conn:
+                res.stats["llm_rebuild"] = llm_api.rebuild(
+                    conn, res.epoch.epoch_id, llm_config(res.config.llm_data)
+                )
     finally:
         conn.close()
     res.elapsed_s = time.perf_counter() - t0

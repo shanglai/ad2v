@@ -11,8 +11,8 @@ from typing import Any
 
 from ad2v import ids
 
-FORMAT_VERSION = "0.3"
-SUPPORTED_FORMAT_VERSIONS = ("0.3",)
+FORMAT_VERSION = "0.4"
+SUPPORTED_FORMAT_VERSIONS = ("0.4",)
 
 SIDES = ("code", "spec")
 
@@ -81,7 +81,7 @@ STATUS_PRECEDENCE = (
     "none",
 )
 NODE_STATUSES = STATUS_PRECEDENCE
-LINK_METHODS = ("annotation", "route_match", "manifest", "name_match", "none")
+LINK_METHODS = ("annotation", "route_match", "manifest", "manifest_link", "name_match", "none")
 TEST_OUTCOMES = ("passed", "failed", "skipped")
 
 LEVEL_HINTS: dict[str, str] = {

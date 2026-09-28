@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from ad2v import __version__, admin, diff, dump, gitsource, ir, materialize, pipeline, store
+from ad2v.cli_llm import register as register_llm
 from ad2v.junit import JUnitError
+from ad2v.llm.api import LLMRunError
+from ad2v.llm.config import LLMConfigError
+from ad2v.llm.providers import ProviderError
+from ad2v.llm.suggest import ManifestEditError
 from ad2v.manifest import ManifestError
 from ad2v.rules import RulesError
 from ad2v.validate import validate
@@ -368,11 +373,12 @@ def cmd_unpin(a: argparse.Namespace) -> int:
 
 def cmd_prune(a: argparse.Namespace) -> int:
     before = Path(a.file).stat().st_size
-    stats = admin.prune_file(Path(a.file), a.keep_last, a.keep_pinned)
+    stats = admin.prune_file(Path(a.file), a.keep_last, a.keep_pinned, a.drop_llm_cache)
     after = Path(a.file).stat().st_size
     _out(
         f"removed {stats['epochs_removed']} epoch(s), {stats['version_rows_removed']} version row(s),"
-        f" {stats['cache_rows_removed']} cache row(s); {before / 1e6:.2f} MB -> {after / 1e6:.2f} MB\n"
+        f" {stats['cache_rows_removed']} cache row(s), {stats['llm_rows_removed']} LLM cache row(s);"
+        f" {before / 1e6:.2f} MB -> {after / 1e6:.2f} MB\n"
     )
     return 0
 
@@ -510,6 +516,9 @@ def parser() -> argparse.ArgumentParser:
     pr.add_argument("file")
     pr.add_argument("--keep-last", type=int, required=True)
     pr.add_argument("--keep-pinned", action="store_true")
+    pr.add_argument(
+        "--drop-llm-cache", action="store_true", help="also delete cached LLM results no epoch references"
+    )
     pr.set_defaults(func=cmd_prune)
 
     mt = sub.add_parser("materialize", help="write derived tables for an epoch")
@@ -525,6 +534,7 @@ def parser() -> argparse.ArgumentParser:
     v.add_argument("file")
     v.add_argument("--epoch", help=f"{epoch_help} (default: every epoch)")
     v.set_defaults(func=cmd_validate)
+    register_llm(sub, epoch_help)
     return p
 
 
@@ -538,6 +548,10 @@ def main(argv: list[str] | None = None) -> int:
         JUnitError,
         RulesError,
         gitsource.GitError,
+        LLMRunError,
+        LLMConfigError,
+        ProviderError,
+        ManifestEditError,
         KeyError,
         ValueError,
     ) as e:

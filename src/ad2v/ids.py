@@ -12,6 +12,8 @@ from pathlib import Path, PurePath
 from typing import Any
 
 ID_HEX_LEN = 20
+# Spec IDs (format spec §3.6). `REQ-X001`: the reserved range for LLM-proposed items (P4, ADR-0031).
+SPEC_ID_PATTERN = r"[A-Z][A-Z0-9]*-X?[0-9]+"
 UTF8_BOM = b"\xef\xbb\xbf"
 
 

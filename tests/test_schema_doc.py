@@ -3,7 +3,7 @@ from ad2v.resources import schema_dir
 
 from helpers import FIXTURE
 
-SPEC = FIXTURE.parent.parent / "docs" / "spec" / "ad2v-format-v0.3.md"
+SPEC = FIXTURE.parent.parent / "docs" / "spec" / "ad2v-format-v0.4.md"
 
 
 def test_every_column_is_marked_and_appendix_is_current():
@@ -51,4 +51,4 @@ def test_informative_columns():
 
 def test_schema_files_present():
     d = schema_dir()
-    assert (d / "ad2v-v0.3.sql").is_file() and (d / "ir-v0.3.schema.json").is_file()
+    assert (d / "ad2v-v0.4.sql").is_file() and (d / "ir-v0.4.schema.json").is_file()

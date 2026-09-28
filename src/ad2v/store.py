@@ -1,4 +1,4 @@
-"""SQLite storage for .ad2v files, format v0.3 (multi-epoch, content-addressed base facts).
+"""SQLite storage for .ad2v files, format v0.4 (multi-epoch, content-addressed base facts).
 
 Base facts (nodes, edges, unresolved refs, test results, code facts) are stored once per
 distinct content in `*_versions` tables and referenced per epoch. Readers use the v0.2-shaped
@@ -47,8 +47,15 @@ PHYSICAL_TABLES = frozenset(
         "config_versions",
         "parse_cache",
         "epoch_materialized",
+        "source_blobs",
+        "llm_results",
+        "llm_runs",
+        "llm_run_results",
     }
 )
+# Informative per-epoch rows built from the LLM cache (P4). Dropped with the derived rows (and
+# before them: they reference links and workflows), rebuilt from `llm_results` without calls.
+LLM_DERIVED_TABLES = ("link_judgments", "link_suggestions", "spec_extractions", "narrations", "summaries")
 VIEWS = ("nodes", "edges", "unresolved_refs", "test_results")
 DERIVED_TABLES = (
     "glyphs",
@@ -242,6 +249,13 @@ def get_epoch(conn: sqlite3.Connection, epoch_id: str) -> Epoch:
     if r is None:
         raise KeyError(epoch_id)
     return _epoch_from_row(r)
+
+
+def get_epoch_or_none(conn: sqlite3.Connection, epoch_id: str) -> Epoch | None:
+    try:
+        return get_epoch(conn, epoch_id)
+    except KeyError:
+        return None
 
 
 def epoch_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -706,8 +720,23 @@ def write_derived(conn: sqlite3.Connection, e: str, d: Derived) -> None:
     conn.execute("UPDATE epochs SET materialized = 1 WHERE epoch_id = ?", (e,))
 
 
+def write_sources(conn: sqlite3.Connection, sources: dict[str, str]) -> None:
+    """Store file texts by content hash (zlib), once (P4: LLM slices are cut from them)."""
+    conn.executemany(
+        "INSERT OR IGNORE INTO source_blobs VALUES (?, ?)",
+        [(h, zlib.compress(t.encode("utf-8"), 6)) for h, t in sorted(sources.items())],
+    )
+
+
+def load_source(conn: sqlite3.Connection, content_hash: str) -> str | None:
+    row = conn.execute(
+        "SELECT text_blob FROM source_blobs WHERE content_hash = ?", (content_hash,)
+    ).fetchone()
+    return zlib.decompress(row[0]).decode("utf-8") if row is not None else None
+
+
 def drop_derived(conn: sqlite3.Connection, e: str) -> None:
-    for t in DERIVED_DELETE_ORDER:
+    for t in (*LLM_DERIVED_TABLES, *DERIVED_DELETE_ORDER):
         conn.execute(f"DELETE FROM {t} WHERE epoch_id = ?", (e,))
     conn.execute("DELETE FROM epoch_materialized WHERE epoch_id = ?", (e,))
     conn.execute("UPDATE epochs SET materialized = 0 WHERE epoch_id = ?", (e,))

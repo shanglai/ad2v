@@ -1,0 +1,22 @@
+{
+  "recordings": [
+    {
+      "task": "summarize",
+      "subject": "api/recon_api/matching.py [module]",
+      "output": {
+        "card": "Pairs bank transactions with ledger entries by reference and amount.",
+        "deep": "The matcher module. match_batch fetches one ledger entry per transaction (an N+1 query flagged io_in_loop) and pairs it when amounts_match accepts the amounts.",
+        "mentions": []
+      }
+    },
+    {
+      "task": "summarize",
+      "subject": "container:api [container]",
+      "output": {
+        "card": "The reconciliation API: HTTP routes and an MCP tool for operators and agents.",
+        "deep": "A FastAPI service with reconciliation routes, a matcher, an LLM classifier and a bank client with an unbounded retry.",
+        "mentions": []
+      }
+    }
+  ]
+}

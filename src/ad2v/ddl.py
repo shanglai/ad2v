@@ -1,6 +1,6 @@
 """Column classes (N/I) read from the DDL comments; renders the format spec's Appendix A.
 
-Run `python -m ad2v.ddl` to regenerate the appendix in docs/spec/ad2v-format-v0.3.md.
+Run `python -m ad2v.ddl` to regenerate the appendix in docs/spec/ad2v-format-v0.4.md.
 """
 
 from __future__ import annotations
@@ -66,5 +66,5 @@ def update_spec(spec: Path) -> bool:
 
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[2]
-    changed = update_spec(root / "docs" / "spec" / "ad2v-format-v0.3.md")
+    changed = update_spec(root / "docs" / "spec" / "ad2v-format-v0.4.md")
     print("updated" if changed else "up to date")

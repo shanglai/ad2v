@@ -178,7 +178,7 @@ def test_cli_commands(tmp_path, capsysbinary):
         "REQ-099",
         "workflows",
         "Status counts",
-        "Top 5 of 5 risky behaviors",
+        "Top 6 of 6 risky behaviors",
         "1 unmatched",
         "test_removed_export_endpoint",
     ):

@@ -7,9 +7,11 @@ from typing import Any
 
 from ad2v import ids, ir
 
-COMPONENT_RE = re.compile(r"^##\s+Component:\s*(?P<name>.+?)\s*(?:\{#(?P<id>[A-Z][A-Z0-9]*-[0-9]+)\})?\s*$")
+COMPONENT_RE = re.compile(
+    r"^##\s+Component:\s*(?P<name>.+?)\s*(?:\{#(?P<id>" + ids.SPEC_ID_PATTERN + r")\})?\s*$"
+)
 HEADING_RE = re.compile(r"^(#{1,2})\s+")
-REQ_RE = re.compile(r"^\s*[-*]\s+\[(?P<id>[A-Z][A-Z0-9]*-[0-9]+)\]\s+(?P<text>.+?)\s*$")
+REQ_RE = re.compile(r"^\s*[-*]\s+\[(?P<id>" + ids.SPEC_ID_PATTERN + r")\]\s+(?P<text>.+?)\s*$")
 
 # EARS templates, tried in order. Case-insensitive on keywords only.
 EARS: list[tuple[str, re.Pattern[str]]] = [

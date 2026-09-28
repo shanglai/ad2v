@@ -22,6 +22,18 @@ from ad2v.manifest import Config
 PORT_KINDS = frozenset(ir.PORT_KINDS)
 STRUCTURAL_ORPHAN_KINDS = frozenset({"container", "component"})
 ORPHAN_KINDS = PORT_KINDS | STRUCTURAL_ORPHAN_KINDS
+# When a confirmed `pairing.links` code name matches several nodes, the first kind here wins.
+MANIFEST_LINK_CODE_KINDS = (
+    "function",
+    "class",
+    "http_route",
+    "mcp_tool",
+    "cli_command",
+    "event_consumer",
+    "module",
+    "component",
+    "container",
+)
 RANK = {s: i for i, s in enumerate(ir.STATUS_PRECEDENCE)}  # 0 = highest precedence
 INHERITABLE = frozenset({"implemented", "verified", "specified"})
 PARAM_RE = re.compile(r"\{[^}]*\}")
@@ -208,6 +220,35 @@ def pair_links(
             if len(cands) > 1:
                 ev.append({"kind": "ambiguous", "code_candidates": sorted(_q(graph, x) for x in cands)})
             links.add(ir.Link(s, c, "needs_review" if len(cands) > 1 else "implemented", "name_match", ev))
+
+    # 5. manifest_link: human-confirmed pairs (accepted suggestions, `pairing.links`) ------------
+    code_kind_order = {k: i for i, k in enumerate(MANIFEST_LINK_CODE_KINDS)}
+    for spec_q, code_q in config.pairing_links:
+        specs = sorted(n for n in nodes if nodes[n].side == "spec" and nodes[n].qualified_name == spec_q)
+        if not specs:
+            warnings.append({"kind": "manifest_link_spec_not_found", "spec": spec_q})
+            continue
+        codes = sorted(
+            (n for n in nodes if nodes[n].side == "code" and nodes[n].qualified_name == code_q),
+            key=lambda n: (code_kind_order.get(nodes[n].kind, 99), n),
+        )
+        for s in specs[:1]:
+            if not codes:
+                links.add(
+                    ir.Link(
+                        s, None, "missing", "manifest_link", [{"kind": "target_not_found", "target": code_q}]
+                    )
+                )
+            else:
+                links.add(
+                    ir.Link(
+                        s,
+                        codes[0],
+                        "implemented",
+                        "manifest_link",
+                        [{"kind": "manifest_link", "code": code_q}],
+                    )
+                )
 
     # verification from linked tests -----------------------------------------------------------
     test_ids = [n for n in by_kind["function"] if nodes[n].attrs.get("is_test")]

@@ -137,8 +137,8 @@ def test_normative_only_dump_drops_informative_rows(tmp_path):
     e = conn.execute("SELECT epoch_id FROM epochs").fetchone()[0]
     nid = conn.execute("SELECT id FROM nodes LIMIT 1").fetchone()[0]
     conn.execute(
-        "INSERT INTO summaries VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (e, nid, "card", "an llm summary", "m", "1", "p", "i", 0.8, None),
+        "INSERT INTO summaries VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (e, nid, "card", "an llm summary", "m", "1", "p", "i", 0.8, None, None),
     )
     conn.execute(
         "INSERT INTO links(epoch_id, link_id, spec_node_id, method, status, provenance, confidence, model,"

@@ -27,6 +27,7 @@ DEFAULT_EXCLUDES = (
     ".pytest_cache",
     ".ruff_cache",
     "site-packages",
+    ".ad2v-extracted",  # proposed prose-spec extractions: ingested only once a human moves them (P4)
 )
 
 
@@ -55,7 +56,10 @@ class Config:
     case_insensitive: bool = False
     rules_overlay: Path | None = None
     orphan_policy: str = "auto"  # auto | strict | off (format spec §6.2)
-    manifest_data: dict[str, Any] = field(default_factory=dict)
+    pairing_links: tuple[tuple[str, str], ...] = ()  # human-confirmed (spec, code qname): manifest_link
+    pairing_rejected: tuple[tuple[str, str], ...] = ()  # human-rejected suggestions: never suggested again
+    manifest_data: dict[str, Any] = field(default_factory=dict)  # without `llm` (never normative)
+    llm_data: dict[str, Any] = field(default_factory=dict)  # the `llm:` section (informative, P4)
 
     @property
     def config_json(self) -> dict[str, Any]:
@@ -116,10 +120,23 @@ def from_config_json(config_json: dict[str, Any]) -> Config:
     return from_data(config_json.get("manifest") or {}, None)
 
 
+def _pairs(raw: Any, key: str) -> tuple[tuple[str, str], ...]:
+    out = []
+    for i, e in enumerate(raw or []):
+        if not isinstance(e, dict) or not e.get("spec") or not e.get("code"):
+            raise ManifestError(f"{key}[{i}] needs `spec` and `code`")
+        out.append((str(e["spec"]), str(e["code"])))
+    return tuple(sorted(set(out)))
+
+
 def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
     """Parse manifest data. With base_dir None, file references (rules_overlay) are not checked."""
     cfg = Config()
-    cfg.manifest_data = data
+    cfg.manifest_data = {k: v for k, v in data.items() if k != "llm"}  # llm.* never enters config_hash
+    llm = data.get("llm") or {}
+    if not isinstance(llm, dict):
+        raise ManifestError("llm must be a mapping")
+    cfg.llm_data = llm
     system = data.get("system") or {}
     if isinstance(system, str):
         system = {"name": system}
@@ -165,6 +182,8 @@ def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
     if policy not in ORPHAN_POLICIES:
         raise ManifestError(f"pairing.orphan_policy must be one of {', '.join(ORPHAN_POLICIES)}")
     cfg.orphan_policy = policy
+    cfg.pairing_links = _pairs(pairing.get("links"), "pairing.links")
+    cfg.pairing_rejected = _pairs(pairing.get("rejected"), "pairing.rejected")
     if data.get("rules_overlay") and base_dir is not None:
         cfg.rules_overlay = (base_dir / str(data["rules_overlay"])).resolve()
         if not cfg.rules_overlay.is_file():

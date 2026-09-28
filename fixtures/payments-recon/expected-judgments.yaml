@@ -1,0 +1,54 @@
+# Human-labeled verdicts for every judgeable link of payments-recon (format v0.4, spec §11.4).
+# Judgeable: links with a code side in status implemented / verified / stale, test functions excluded.
+# Used by `ad2v llm eval --expected fixtures/payments-recon/expected-judgments.yaml` (P4 M8/M9).
+# `planted` marks the semantic cases added in P4 that no structural rule can catch.
+
+links:
+  - spec: REQ-003
+    code: api/recon_api/matching.py::amounts_match
+    label: drift
+    planted: true
+    note: the spec says amounts within one cent are equal; the code uses a tolerance of 5 cents.
+  - spec: REQ-009
+    code: api/recon_api/classify.py::classify_run
+    label: drift
+    planted: true
+    note: at most once per run is required; the code re-classifies the unmatched rows of every match attempt, with no dedup.
+  - spec: REQ-010
+    code: worker/recon_worker/jobs.py::run_nightly
+    label: partial
+    planted: true
+    note: run id and matched count are logged; the unmatched count and the run duration are not.
+  - spec: REQ-006
+    code: api/recon_api/mcp_server.py::reconciliation_summary
+    label: partial
+    note: returns the run and the unmatched count, but no matched total is computed (it may or may not be inside the run record).
+  - spec: REQ-001
+    code: api/recon_api/routes.py::start_run
+    label: conforms
+    planted: true
+    note: the clear conforming case; account ids in, statements fetched, run matched and recorded.
+  - spec: REQ-002
+    code: api/recon_api/matching.py::match_batch
+    label: conforms
+    note: pairs each transaction with the ledger entry fetched by reference, checking the amount.
+  - spec: REQ-004
+    code: api/recon_api/classify.py::classify_unmatched
+    label: conforms
+    note: every unmatched row gets a label from the classifier model.
+  - spec: REQ-005
+    code: worker/recon_worker/events.py::publish_run_completed
+    label: conforms
+    note: publishes a run-completed payload to the run events topic.
+  - spec: CMP-002
+    code: container:worker
+    label: conforms
+    note: the worker runs the nightly batch and publishes/consumes Pub/Sub messages.
+  - spec: POST /reconciliations
+    code: "http:api:POST /v1/reconciliations"
+    label: conforms
+    note: accepts account_ids and returns the run result.
+  - spec: GET /reconciliations/{run_id}
+    code: "http:api:GET /v1/reconciliations/{id}"
+    label: conforms
+    note: returns the run, or 404 when it does not exist (the parameter name differs, which is structural evidence only).

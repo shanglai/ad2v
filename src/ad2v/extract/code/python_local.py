@@ -17,9 +17,9 @@ from tree_sitter import Node as TSNode
 
 from ad2v import ids
 
-LOCAL_EXTRACTOR_VERSION = "python-local-1"
+LOCAL_EXTRACTOR_VERSION = "python-local-2"  # 2: spec IDs may use the reserved `-X` range (P4)
 
-SPEC_REF_RE = re.compile(r"\b([A-Z][A-Z0-9]*-[0-9]+)(?:@([0-9a-f]{8}))?\b")
+SPEC_REF_RE = re.compile(r"\b(" + ids.SPEC_ID_PATTERN + r")(?:@([0-9a-f]{8}))?\b")
 AD2V_MARK_RE = re.compile(r"\bad2v:\s*(.+)$")
 TEST_FILE_RE = re.compile(r"(test_.*|.*_test)\.py$")
 CONTAINER_STMTS = frozenset(

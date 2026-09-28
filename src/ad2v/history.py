@@ -56,6 +56,23 @@ def _fingerprint(n: ir.Node) -> str:
     return str(n.attrs.get("body_hash") or n.content_hash)
 
 
+def same_code(old: ir.Node | None, new: ir.Node, forward: dict[str, str]) -> bool:
+    """Is `new` the same code as `old`, modulo its own name and renamed callees? (ADR-0026)
+
+    Equal fingerprints, or equal `call_masked_hash` with the old callee ids mapped through this
+    transition's lineage equal to the new ones: a callee rename changes no caller.
+    """
+    if old is None:
+        return False
+    if _fingerprint(old) == _fingerprint(new):
+        return True
+    a, b = old.attrs.get("call_masked_hash"), new.attrs.get("call_masked_hash")
+    if not a or a != b:
+        return False
+    mapped = [forward.get(x, x) for x in old.attrs.get("call_sites", [])]
+    return mapped == list(new.attrs.get("call_sites", []))
+
+
 def _scope(qname: str) -> str:
     return qname.rsplit("@", 1)[0]
 
@@ -214,7 +231,7 @@ def apply_history(
             pc = parent_graph.nodes.get(back.get(c_id, c_id)) if parent_graph else None
             # compare name-masked fingerprints: a pure rename (lineage same_content) is no change
             spec_changed = ps is None or _fingerprint(ps) != _fingerprint(sn)
-            code_changed = pc is None or _fingerprint(pc) != _fingerprint(cn)
+            code_changed = not same_code(pc, cn, fwd)
             content_same = not spec_changed and not code_changed and back.get(c_id, c_id) == c_id
             if cn.attrs.get("is_test"):
                 code_changed = False  # a test is verification evidence, not the implementation
@@ -257,10 +274,14 @@ def apply_history(
                     hist.append({"kind": "retested"})
                 else:
                     final, hist = "stale", list(carried)
+            callee_renamed = pc is not None and not code_changed and _fingerprint(pc) != _fingerprint(cn)
+            if callee_renamed and not cn.attrs.get("is_test"):
+                hist.append({"kind": "callee_renamed"})  # same code modulo renamed callees (ADR-0026)
             if (  # only the descendants moved: evidence, never a status change (not for renames)
                 ps is not None
                 and pc is not None
                 and content_same
+                and not callee_renamed
                 and (ps.subtree_hash != sn.subtree_hash or pc.subtree_hash != cn.subtree_hash)
             ):
                 hist.append({"kind": "descendants_changed"})

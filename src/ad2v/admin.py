@@ -12,8 +12,7 @@ EPOCH_TABLES = (  # per-epoch rows keyed by epoch_id, deleted with their epoch (
     "tour_stops",
     "tours",
     "layout",
-    "narrations",
-    "summaries",
+    *store.LLM_DERIVED_TABLES,
     *store.DERIVED_DELETE_ORDER,
     "epoch_materialized",
     "id_lineage",
@@ -69,7 +68,9 @@ def unpin(conn: sqlite3.Connection, epoch_id: str) -> None:
         store.drop_derived(conn, epoch_id)
 
 
-def prune(conn: sqlite3.Connection, keep_last: int, keep_pinned: bool) -> dict[str, int]:
+def prune(
+    conn: sqlite3.Connection, keep_last: int, keep_pinned: bool, drop_llm_cache: bool = False
+) -> dict[str, int]:
     """Delete old epochs (never the head), re-parent survivors, garbage-collect unreferenced rows."""
     rows = store.epoch_rows(conn)
     head = store.head_epoch(conn)
@@ -94,12 +95,16 @@ def prune(conn: sqlite3.Connection, keep_last: int, keep_pinned: bool) -> dict[s
             conn.execute(f"DELETE FROM {members} WHERE seq = ?", (seq,))
         conn.execute("DELETE FROM epochs WHERE epoch_id = ?", (e,))
     stats = {"epochs_removed": len(remove)}
-    stats.update(gc(conn))
+    stats.update(gc(conn, drop_llm_cache))
     return stats
 
 
-def gc(conn: sqlite3.Connection) -> dict[str, int]:
-    """Delete version, input and cache rows that no remaining epoch references."""
+def gc(conn: sqlite3.Connection, drop_llm_cache: bool = False) -> dict[str, int]:
+    """Delete version, input and cache rows that no remaining epoch references.
+
+    `llm_results` rows are a costly cache and are kept unless `drop_llm_cache` (then only rows no
+    informative table references go).
+    """
     before = conn.total_changes
     for versions, members in MEMBERSHIP:
         conn.execute(f"DELETE FROM {versions} WHERE vid NOT IN (SELECT vid FROM {members})")
@@ -115,14 +120,32 @@ def gc(conn: sqlite3.Connection) -> dict[str, int]:
         " WHERE v.kind = 'module' AND v.side = 'code' AND v.path = parse_cache.path"
         " AND v.content_hash = parse_cache.content_hash AND e.rules_hash = parse_cache.rules_hash)"
     )
-    return {"version_rows_removed": versions_removed, "cache_rows_removed": conn.total_changes - before}
+    conn.execute(
+        "DELETE FROM source_blobs WHERE content_hash NOT IN (SELECT v.content_hash FROM node_versions v"
+        " WHERE v.kind IN ('module','spec_doc'))"
+    )
+    cache_removed = conn.total_changes - before
+    llm_removed = 0
+    if drop_llm_cache:
+        refs = " UNION ".join(
+            f"SELECT result_id FROM {t} WHERE result_id IS NOT NULL" for t in store.LLM_DERIVED_TABLES
+        )
+        before = conn.total_changes
+        conn.execute(f"DELETE FROM llm_run_results WHERE result_id NOT IN ({refs})")
+        conn.execute(f"DELETE FROM llm_results WHERE result_id NOT IN ({refs})")
+        llm_removed = conn.total_changes - before
+    return {
+        "version_rows_removed": versions_removed,
+        "cache_rows_removed": cache_removed,
+        "llm_rows_removed": llm_removed,
+    }
 
 
-def prune_file(path: Path, keep_last: int, keep_pinned: bool) -> dict[str, int]:
+def prune_file(path: Path, keep_last: int, keep_pinned: bool, drop_llm_cache: bool = False) -> dict[str, int]:
     conn = store.open_rw(Path(path))
     try:
         with conn:
-            stats = prune(conn, keep_last, keep_pinned)
+            stats = prune(conn, keep_last, keep_pinned, drop_llm_cache)
         conn.execute("VACUUM")
     finally:
         conn.close()

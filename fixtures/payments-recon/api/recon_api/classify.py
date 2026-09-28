@@ -18,3 +18,14 @@ def classify_unmatched(rows: list[dict]) -> list[dict]:
         )
         out.append({**row, "label": resp.choices[0].message.content.strip()})
     return out
+
+
+def classify_run(run: dict) -> list[dict]:
+    """Label the unmatched transactions of a reconciliation run.
+
+    ad2v: REQ-009
+    """
+    labelled = []
+    for attempt in run["match_attempts"]:
+        labelled.extend(classify_unmatched(attempt["unmatched"]))
+    return labelled

@@ -1,14 +1,14 @@
 # What `ad2v extract --repo fixtures/payments-recon --spec fixtures/payments-recon/specs
-#          --test-results fixtures/payments-recon/test-results/junit.xml` MUST produce (format v0.2).
-# Asserted by tests/test_fixture_golden.py. Qualified names follow docs/spec/ad2v-format-v0.2.md §3.3.
+#          --test-results fixtures/payments-recon/test-results/junit.xml` MUST produce (format v0.4).
+# Asserted by tests/test_fixture_golden.py. Qualified names follow docs/spec/ad2v-format-v0.4.md §3.3.
 
 counts:
   system: 1
   container: 2
   component: 3
-  module: 16
+  module: 17            # P4: + worker/recon_worker/archive.py (suggestion decoy)
   class: 1
-  function: 27
+  function: 29          # P4: + classify_run (REQ-009), purge_approved_runs (decoy)
   http_route: 6
   mcp_tool: 1
   cli_command: 3         # 2 Typer commands + the `if __name__ == "__main__"` block (P3, ADR-0021)
@@ -18,15 +18,15 @@ counts:
   external_service: 1
   llm_endpoint: 1
   ui: 0
-  loop: 2
+  loop: 3               # P4: + classify_run's loop (llm_in_loop via classify_unmatched)
   retry: 1
   fan_out: 1
   transaction: 0        # record_run's `with session.begin()` is not risky -> not emitted by default
   llm_call: 1
   spec_root: 1
-  spec_doc: 3
+  spec_doc: 4           # P4: + specs/operations.md (prose only)
   spec_component: 3
-  requirement: 8
+  requirement: 10       # P4: + REQ-009, REQ-010 (planted semantic drift / partial)
   scenario: 4           # 3 scenarios + Background
   scenario_step: 11
   spec_endpoint: 5
@@ -55,7 +55,7 @@ nodes:
     - external_service:env:BANK_API_URL
   llm_endpoint:
     - llm_endpoint:env:RECON_CLASSIFIER_MODEL
-  requirement: [REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008]
+  requirement: [REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010]
   spec_component: [CMP-001, CMP-002, "features/reconciliation.feature::Statement reconciliation"]
   spec_root: [payments-recon]
 
@@ -66,6 +66,7 @@ risks:
   api/recon_api/classify.py::classify_unmatched@llm_call#67251e28: [llm_in_loop]
   api/recon_api/bank_client.py::fetch_statement@retry#297043df: [unbounded_retry]
   api/recon_api/bank_client.py::fetch_all_statements@fan_out#809d9005: [fan_out]
+  api/recon_api/classify.py::classify_run@loop#d1ff137d: [llm_in_loop]                   # header: run["match_attempts"]
 
 ports:
   http_route:
@@ -181,8 +182,8 @@ link_evidence:   # [spec qname, code qname, evidence kind]
   - [REQ-001, api/recon_api/routes.py::start_run, tests_passed]
 
 rollups:   # counts of effective statuses over all descendants
-  container:api: {drift: 1, implemented: 7, needs_review: 2, none: 24, orphan: 3, verified: 8}
-  container:worker: {implemented: 17, needs_review: 1}
+  container:api: {drift: 1, implemented: 9, needs_review: 2, none: 24, orphan: 3, verified: 8}
+  container:worker: {implemented: 19, needs_review: 1}
 
 severity_top3:   # overlay raises unbounded_retry base 4 -> 6: 6 x 1.5 = 9
   - [api/recon_api/bank_client.py::fetch_statement@retry#297043df, 9.0]

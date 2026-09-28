@@ -25,7 +25,13 @@ from tree_sitter import Node as TSNode
 from ad2v import ids, ir
 from ad2v import rules as rules_mod
 from ad2v.extract.code.base import CodeFacts, Event, Layout
-from ad2v.extract.code.python_local import LOCAL_EXTRACTOR_VERSION, find_node, import_ops, local_facts
+from ad2v.extract.code.python_local import (
+    LOCAL_EXTRACTOR_VERSION,
+    body_hash,
+    find_node,
+    import_ops,
+    local_facts,
+)
 from ad2v.extract.files import SourceFile
 from ad2v.manifest import Config
 from ad2v.resources import python_rules_path
@@ -371,6 +377,7 @@ class PythonExtractor:
         self.mounts: dict[tuple[str, str], list[tuple[tuple[str, str] | None, str]]] = {}
         self.event_ports: list[dict[str, Any]] = []
         self.click_groups: set[str] = set()
+        self.call_sites: dict[str, list[tuple[int, int, int, str]]] = {}  # fn id -> (row, col0, col1, callee)
         self.click_group_info: dict[str, tuple[str, str | None]] = {}  # group id -> (name, parent group id)
         self.ports: set[tuple[str, str]] = set()  # (port id, handler id)
         self.entry_decls: list[dict[str, Any]] = []  # non-framework entry points (ADR-0021)
@@ -447,6 +454,7 @@ class PythonExtractor:
         for m in self._sorted_modules():
             for fi in m.functions:
                 self._ports_from_decorators(fi)
+        self._finalize_call_sites()
         self._finalize_behaviors(facts)
         self._finalize_ports(facts)
         self.timings["global_walk"] += clock() - t1
@@ -510,6 +518,29 @@ class PythonExtractor:
     # =========================================================================================
     # pass 2: structure
     # =========================================================================================
+
+    def _finalize_call_sites(self) -> None:
+        """`call_masked_hash` + `call_sites` per function (ADR-0026).
+
+        The body hash with the defined name *and* every resolved repo callee name masked, plus the
+        callee ids in source order. Two versions of a function whose texts differ only in callee
+        names are the same code when their callee ids agree after lineage mapping.
+        """
+        for fid, sites in sorted(self.call_sites.items()):
+            node = self.graph.nodes.get(fid)
+            fi = self.funcs.get(fid)
+            if node is None or fi is None or node.span_start_line is None:
+                continue
+            start = node.span_start_line - 1
+            lines = [ln.encode("utf-8") for ln in fi.module.text.split("\n")[start : node.span_end_line]]
+            ordered = sorted(sites)
+            for row, c0, c1, _t in sorted(ordered, key=lambda s: (s[0], -s[1])):
+                i = row - start
+                if 0 <= i < len(lines):
+                    lines[i] = lines[i][:c0] + b"\x01" + lines[i][c1:]
+            text = b"\n".join(lines).decode("utf-8", "replace")
+            node.attrs["call_masked_hash"] = body_hash(text, "def", node.name)
+            node.attrs["call_sites"] = [t for *_pos, t in ordered]
 
     def _span_text(self, m: ModuleInfo, start: int, end: int) -> str:
         lines = m.text.split("\n")
@@ -1263,6 +1294,12 @@ class PythonExtractor:
         target = self._callable_target(callee)
         if target is not None:
             self._emit_call(target, call, ctx)
+            if ctx.func is not None and fn_node is not None:
+                tok = fn_node.child_by_field_name("attribute") if fn_node.type == "attribute" else fn_node
+                if tok is not None and tok.type == "identifier":
+                    self.call_sites.setdefault(ctx.func.node.id, []).append(
+                        (tok.start_point[0], tok.start_point[1], tok.end_point[1], target)
+                    )
         elif isinstance(callee, ExtSym):
             args_done = self._ext_call(callee, call, pos, kw, raw, ctx)
         elif isinstance(callee, ObjAttr):

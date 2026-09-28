@@ -19,14 +19,16 @@ Like mermaid.js, ad2v is an open **format** plus reference implementations. Lice
 |---|---|---|
 | P1 | format spec v0.1, SQLite schema, IR, deterministic extractors (Python code, Gherkin / OpenAPI / Markdown specs), static workflows, canonical dump | done ([report](docs/reports/P1.md)) |
 | P2 | spec↔code pairing, single-epoch statuses, structural drift, roll-ups, risk severity, visual tokens (light + dark), format v0.2 | done ([report](docs/reports/P2.md)) |
-| **P3** | content-addressed multi-epoch storage, parse cache, git history, epoch diff, lineage, `stale`, entry-point recognizers, orphan policy, format **v0.3** | **done** ([report](REPORT.md)) |
-| P4 | bring-your-own-model LLM layer: semantic judge, summaries, narrations, all with provenance | planned |
+| P3 | content-addressed multi-epoch storage, parse cache, git history, epoch diff, lineage, `stale`, entry-point recognizers, orphan policy, format v0.3 | done ([report](docs/reports/P3.md)) |
+| **P4** | bring-your-own-model LLM layer (informative only): semantic judge, link suggestions, summaries, narrations, prose-spec extraction, evaluation; format **v0.4** | **done** ([report](REPORT.md)) |
 | P5 | three.js viewer | planned |
 | P6 | MCP server + MCP App | planned |
 
-P1–P3 make **no LLM calls**. Every row they write is *normative* (or *volatile*: deterministic
+Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
 line numbers): the same inputs (code, specs, rules, manifest, test results) give the same normative
-dump on any platform.
+dump on any platform. The optional LLM layer (`ad2v llm`) writes only *informative* rows with full
+provenance, never touches an epoch id, and a model can only *suggest*: a human confirms by editing
+committed files (`ad2v.yaml`, spec files).
 
 ## Quickstart
 
@@ -82,6 +84,29 @@ ad2v preview-tokens --out tokens.html
 
 An `<epoch>` is an epoch id, `head`, `parent`, a pin label, or a commit SHA prefix (≥ 7 chars).
 
+LLM layer (bring your own model; `fake` for offline use, `vertex`, or any OpenAI-compatible server):
+
+```text
+ad2v llm plan  project.ad2v [--manifest ad2v.yaml] [--tasks judge,suggest,summarize,narrate,extract-prose]
+               [--epoch head|all] [--count-tokens]
+ad2v llm run   project.ad2v --max-cost-usd 0.50 --yes [--manifest ad2v.yaml] [--tasks ...] [--no-llm-cache]
+               [--spec-root specs] [--mode call_depth --workflow <id>]
+ad2v llm eval  project.ad2v --expected expected-judgments.yaml
+ad2v llm show-prose project.ad2v
+ad2v suggestions list|accept|reject project.ad2v [<id> --manifest ad2v.yaml]
+```
+
+- `plan` lists the calls still needed after cache hits, with token and USD estimates; `run` refuses
+  to start without a budget and `--yes`, and stops before exceeding it. Results are cached by the
+  exact input, so re-running is free.
+- The judge's verdicts appear in `node_status_effective` (an LLM `drift` can only upgrade
+  implemented/verified; nothing the model says can clear a problem). `suggestions accept` appends
+  the pair to `pairing.links` in ad2v.yaml; the next extract makes it a normative `manifest_link`.
+- Prose-spec extraction writes a proposal to `specs/.ad2v-extracted/`; moving it into the spec tree
+  is the approval.
+- Repository content is sent to the model as fenced, untrusted data; outputs are strict JSON checked
+  deterministically (cited lines must exist, echoed injections are rejected).
+
 - `extract --out` writes a fresh single-epoch file; `--into` appends a new head epoch, reusing the
   file's parse cache (the summary shows the hit rate), or reports "no changes" when no input changed.
 - `history` exports each commit with `git archive` (never checks out, never runs code) and appends
@@ -104,12 +129,12 @@ repository code or tests.
 
 ## Documents
 
-- [Format spec v0.3](docs/spec/ad2v-format-v0.3.md) (normative: the product)
+- [Format spec v0.4](docs/spec/ad2v-format-v0.4.md) (normative: the product; §11 the LLM layer)
 - [Glyph grammar v0.2](docs/spec/glyph-grammar-v0.2.md) and [visual tokens v0.2](docs/spec/visual-tokens-v0.2.md)
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
-- [DDL](schema/ad2v-v0.3.sql), [IR JSON Schema](schema/ir-v0.3.schema.json), [themes](schema/themes/)
+- [DDL](schema/ad2v-v0.4.sql), [IR JSON Schema](schema/ir-v0.4.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
-- [REPORT.md](REPORT.md) (P3), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
+- [REPORT.md](REPORT.md) (P4), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
 ## Optional manifest (`ad2v.yaml`)
 
@@ -127,7 +152,16 @@ pairing:
   path_prefix_map: {/api: ""}      # route normalization, both sides
   case_insensitive: false
   orphan_policy: auto              # auto (orphans only once specs exist) | strict | off
+  links: []                        # human-confirmed pairs (accepted suggestions): manifest_link
+  rejected: []                     # rejected suggestions, never proposed again
 rules_overlay: rules-overlay.yaml  # deep-merged over the built-in rules (changes rules_hash)
+llm:                              # informative only: never in config_hash or an epoch id
+  provider: vertex                # fake | vertex | openai_compatible
+  project: my-gcp-project
+  location: global
+  model: gemini-3.8-flash
+  pricing: {input_per_mtok: 0.75, output_per_mtok: 3.75}
+  budget_usd: 1.00
 ```
 
 Without a manifest, each top-level directory that has `pyproject.toml`, `setup.py` or `Dockerfile`
@@ -143,5 +177,5 @@ is a container.
 .venv/Scripts/ruff check src tests
 ```
 
-After editing `schema/ad2v-v0.3.sql`, regenerate the spec's column table with
+After editing `schema/ad2v-v0.4.sql`, regenerate the spec's column table with
 `python -m ad2v.ddl`. A test fails if you forget.

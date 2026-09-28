@@ -3,7 +3,7 @@
 Policy: **no copyleft dependencies** (GPL, LGPL, AGPL, MPL, EPL, CDDL…), including transitive,
 development and build-time dependencies. ad2v itself is Apache-2.0.
 
-Checked on 2026-09-28 (P1, re-checked in P2 and P3) from installed package metadata (`License-Expression` / classifiers), versions
+Checked on 2026-09-28 (P1, re-checked in P2, P3 and P4) from installed package metadata (`License-Expression` / classifiers), versions
 as resolved in the development environment.
 
 ## Runtime
@@ -35,6 +35,13 @@ limits entity-expansion attacks (see issues.md).
 `git show`, `git archive`); git (GPL-2.0) is neither linked nor imported nor redistributed, and only
 `ad2v history` needs it. Everything else works without git.
 
+**P4 added no dependency.** The LLM layer talks to providers with `urllib.request` (standard
+library) and validates outputs with the existing `jsonschema`. Provider SDKs were rejected: they
+depend on `requests` or `httpx`, which bring in **`certifi` (MPL-2.0)**. The Vertex provider gets an
+OAuth access token by running the **gcloud CLI** as an external program (`gcloud auth
+application-default print-access-token`); gcloud is not linked, imported or redistributed, and only
+the `vertex` provider needs it (CI can pass a token in `AD2V_ACCESS_TOKEN`).
+
 ## Development
 
 | package | version | license |
@@ -62,6 +69,7 @@ limits entity-expansion attacks (see issues.md).
 | hypothesis | **MPL-2.0** | copyleft; replaced by seeded randomized tests (ADR-0002) |
 | hatchling | MIT, but depends on **pathspec (MPL-2.0)** | replaced by setuptools as build backend (ADR-0008) |
 | click / typer | BSD / MIT | not rejected on license; argparse avoids a dependency |
+| google-genai, google-cloud-aiplatform, openai, httpx, requests | Apache-2.0 / MIT, but depend on **certifi (MPL-2.0)** | replaced by stdlib `urllib` (ADR-0027) |
 
 ## Fixture-only names
 

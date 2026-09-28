@@ -1,6 +1,6 @@
 # Issues
 
-Problems found during P1, P2 and P3, with severity (high / medium / low).
+Problems found during P1–P4, with severity (high / medium / low).
 
 ## P1
 
@@ -53,3 +53,18 @@ Problems found during P1, P2 and P3, with severity (high / medium / low).
 | 35 | low | In the history fixture, renaming a helper also makes `REQ-002` stale, because the caller's body changed (its call site). Correct under the rules; a reviewer might expect a rename to be invisible everywhere. | by design (ADR-0020), documented in `expected-history.yaml` |
 | 36 | low | PyYAML reads a bare `off` as `false` (YAML 1.1), so `orphan_policy: off` arrived as a boolean. | **fixed**: `false` is accepted as `off` (ADR-0022) |
 | 37 | low | `diff` only compares an epoch with one of its ancestors in the same file. | by design (ADR-0023) |
+
+## P4
+
+| # | Severity | Issue | Status |
+|---|---|---|---|
+| 38 | medium | Live run: the verbatim-copy guard invalidated a correct judgment whose rationale paraphrased 60+ chars of the requirement sentence. | **fixed**: a verbatim copy is a warning; it invalidates only when the copied text holds an instruction-like phrase; cached outputs are re-validated on every hit, so the fix applied at no cost (ADR-0029), regression test |
+| 39 | medium | Live run: Vertex answered HTTP 400 INVALID_ARGUMENT to the extract-prose request; bisecting (400s are not billed; one successful diagnostic call) showed the nested response schema (array of objects inside an array of objects) was rejected. | **fixed**: flat schema with a `component` field per requirement; ad2v regroups (ADR-0030) |
+| 40 | medium | Live run: two suggest results for code-side items were invalid because the model cited the spec candidate's lines, which the validator did not allow. | **fixed**: evidence may cite any numbered line shown for the item or that candidate; a match still needs code lines when the code side has any |
+| 41 | medium | Reasoning ("thought") tokens made actual output ≈ 3× the static estimate on the judge and ≈ 2.2× over all tasks; the plan under-estimated the fixture cost ($0.25 planned vs $0.54 for the same calls). | **mitigated**: the budget pre-check uses the observed average output per task after the first call (ADR-0032); open: per-model calibration of plan estimates (pending.md) |
+| 42 | medium | The planted REQ-009 drift ("at most once per run", re-classification per match attempt) came back `cannot_tell` in both live runs: the slice does not show what a run's attempts contain. | open: richer slices (callers, data shapes) in a later phase |
+| 43 | low | Container/component links (CMP-002 ↔ container:worker) are judged on an IR digest only, and the live judge answered `cannot_tell`. | open (pending.md) |
+| 44 | low | The live suggester proposed REQ-008 (bounded backoff) ↔ `fetch_statement` with a wrong rationale ("bounded" because `wait_exponential` caps the delay; the retry has no `stop=`). The pairing is plausible; the claim is not. | by design: suggestions need human confirmation, and an accepted link is then judged |
+| 45 | low | The machine's gcloud default project is a different project; a request without an explicit quota project could be billed there. | **guarded**: every Vertex request names `llm.project` in the URL and sends `x-goog-user-project` |
+| 46 | low | `plan --epoch all` cannot know children's summary result ids for epochs not yet run, so parent summaries are counted once per distinct digest; the multi-epoch summary estimate is approximate. | accepted |
+| 47 | low | The `summaries.confidence` column is NOT NULL but summaries have no model confidence; ad2v stores 1.0 for a valid output. | accepted (ADR-0030) |

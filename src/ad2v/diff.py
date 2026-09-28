@@ -230,6 +230,7 @@ HISTORY_KINDS = frozenset(
         "fingerprint_mismatch",
         "retested",
         "descendants_changed",
+        "callee_renamed",
     }
 )
 

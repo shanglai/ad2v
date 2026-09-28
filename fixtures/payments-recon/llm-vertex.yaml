@@ -1,0 +1,16 @@
+# The `llm:` section used for the P4 live run (M9). Kept out of ad2v.yaml so offline tests never
+# pick up a live provider; pass it with `ad2v llm ... --manifest fixtures/payments-recon/llm-vertex.yaml`.
+# `llm.*` is informative: it never enters config_hash or an epoch id.
+llm:
+  provider: vertex
+  project: mapper-cat-3
+  location: global              # gemini-3.8-flash answers on the global endpoint (checked with countTokens)
+  model: gemini-3.8-flash       # latest GA Gemini Flash listed for the project on 2026-09-28
+  output_language: en
+  pricing:                      # USD per 1M tokens, Vertex AI pricing page (global), read 2026-09-28:
+    input_per_mtok: 0.75        #   introductory price until 2026-12-31 (standard from 2027-01-01: 1.50)
+    output_per_mtok: 3.75       #   output includes reasoning tokens (standard from 2027-01-01: 7.50)
+  budget_usd: 1.00
+  slice: {code_max_lines: 150, code_head: 100, code_tail: 50, callee_sig_max_lines: 40, openapi_max_lines: 60, stale_diff_max_lines: 80}
+  judge: {min_confidence: 0.6}
+  summaries: {scope: structural}

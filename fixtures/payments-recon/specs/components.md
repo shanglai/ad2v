@@ -13,6 +13,7 @@ Serves operators and agents over HTTP and MCP.
 - [REQ-004] If a transaction remains unmatched, then the classifier shall assign a probable-cause label.
 - [REQ-006] When an agent requests a run summary, the MCP server shall return totals for matched and unmatched transactions.
 - [REQ-007] When a reviewer approves a completed run, the reconciliation API shall mark the run as approved.
+- [REQ-009] If a transaction remains unmatched, then the classifier shall classify it at most once per run.
 
 ## Component: Nightly worker {#CMP-002}
 
@@ -20,6 +21,7 @@ Runs the nightly batch and integrates with Pub/Sub.
 
 - [REQ-005] When a nightly run completes, the worker shall publish a run-completed event.
 - [REQ-008] While the bank statement feed is unavailable, the worker shall retry with bounded exponential backoff.
+- [REQ-010] When a nightly run completes, the worker shall log the run id, the matched count, the unmatched count and the run duration.
 
 ## Notes
 

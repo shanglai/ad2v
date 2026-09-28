@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ad2v"
-version = "0.3.0"
+version = "0.4.0"
 description = "agent development to viz: compare a repository against its SDD specs and emit one .ad2v SQLite file"
 readme = "README.md"
 license = "Apache-2.0"
@@ -31,7 +31,16 @@ ad2v = "ad2v.cli:main"
 
 [tool.setuptools]
 # schema/ is the canonical location; it ships inside the wheel as the data package ad2v._schema
-packages = ["ad2v", "ad2v.extract", "ad2v.extract.code", "ad2v.extract.spec", "ad2v._schema"]
+packages = [
+    "ad2v",
+    "ad2v.extract",
+    "ad2v.extract.code",
+    "ad2v.extract.spec",
+    "ad2v.llm",
+    "ad2v.llm.providers",
+    "ad2v.llm.prompts",
+    "ad2v._schema",
+]
 
 [tool.setuptools.package-dir]
 "" = "src"
@@ -39,6 +48,7 @@ packages = ["ad2v", "ad2v.extract", "ad2v.extract.code", "ad2v.extract.spec", "a
 
 [tool.setuptools.package-data]
 "ad2v.extract.code" = ["rules/*.yaml"]
+"ad2v.llm.prompts" = ["*.md"]
 "ad2v._schema" = ["*.sql", "*.json", "themes/*.json"]
 
 [tool.pytest.ini_options]

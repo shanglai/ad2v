@@ -169,6 +169,9 @@ NODE_REFS = (
     ("summaries", "node_id"),
     ("layout", "node_id"),
     ("tour_stops", "node_id"),
+    ("link_suggestions", "spec_node_id"),
+    ("link_suggestions", "code_node_id"),
+    ("spec_extractions", "spec_doc_node_id"),
 )
 
 

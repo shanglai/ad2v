@@ -1,0 +1,47 @@
+{
+  "recordings": [
+    {
+      "task": "extract-prose",
+      "subject": "operations.md",
+      "output": {
+        "requirements": [
+          {
+            "component": "Run export",
+            "ears": "event",
+            "text": "When an operator requests an export of a completed run, the reconciliation system shall produce a CSV file.",
+            "source_start_line": 3,
+            "source_end_line": 4
+          },
+          {
+            "component": "Run export",
+            "ears": "ubiquitous",
+            "text": "The run export shall include every matched pair and every unmatched transaction with its probable-cause label.",
+            "source_start_line": 4,
+            "source_end_line": 5
+          },
+          {
+            "component": "Run export",
+            "ears": "ubiquitous",
+            "text": "The reconciliation system shall delete exports older than 90 days.",
+            "source_start_line": 5,
+            "source_end_line": 6
+          },
+          {
+            "component": "Operations",
+            "ears": "event",
+            "text": "When the bank statement feed is more than 30 minutes late, the reconciliation system shall page the on-call engineer.",
+            "source_start_line": 8,
+            "source_end_line": 8
+          },
+          {
+            "component": "Operations",
+            "ears": "unwanted",
+            "text": "If a run still has unlabelled unmatched transactions, then the reconciliation system shall reject its approval.",
+            "source_start_line": 8,
+            "source_end_line": 9
+          }
+        ]
+      }
+    }
+  ]
+}

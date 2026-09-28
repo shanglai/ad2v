@@ -10,7 +10,7 @@ from gherkin.token_scanner import TokenScanner
 
 from ad2v import ids, ir
 
-SPEC_ID_TAG_RE = re.compile(r"^@([A-Z][A-Z0-9]*-[0-9]+)$")
+SPEC_ID_TAG_RE = re.compile(r"^@(" + ids.SPEC_ID_PATTERN + r")$")
 
 
 def _tag_ids(tags: list[dict[str, Any]]) -> tuple[list[str], list[str]]:

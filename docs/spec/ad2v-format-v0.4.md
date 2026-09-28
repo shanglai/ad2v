@@ -1,4 +1,4 @@
-# The ad2v file format, version 0.3
+# The ad2v file format, version 0.4
 
 Status: **draft, normative**. The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
@@ -12,12 +12,26 @@ read it. Producers ("extractors") write it.
 
 Companion documents:
 
-- [`glyph-grammar-v0.2.md`](glyph-grammar-v0.2.md): how nodes become shapes (normative, unchanged in v0.3).
+- [`glyph-grammar-v0.2.md`](glyph-grammar-v0.2.md): how nodes become shapes (normative, unchanged in v0.3 and v0.4).
 - [`visual-tokens-v0.2.md`](visual-tokens-v0.2.md): how statuses become line styles and colors
-  (status → style normative, palettes informative; unchanged in v0.3).
+  (status → style normative, palettes informative; unchanged in v0.3 and v0.4).
 - [`spec-markdown-convention.md`](spec-markdown-convention.md): the Markdown spec convention (normative for extractors).
-- [`../../schema/ad2v-v0.3.sql`](../../schema/ad2v-v0.3.sql): DDL (normative).
-- [`../../schema/ir-v0.3.schema.json`](../../schema/ir-v0.3.schema.json): JSON Schema of the IR (normative).
+- [`../../schema/ad2v-v0.4.sql`](../../schema/ad2v-v0.4.sql): DDL (normative).
+- [`../../schema/ir-v0.4.schema.json`](../../schema/ir-v0.4.schema.json): JSON Schema of the IR (normative).
+
+### Changes from v0.3
+
+v0.4 adds the **informative LLM layer** (§11) and nothing normative changes shape. `ad2v validate`
+rejects other format versions (re-extract; there is no migration).
+
+| area | change |
+|---|---|
+| storage | new `source_blobs` (file texts by content hash, class I), `llm_results` (content-addressed LLM cache), `llm_runs`, `llm_run_results`, `link_judgments`, `link_suggestions`, `spec_extractions`; `summaries` and `narrations` gain `result_id` (§11.3) |
+| views | `node_status_effective`: normative status plus LLM overlays that can only upgrade implemented/verified to `drift` (§11.3) |
+| pairing | new deterministic method `manifest_link` from `pairing.links` (human-confirmed suggestions); `pairing.rejected` (§6.1, §11.5) |
+| spec IDs | the grammar accepts a reserved `-X` range (`REQ-X001`) for LLM-proposed items; `.ad2v-extracted/` is never extracted (§3.6, §11.8) |
+| history | a callee rename no longer changes its callers (`call_masked_hash`, `call_sites`, evidence `callee_renamed`, §6.7, ADR-0026) |
+| config | the `llm:` section of ad2v.yaml has its own `llm_config_hash` and never enters `config_hash` or an epoch id (§11.1) |
 
 ### Changes from v0.2
 
@@ -101,7 +115,7 @@ given and their hash differs from the parent's (§6.7).
 
 ## 3. The IR
 
-The IR is the logical model of one epoch. `schema/ir-v0.3.schema.json` defines its JSON form, and
+The IR is the logical model of one epoch. `schema/ir-v0.4.schema.json` defines its JSON form, and
 the views and tables in §5 store it.
 
 ### 3.1 Node
@@ -199,7 +213,7 @@ stored in `attrs.header`; lineage uses it to follow a behavior whose header was 
 | `invokes_llm` | function/module → `llm_endpoint` | |
 | `annotated_as` | any node → spec node | explicit spec ID reference (§3.6). Also spec → spec (a Gherkin scenario tagged `@REQ-012`), see ADR-0005. Code → spec edges are the input of the `annotation` pairing method (§6.1). |
 
-`provenance` is `deterministic` for every edge a v0.3 extractor writes.
+`provenance` is `deterministic` for every edge a v0.3+ extractor writes.
 
 ### 3.5 Attributes (well-known keys)
 
@@ -240,7 +254,7 @@ when they have at least one risk flag. Set `behavior.emit_all: true` to emit all
 
 ### 3.6 Explicit spec references
 
-A spec ID matches `[A-Z][A-Z0-9]*-[0-9]+`. Explicit references come from:
+A spec ID matches `[A-Z][A-Z0-9]*-X?[0-9]+`; the `-X` range is reserved for LLM-proposed items (§11.8). Explicit references come from:
 
 1. a comment `# ad2v: ID[, ID…]` inside a function/class span, or directly above a definition or its
    decorators (contiguous comment block); a comment elsewhere attaches to the module;
@@ -395,13 +409,14 @@ stored. Materialized and in-memory rows MUST be identical.
 
 ### 6.1 Pairing methods
 
-A **link** relates one spec node and one code node. It is found by one of four deterministic
-methods (`links.method`). All four run, and a pair found twice by different methods gives two links:
+A **link** relates one spec node and one code node. It is found by one of five deterministic
+methods (`links.method`). All of them run, and a pair found twice by different methods gives two links:
 
 | method | rule |
 |---|---|
 | `annotation` | every `annotated_as` edge code → spec (comments, docstrings, test names; §3.6) |
 | `route_match` | `http_route` ↔ `spec_endpoint` with equal `(METHOD, normalized path)` |
+| `manifest_link` | `pairing.links: [{spec: REQ-007, code: <qualified name>}]` in `ad2v.yaml`: a human-confirmed pair (an accepted suggestion, §11.5). The code name resolves by kind in the order function, class, ports, module, component, container; a missing target gives `missing` |
 | `manifest` | `pairing.components: {CMP-001: api}` in `ad2v.yaml`: spec component (by spec ID) → container (`container:<name>` or bare name) or component (directory path) |
 | `name_match` | `spec_component` not listed in the manifest ↔ container or component whose **slugs are exactly equal** (lowercase, runs of non-alphanumerics → `-`, trimmed). No fuzzy matching (that is P4) |
 
@@ -627,16 +642,16 @@ with a count. The output is deterministic and sorted.
 
 ## 9. Conformance
 
-A conforming v0.3 file:
+A conforming v0.4 file:
 
-- has `meta.format_version = '0.3'`, a `class` on every `meta` row, and `meta.head_epoch` naming the
+- has `meta.format_version = '0.4'`, a `class` on every `meta` row, and `meta.head_epoch` naming the
   epoch with the highest `seq`;
 - has a parent chain in which every epoch's parent is the previous kept epoch;
 - satisfies every foreign key and CHECK constraint in the DDL, and the node references of §5.2;
 - has `version_key` values that recompute from their payloads, no version row unreferenced by any
   membership row, and at most one version per id per epoch;
 - has the head materialized, and `epochs.materialized` consistent with `epoch_materialized`;
-- for every epoch: rows that validate against `ir-v0.3.schema.json`, `id = node_id(side, kind,
+- for every epoch: rows that validate against `ir-v0.4.schema.json`, `id = node_id(side, kind,
   qualified_name)` for every node, `subtree_hash` values that recompute (§2), a matching
   `contains`/`declares` edge for every `parent_id`, and lineage rows whose new ids are nodes of the
   epoch (and whose old ids are nodes of the parent, when the parent is the immediately preceding
@@ -682,6 +697,156 @@ paths are relative to the repo root in each commit.
 
 Wherever an epoch is expected, the tools accept an epoch id, `head`, `parent` (of the head), a pin
 label, or a commit SHA prefix of at least 7 characters.
+
+## 11. The LLM layer (informative, P4)
+
+Everything in this section is **informative** (class I). It never enters an epoch id or a
+normative table, and `dump --normative-only` excludes it. A normative dump is byte-identical with or
+without any LLM run. Repository content given to a model is untrusted data (§11.9).
+
+### 11.1 Configuration
+
+The optional `llm:` section of `ad2v.yaml` (or of a file with the same shape passed with
+`--manifest`) has these keys:
+
+- `provider`: `fake` | `vertex` | `openai_compatible`;
+- `project`, `location`, `model`;
+- `base_url` and `api_key_env` (openai_compatible; the key comes from that env var, never from the file);
+- `output_language` (BCP-47);
+- `pricing.{input,output}_per_mtok` (USD per 1M tokens);
+- `budget_usd`;
+- `slice.*`: `code_max_lines` 150, `code_head` 100, `code_tail` 50, `callee_sig_max_lines` 40,
+  `openapi_max_lines` 60, `stale_diff_max_lines` 80;
+- `judge.min_confidence` 0.6;
+- `suggest.top_k` 5;
+- `summaries.scope` `structural` | `all`.
+
+`llm_config_hash = sha256(canonical_json(effective llm config))` is recorded on each run and is
+excluded from `config_hash`.
+
+### 11.2 Providers, cache and runs
+
+Providers use HTTP from the standard library, with no SDKs (ADR-0027). Every call has
+`temperature 0` and `seed 987654` where supported, strict JSON output with a response schema, and
+at most 4 attempts on 429/5xx. Vertex requests carry the labels `project=ad2v` and
+`ad2v_task=<task>` and authenticate with an OAuth token from the gcloud CLI (never an API key).
+
+| term | definition |
+|---|---|
+| `input_hash` | `sha256(canonical_json({"task", "parts": [instructions, fenced data parts…]}))`: the exact serialized slice |
+| `prompt_hash` | `sha256(normalized prompt template src/ad2v/llm/prompts/<task>.v1.md)` |
+| `params_hash` | `sha256(canonical_json({temperature, seed, output_language, task}))` |
+| cache key | `(task, input_hash, prompt_hash, provider, model, params_hash)`; `model_version` is recorded but only known after the call |
+| `result_id` | `"r_" + sha256(canonical_json([cache key…, ordinal]))[:20]`; the newest row with a key answers lookups |
+
+`ad2v llm plan` lists the calls needed after cache hits, with token and USD estimates.
+`ad2v llm run` needs `--max-cost-usd` and `--yes`. It stops before a call that would exceed the
+budget and writes an `llm_runs` row. Cached outputs are re-validated on every hit (§11.9).
+
+### 11.3 Tables and the effective status
+
+| table | content |
+|---|---|
+| `source_blobs` | normalized file texts by content hash (zlib); slices are cut from them |
+| `llm_results` | the cache: output, validity, validation errors, usage, estimated cost, latency |
+| `llm_runs`, `llm_run_results` | run log, and which results each run produced or reused |
+| `link_judgments` | per link: verdict, confidence, rationale, evidence, validity, `overlay` |
+| `link_suggestions` | per candidate pair: BM25 rank and score, verdict, confidence, `state` (open / accepted / rejected) |
+| `spec_extractions` | per prose document: the proposal's path and state (proposed / written / ingested) |
+| `summaries`, `narrations` | as before, now with `result_id` |
+
+The informative per-epoch tables exist for materialized epochs, are dropped with the derived
+tables, and are rebuilt **from the cache only** (no call): at `extract --into` when the file holds
+LLM results, and at the start of every run.
+
+`node_status_effective(epoch_id, node_id, normative_status, status, provenance, suggested,
+llm_evidence_json)` follows these rules:
+
+- a valid judge `drift` with confidence ≥ `judge.min_confidence`, and no injection warning,
+  upgrades `implemented`/`verified` to `drift` with `provenance = 'llm'`;
+- `partial`, `cannot_tell` and low confidence add evidence only;
+- an open suggestion sets `suggested` and never changes the status;
+- the LLM can never clear or downgrade `missing`, `orphan`, `needs_review`, `stale` or a
+  structural `drift`.
+
+Viewers show the normative status by default, with a toggle for the effective status.
+
+### 11.4 Semantic judge (`judge`)
+
+For every link with both sides, a method other than `none`, a status of implemented, verified or
+stale, and a code side that is not a test, the slice contains:
+
+- **spec side:** the item's lines; for an endpoint, its OpenAPI operation (≤ 60 lines);
+- **code side:** the node's span (a port's handler), capped at head 100 + tail 50 lines with an
+  elision marker, plus an IR digest of the elided lines (calls, touches, behaviors). For a
+  container or component, an IR digest;
+- **callees:** the signatures of direct callees on the node's workflows (≤ 40 lines);
+- **resources** reached;
+- **stale links:** a unified diff of the changed side since `agreed_epoch_id` (≤ 80 lines).
+
+The output is `{verdict: conforms|partial|drift|cannot_tell, confidence, rationale ≤ 400,
+evidence: [{side, start_line, end_line, claim ≤ 160}]}`. The result is invalid when an evidence
+range is outside the slice, when `drift`/`partial` lacks spec or code evidence, or when the
+rationale is empty. An invalid result is stored as `cannot_tell`.
+
+`ad2v llm eval --expected <yaml>` reports, per run, accuracy, the confusion matrix, Cohen's κ and
+the validity rate. Across runs it reports stability: the share of identical verdicts.
+
+### 11.5 Link suggestions (`suggest`)
+
+**Items.** For each unpaired spec item (`specified`/`missing`) and each unpaired code item
+(`orphan`, plus `none` ports when spec coverage is present), BM25 over names, qualified names,
+docstrings, route paths and spec text gives the top-k candidates from the other side.
+
+**The call.** One call per item returns at most 2 matches. A `match` must cite the candidate's
+code lines when it has any. Matches at or above the threshold become suggestions.
+
+**Confirmation.**
+- `ad2v suggestions accept <id> --manifest ad2v.yaml` appends to `pairing.links`.
+- `ad2v suggestions reject <id> --manifest ad2v.yaml` appends to `pairing.rejected`.
+
+Both edits are append-only and keep the file's comments and order. Either one changes
+`config_hash`, so the next extraction makes an accepted link normative (method `manifest_link`).
+A rejected pair is never a candidate again.
+
+### 11.6 Summaries (`summarize`)
+
+Summaries are built bottom-up over containment. `label` is deterministic (the display name and
+kind). One call per node returns `{card ≤ 240, deep ≤ 1200, mentions}`. A leaf's input is its code
+span and IR digest. A parent's input is its IR digest (counts, ports, resources, risky behaviors,
+roll-up) plus its children's cards and `result_id`s, so a changed leaf re-summarizes only its
+ancestor chain. Mentions must be node ids present in the input.
+
+**Scope.** `structural` (the default) covers the system, containers, components, modules, ports,
+risky behaviors, and functions that are linked or are port handlers. `all` covers every code node.
+
+### 11.7 Narrations (`narrate`)
+
+For each code workflow and each containment depth whose projection differs from the previous one,
+one call (per chunk of 40 coarse steps) returns one narration per coarse step (≤ 280 chars).
+Spans come from `workflows.project()`. The input includes the enclosing coarser step's narration,
+so finer levels refine coarser ones. `containment` narrations are written eagerly; `call_depth`
+narrations are written on demand (`--mode call_depth --workflow X`).
+
+### 11.8 Prose extraction (`extract-prose`)
+
+For each Markdown `spec_doc` with free prose, the model returns structured components and EARS
+requirements with their source lines. ad2v renders them as Markdown in the existing convention,
+with IDs from the reserved range (`CMP-X001`, `REQ-X001`, numbered across documents in path
+order). The file header states the model, prompt hash, source content hash and "REVIEW BEFORE
+COMMITTING". The file goes to `<spec root>/.ad2v-extracted/<doc-slug>.md`, which extraction always
+skips. **Moving or renaming the file into the spec tree is the approval**; it is then parsed like
+any spec file.
+
+### 11.9 Untrusted input
+
+- **Fences.** Repository content is fenced as `<untrusted-data id kind source>…</untrusted-data>`.
+  The id derives from the content, and fence tags inside the content are neutralized. The system
+  prompt states that fenced text is data and that instructions inside it must be ignored.
+- **Flags.** Outputs are validated as above. A verbatim copy of ≥ 60 chars of fenced repository
+  text is flagged, and it invalidates the result when the copied text contains an instruction-like
+  phrase. Instruction-like phrases anywhere in the input add an `injection_suspected` warning,
+  which blocks the drift overlay.
 
 ## Appendix A: column classes (normative)
 
@@ -979,6 +1144,7 @@ Every column in the DDL is marked **N** (normative), **I** (informative), **V** 
 | `input_hash` | I |  |
 | `confidence` | I |  |
 | `created_at` | I |  |
+| `result_id` | I | the cached LLM result (NULL for label) |
 
 **narrations**
 
@@ -997,6 +1163,7 @@ Every column in the DDL is marked **N** (normative), **I** (informative), **V** 
 | `input_hash` | I |  |
 | `confidence` | I |  |
 | `created_at` | I |  |
+| `result_id` | I | the cached LLM result |
 
 **layout**
 
@@ -1039,5 +1206,105 @@ Every column in the DDL is marked **N** (normative), **I** (informative), **V** 
 | `node_id` | N | camera target |
 | `camera_json` | N | {lod, yaw, pitch, zoom} |
 | `text` | I |  |
+
+**source_blobs**
+
+| column | class | note |
+|---|---|---|
+| `content_hash` | I |  |
+| `text_blob` | I |  |
+
+**llm_results**
+
+| column | class | note |
+|---|---|---|
+| `result_id` | I | r_ + sha256(cache key \| ordinal)[:20] |
+| `seq` | I | insertion order |
+| `task` | I |  |
+| `input_hash` | I | sha256(canonical JSON of the exact slice) |
+| `prompt_hash` | I | sha256(normalized prompt template) |
+| `provider` | I |  |
+| `model` | I |  |
+| `model_version` | I | as reported by the provider |
+| `params_hash` | I | sha256(canonical generation params) |
+| `subject` | I | what was asked about (link id, node id, ...) |
+| `output_json` | I | the parsed output (NULL if not JSON) |
+| `valid` | I | 0/1: passed schema + deterministic checks |
+| `validation_errors` | I | JSON list |
+| `usage_json` | I | {"input_tokens","output_tokens"} |
+| `cost_usd_est` | I | from llm.pricing (NULL if unpriced) |
+| `latency_ms` | I |  |
+| `created_at` | I |  |
+
+**llm_runs**
+
+| column | class | note |
+|---|---|---|
+| `run_id` | I | u_ + sha256(started_at\|tasks\|epoch)[:20] |
+| `started_at` | I |  |
+| `ended_at` | I |  |
+| `epoch_id` | I |  |
+| `provider` | I |  |
+| `model` | I |  |
+| `model_version` | I | last reported by the provider |
+| `llm_config_hash` | I |  |
+| `llm_config_json` | I | effective llm config (no secrets) |
+| `tasks_json` | I |  |
+| `calls` | I | provider calls made |
+| `cache_hits` | I |  |
+| `input_tokens` | I |  |
+| `output_tokens` | I |  |
+| `cost_usd_est` | I |  |
+| `max_cost_usd` | I |  |
+| `aborted` | I | 1: stopped before exceeding the budget |
+| `notes_json` | I |  |
+
+**llm_run_results**
+
+| column | class | note |
+|---|---|---|
+| `run_id` | I |  |
+| `result_id` | I |  |
+| `cached` | I | 1: served from the cache |
+
+**link_judgments**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | I |  |
+| `link_id` | I |  |
+| `result_id` | I |  |
+| `verdict` | I |  |
+| `confidence` | I |  |
+| `rationale` | I |  |
+| `evidence_json` | I |  |
+| `valid` | I |  |
+| `overlay` | I |  |
+
+**link_suggestions**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | I |  |
+| `suggestion_id` | I | s_ + sha256(spec_node_id\|code_node_id)[:20] |
+| `spec_node_id` | I |  |
+| `code_node_id` | I |  |
+| `candidate_rank` | I | 1-based BM25 rank |
+| `lexical_score` | I | BM25 score (deterministic) |
+| `result_id` | I |  |
+| `verdict` | I |  |
+| `confidence` | I |  |
+| `rationale` | I |  |
+| `state` | I |  |
+
+**spec_extractions**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | I |  |
+| `spec_doc_node_id` | I |  |
+| `result_id` | I |  |
+| `output_path` | I | spec-root-relative |
+| `state` | I |  |
 
 <!-- END COLUMN CLASSES -->

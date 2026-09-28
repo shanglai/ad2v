@@ -41,11 +41,18 @@ Items consciously left out so far, grouped by the phase that should pick them up
 - Per-kind JSON Schema for `attrs` (today only `risk` is constrained).
 - Other languages behind the `CodeExtractor` protocol (TypeScript, Go).
 
-## P4: LLM layer
+## Done in P4 (moved from this list)
 
-- Frozen LLM extraction of prose specs (Markdown text left in `spec_doc.attrs.prose`).
-- Summaries (`label`/`card`/`deep`), narrations per projection span, semantic judge per pair. All
-  with the provenance columns that already exist.
+- LLM layer: judge, suggestions, summaries, narrations per projection span and mode, frozen prose
+  extraction, evaluation; all informative with provenance.
+
+## After P4: LLM layer
+
+- Calibrate plan estimates per model (reasoning tokens; issue 41).
+- Richer judge slices: callers and data shapes (issue 42); code for container/component links
+  (issue 43).
+- Batch / cached-context APIs to cut the dispatch cost (≈ 3.5k calls head-only).
+- `openai_compatible` live test against a local server (Ollama / vLLM).
 
 ## P5/P6: viewer and MCP
 

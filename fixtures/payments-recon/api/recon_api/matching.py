@@ -4,8 +4,6 @@ import uuid
 
 from recon_api import db
 
-AMOUNT_TOLERANCE_CENTS = 1
-
 
 def match_batch(transactions: list[dict]) -> dict:
     """Match every transaction against the ledger.
@@ -24,4 +22,5 @@ def match_batch(transactions: list[dict]) -> dict:
 
 # ad2v: REQ-003
 def amounts_match(a_cents: int, b_cents: int) -> bool:
-    return abs(a_cents - b_cents) <= AMOUNT_TOLERANCE_CENTS
+    tolerance_cents = 5
+    return abs(a_cents - b_cents) <= tolerance_cents

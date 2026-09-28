@@ -12,7 +12,8 @@ deduplication is invisible.
 Default (canonical): omits wall-clock columns (`created_at`) and informative `meta` rows.
 `normative_only=True` additionally omits every column marked `I` in Appendix A (including the
 file-management columns `epochs.pinned`, `label`, `materialized`), rows produced by an LLM or at
-runtime, and the informative tables (`summaries`, `narrations`). The determinism guarantee covers
+runtime, and the informative tables (`summaries`, `narrations`, `link_judgments`,
+`link_suggestions`, `spec_extractions`). The determinism guarantee covers
 this normative dump.
 """
 
@@ -27,7 +28,9 @@ from typing import Any
 
 from ad2v import ddl, ids, materialize, store
 
-INFORMATIVE_TABLES = frozenset({"summaries", "narrations"})
+INFORMATIVE_TABLES = frozenset(
+    {"summaries", "narrations", "link_judgments", "link_suggestions", "spec_extractions"}
+)
 INFORMATIVE_PROVENANCE = frozenset({"llm", "runtime"})
 INFORMATIVE_SOURCES = frozenset({"llm_inferred", "runtime"})
 VIEW_ORDER = {

@@ -1,0 +1,208 @@
+{
+  "recordings": [
+    {
+      "task": "judge",
+      "subject": "REQ-009 -> api/recon_api/classify.py::classify_run",
+      "output": {
+        "verdict": "drift",
+        "confidence": 0.81,
+        "rationale": "Each match attempt's unmatched rows are classified again; a transaction unmatched in several attempts is classified more than once.",
+        "evidence": [
+          {
+            "side": "spec",
+            "start_line": 16,
+            "end_line": 16,
+            "claim": "classify at most once per run"
+          },
+          {
+            "side": "code",
+            "start_line": 29,
+            "end_line": 29,
+            "claim": "loop over attempts without dedup"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "CMP-002 -> container:worker",
+      "output": {
+        "verdict": "conforms",
+        "confidence": 0.72,
+        "rationale": "The worker container holds the nightly job and the Pub/Sub publisher and subscriber.",
+        "evidence": []
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "REQ-001 -> api/recon_api/routes.py::start_run",
+      "output": {
+        "verdict": "conforms",
+        "confidence": 0.9,
+        "rationale": "Given account ids, the route fetches statements, runs the matcher and records the run.",
+        "evidence": [
+          {
+            "side": "code",
+            "start_line": 20,
+            "end_line": 20,
+            "claim": "starts from the account ids"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "REQ-002 -> api/recon_api/matching.py::match_batch",
+      "output": {
+        "verdict": "conforms",
+        "confidence": 0.86,
+        "rationale": "Each transaction is looked up by reference and paired when the amounts match.",
+        "evidence": [
+          {
+            "side": "code",
+            "start_line": 15,
+            "end_line": 15,
+            "claim": "lookup by reference"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "REQ-004 -> api/recon_api/classify.py::classify_unmatched",
+      "output": {
+        "verdict": "conforms",
+        "confidence": 0.83,
+        "rationale": "Every unmatched row gets a label from the classifier model.",
+        "evidence": [
+          {
+            "side": "code",
+            "start_line": 19,
+            "end_line": 19,
+            "claim": "label assigned"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "REQ-003 -> api/recon_api/matching.py::amounts_match",
+      "output": {
+        "verdict": "drift",
+        "confidence": 0.93,
+        "rationale": "The spec treats amounts as equal only within one cent; the code accepts differences up to 5 cents.",
+        "evidence": [
+          {
+            "side": "spec",
+            "start_line": 12,
+            "end_line": 12,
+            "claim": "at most one cent"
+          },
+          {
+            "side": "code",
+            "start_line": 25,
+            "end_line": 25,
+            "claim": "tolerance is 5 cents"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "REQ-005 -> worker/recon_worker/events.py::publish_run_completed",
+      "output": {
+        "verdict": "conforms",
+        "confidence": 0.88,
+        "rationale": "A run-completed payload is published to the run events topic.",
+        "evidence": [
+          {
+            "side": "code",
+            "start_line": 18,
+            "end_line": 18,
+            "claim": "publishes the event"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "POST /reconciliations -> http:api:POST /v1/reconciliations",
+      "output": {
+        "verdict": "conforms",
+        "confidence": 0.87,
+        "rationale": "The route takes account_ids and returns the run result, as the operation describes.",
+        "evidence": [
+          {
+            "side": "spec",
+            "start_line": 21,
+            "end_line": 21,
+            "claim": "request body"
+          },
+          {
+            "side": "code",
+            "start_line": 18,
+            "end_line": 18,
+            "claim": "handler"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "REQ-010 -> worker/recon_worker/jobs.py::run_nightly",
+      "output": {
+        "verdict": "partial",
+        "confidence": 0.84,
+        "rationale": "The completion log has the run id and matched count but not the unmatched count or the duration.",
+        "evidence": [
+          {
+            "side": "spec",
+            "start_line": 24,
+            "end_line": 24,
+            "claim": "four fields required"
+          },
+          {
+            "side": "code",
+            "start_line": 22,
+            "end_line": 22,
+            "claim": "only run id and matched count"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "REQ-006 -> api/recon_api/mcp_server.py::reconciliation_summary",
+      "output": {
+        "verdict": "conforms",
+        "confidence": 0.66,
+        "rationale": "The tool returns the run and the number of unmatched transactions for an agent.",
+        "evidence": [
+          {
+            "side": "code",
+            "start_line": 18,
+            "end_line": 18,
+            "claim": "returns run and unmatched count"
+          }
+        ]
+      }
+    },
+    {
+      "task": "judge",
+      "subject": "GET /reconciliations/{run_id} -> http:api:GET /v1/reconciliations/{id}",
+      "output": {
+        "verdict": "conforms",
+        "confidence": 0.85,
+        "rationale": "The handler returns the run or a 404 when it does not exist.",
+        "evidence": [
+          {
+            "side": "code",
+            "start_line": 31,
+            "end_line": 31,
+            "claim": "404 when missing"
+          }
+        ]
+      }
+    }
+  ]
+}

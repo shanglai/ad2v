@@ -1,0 +1,274 @@
+{
+  "recordings": [
+    {
+      "task": "narrate",
+      "subject": "w_5fa21a0602d83f159f4f containment L1 C0",
+      "output": {
+        "narrations": [
+          {
+            "step": 0,
+            "text": "Level 1: api handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_8ee753c0f3c8415b29b3"
+            ]
+          },
+          {
+            "step": 1,
+            "text": "Level 1: env:BANK_API_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_c4d69903d1b31c93973e"
+            ]
+          },
+          {
+            "step": 2,
+            "text": "Level 1: api handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_8ee753c0f3c8415b29b3"
+            ]
+          },
+          {
+            "step": 3,
+            "text": "Level 1: env:RECON_DB_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f6176b3ba6deb9bb6d68"
+            ]
+          },
+          {
+            "step": 4,
+            "text": "Level 1: api handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_8ee753c0f3c8415b29b3"
+            ]
+          },
+          {
+            "step": 5,
+            "text": "Level 1: env:RECON_DB_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f6176b3ba6deb9bb6d68"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "task": "narrate",
+      "subject": "w_5fa21a0602d83f159f4f containment L2 C0",
+      "output": {
+        "narrations": [
+          {
+            "step": 0,
+            "text": "Level 2: POST /v1/reconciliations handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_034d2848e002496cf01d"
+            ]
+          },
+          {
+            "step": 1,
+            "text": "Level 2: recon_api handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_52e25e2794321b76ddc5"
+            ]
+          },
+          {
+            "step": 2,
+            "text": "Level 2: env:BANK_API_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_c4d69903d1b31c93973e"
+            ]
+          },
+          {
+            "step": 3,
+            "text": "Level 2: recon_api handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_52e25e2794321b76ddc5"
+            ]
+          },
+          {
+            "step": 4,
+            "text": "Level 2: env:RECON_DB_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f6176b3ba6deb9bb6d68"
+            ]
+          },
+          {
+            "step": 5,
+            "text": "Level 2: recon_api handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_52e25e2794321b76ddc5"
+            ]
+          },
+          {
+            "step": 6,
+            "text": "Level 2: env:RECON_DB_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f6176b3ba6deb9bb6d68"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "task": "narrate",
+      "subject": "w_5fa21a0602d83f159f4f containment L3 C0",
+      "output": {
+        "narrations": [
+          {
+            "step": 0,
+            "text": "Level 3: POST /v1/reconciliations handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_034d2848e002496cf01d"
+            ]
+          },
+          {
+            "step": 1,
+            "text": "Level 3: routes.py handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f1ec3236efea2647de2a"
+            ]
+          },
+          {
+            "step": 2,
+            "text": "Level 3: bank_client.py handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_b5cbe197efdcfdb62fc0"
+            ]
+          },
+          {
+            "step": 3,
+            "text": "Level 3: env:BANK_API_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_c4d69903d1b31c93973e"
+            ]
+          },
+          {
+            "step": 4,
+            "text": "Level 3: matching.py handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_a3f33c12d9eddbc6cece"
+            ]
+          },
+          {
+            "step": 5,
+            "text": "Level 3: matching.py, db.py handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_a3f33c12d9eddbc6cece"
+            ]
+          },
+          {
+            "step": 6,
+            "text": "Level 3: env:RECON_DB_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f6176b3ba6deb9bb6d68"
+            ]
+          },
+          {
+            "step": 7,
+            "text": "Level 3: matching.py handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_a3f33c12d9eddbc6cece"
+            ]
+          },
+          {
+            "step": 8,
+            "text": "Level 3: db.py handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_cec29cbba51c6e041970"
+            ]
+          },
+          {
+            "step": 9,
+            "text": "Level 3: env:RECON_DB_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f6176b3ba6deb9bb6d68"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "task": "narrate",
+      "subject": "w_5fa21a0602d83f159f4f containment L4 C0",
+      "output": {
+        "narrations": [
+          {
+            "step": 0,
+            "text": "Level 4: POST /v1/reconciliations handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_034d2848e002496cf01d"
+            ]
+          },
+          {
+            "step": 1,
+            "text": "Level 4: start_run handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_557567bca81ec5c2585c"
+            ]
+          },
+          {
+            "step": 2,
+            "text": "Level 4: fetch_all_statements handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_a037161f72d96b2ec146"
+            ]
+          },
+          {
+            "step": 3,
+            "text": "Level 4: fetch_all_statements, fetch_statement handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_a037161f72d96b2ec146"
+            ]
+          },
+          {
+            "step": 4,
+            "text": "Level 4: env:BANK_API_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_c4d69903d1b31c93973e"
+            ]
+          },
+          {
+            "step": 5,
+            "text": "Level 4: match_batch handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_40fd45f85b56c86f3cdd"
+            ]
+          },
+          {
+            "step": 6,
+            "text": "Level 4: match_batch, fetch_ledger_entry handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_40fd45f85b56c86f3cdd"
+            ]
+          },
+          {
+            "step": 7,
+            "text": "Level 4: env:RECON_DB_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f6176b3ba6deb9bb6d68"
+            ]
+          },
+          {
+            "step": 8,
+            "text": "Level 4: match_batch, amounts_match handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_40fd45f85b56c86f3cdd"
+            ]
+          },
+          {
+            "step": 9,
+            "text": "Level 4: record_run handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_cfc0b611ace863db7763"
+            ]
+          },
+          {
+            "step": 10,
+            "text": "Level 4: env:RECON_DB_URL handle(s) this part of starting a reconciliation run.",
+            "mentions": [
+              "n_f6176b3ba6deb9bb6d68"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

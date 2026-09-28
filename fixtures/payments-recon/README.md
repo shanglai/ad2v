@@ -22,3 +22,11 @@ Randomness is seeded with 987654.
 | 8 | Pub/Sub publish (queue) | `worker/recon_worker/events.py` |
 | 9 | `# ad2v: REQ-xxx` annotations (one dangling: REQ-099) | routes, matching, classify, events, db |
 | 10 | two containers, `api` with `replicas: 2` | `ad2v.yaml` |
+| 11 | semantic drift no structural rule catches (P4): the spec says one cent, the code allows 5 | REQ-003, `matching.amounts_match` |
+| 12 | semantic drift (P4): "at most once per run", re-classified per match attempt | REQ-009, `classify.classify_run` |
+| 13 | partial implementation (P4): 2 of 4 required log fields | REQ-010, `jobs.run_nightly` |
+| 14 | lexical decoy for suggestions (P4): "approved runs", but it purges them | `archive.purge_approved_runs` vs REQ-007 |
+| 15 | free prose only (P4 prose extraction) | `specs/operations.md` |
+
+Human labels for every judgeable link: `expected-judgments.yaml`. The live LLM config used in P4:
+`llm-vertex.yaml`.

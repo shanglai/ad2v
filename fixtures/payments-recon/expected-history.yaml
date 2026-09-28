@@ -22,10 +22,10 @@ epochs:
     statuses:
       - [spec, requirement, REQ-003, verified]              # carried across the rename
       - [code, function, api/recon_api/matching.py::amounts_equal, verified]
-      - [spec, requirement, REQ-002, stale]                 # match_batch's call site changed too (real edit)
+      - [spec, requirement, REQ-002, verified]              # caller's text changed only at the renamed call site (ADR-0026)
     links:
       - [REQ-003, api/recon_api/matching.py::amounts_equal, verified, []]
-      - [REQ-002, api/recon_api/matching.py::match_batch, stale, [code_changed_unverified]]
+      - [REQ-002, api/recon_api/matching.py::match_batch, verified, [callee_renamed]]
 
   - commit: "3 edit REQ-003 spec text"
     change_kind: spec
@@ -60,7 +60,7 @@ epochs:
     lineage: []
     statuses:
       - [spec, requirement, REQ-001, verified]
-      - [spec, requirement, REQ-002, verified]              # also re-verified by the fresh run
+      - [spec, requirement, REQ-002, verified]
       - [spec, requirement, REQ-003, stale]                 # a test run cannot clear a spec change
     links:
       - [REQ-001, api/recon_api/routes.py::start_run, verified, [retested]]
@@ -70,7 +70,7 @@ epochs:
     lineage:
       - [api/recon_api/matching.py::match_batch@loop#81dc075c, api/recon_api/matching.py::match_batch@loop#a4e53c24, anchored_header]
     statuses:
-      - [spec, requirement, REQ-002, stale]
+      - [spec, requirement, REQ-002, stale]                 # the loop header edit is a real change to match_batch
 
   - commit: "7 re-annotate REQ-003 with spec fingerprint"
     change_kind: code
