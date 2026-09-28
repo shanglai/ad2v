@@ -1,6 +1,6 @@
-from helpers import edges, node, qnames, run_code
-
 from ad2v.manifest import Config, ContainerDecl
+
+from helpers import edges, node, qnames, run_code
 
 
 def test_structure_qnames_spans_and_hierarchy(tmp_path):

@@ -49,3 +49,7 @@ ignore = ["ANN401"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ad2v"]
+known-local-folder = ["helpers"]
