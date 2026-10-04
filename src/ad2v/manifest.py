@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,10 @@ class Config:
     # pairing (format spec §6.1)
     pairing_components: dict[str, str] = field(default_factory=dict)  # spec id -> container/component
     path_prefix_map: dict[str, str] = field(default_factory=dict)
+    # P7 (issue 70, ADR-0053): values for unresolved route-prefix expressions, by normalized source
+    # text ("settings.API_V1_STR" -> "/api/v1"); and the opt-in pydantic Settings-default resolver
+    path_constants: dict[str, str] = field(default_factory=dict)
+    resolve_settings_defaults: bool = False
     case_insensitive: bool = False
     rules_overlay: Path | None = None
     orphan_policy: str = "auto"  # auto | strict | off (format spec §6.2)
@@ -92,6 +97,8 @@ class Config:
             "test_ref_prefixes": list(self.test_ref_prefixes),
             "workflow_max_depth": self.workflow_max_depth,
             "workflow_max_steps": self.workflow_max_steps,
+            **({"path_constants": dict(sorted(self.path_constants.items()))} if self.path_constants else {}),
+            **({"resolve_settings_defaults": True} if self.resolve_settings_defaults else {}),
         }
 
 
@@ -199,6 +206,11 @@ def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
     if not isinstance(prefixes, dict):
         raise ManifestError("pairing.path_prefix_map must be a mapping")
     cfg.path_prefix_map = {str(k): str(v or "") for k, v in prefixes.items()}
+    consts = pairing.get("path_constants") or {}
+    if not isinstance(consts, dict):
+        raise ManifestError("pairing.path_constants must map expressions to path strings")
+    cfg.path_constants = {re.sub(r"\s+", "", str(k)): str(v or "") for k, v in consts.items()}
+    cfg.resolve_settings_defaults = bool(pairing.get("resolve_settings_defaults", False))
     cfg.case_insensitive = bool(pairing.get("case_insensitive", False))
     raw_policy = pairing.get("orphan_policy", "auto")
     policy = "off" if raw_policy is False else str(raw_policy)  # YAML 1.1 reads a bare `off` as false

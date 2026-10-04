@@ -1,5 +1,5 @@
--- ad2v file format v0.4 -- SQLite DDL
--- Normative reference: docs/spec/ad2v-format-v0.4.md
+-- ad2v file format v0.5 -- SQLite DDL
+-- Normative reference: docs/spec/ad2v-format-v0.5.md
 -- Column classes: N = normative (deterministic), I = informative (LLM/runtime/wall-clock/file
 -- management), V = volatile (deterministic, but moves with unrelated edits: ignored by `ad2v diff`
 -- and excluded from version keys).
@@ -445,7 +445,7 @@ CREATE TABLE llm_results (
     result_id         TEXT PRIMARY KEY,         -- I  r_ + sha256(cache key | ordinal)[:20]
     seq               INTEGER NOT NULL UNIQUE,  -- I  insertion order
     task              TEXT NOT NULL             -- I
-                      CHECK (task IN ('judge','suggest','summarize','narrate','extract-prose')),
+                      CHECK (task IN ('judge','suggest','summarize','narrate','extract-prose','chat')),
     input_hash        TEXT NOT NULL,            -- I  sha256(canonical JSON of the exact slice)
     prompt_hash       TEXT NOT NULL,            -- I  sha256(normalized prompt template)
     provider          TEXT NOT NULL,            -- I
@@ -537,17 +537,36 @@ CREATE TABLE spec_extractions (
 -- Normative node status plus informative overlays (§11.3). The LLM can only upgrade
 -- implemented/verified to drift (provenance 'llm'); it never clears or downgrades a problem
 -- status. `suggested` marks an open link suggestion and never changes the status.
+-- v0.5 (P7, ADR-0060): containers and components are not judged directly. Their verdict is a
+-- deterministic roll-up of their descendants' link judgments: the worst verdict among judgments
+-- with confidence >= llm.judge.min_confidence (drift > partial > conforms > cannot_tell), its
+-- confidence, and the counts per verdict.
+CREATE TABLE judge_rollups (
+    epoch_id      TEXT NOT NULL REFERENCES epochs(epoch_id), -- I
+    node_id       TEXT NOT NULL,                -- I  a container, component or spec_component
+    verdict       TEXT NOT NULL CHECK (verdict IN ('conforms','partial','drift','cannot_tell')), -- I
+    confidence    REAL NOT NULL,                -- I  of the judgment that set the verdict
+    counts_json   TEXT NOT NULL,                -- I  {"conforms": n, "partial": n, ...} (confident ones)
+    link_ids_json TEXT NOT NULL,                -- I  the judged descendant links that count
+    min_confidence REAL NOT NULL,               -- I  the threshold used
+    PRIMARY KEY (epoch_id, node_id)
+);
+
 CREATE VIEW node_status_effective AS
 SELECT s.epoch_id, s.node_id, s.status AS normative_status,
-       CASE WHEN s.status IN ('implemented','verified') AND EXISTS (
+       CASE WHEN s.status IN ('implemented','verified') AND (EXISTS (
                 SELECT 1 FROM link_judgments j JOIN links l ON l.epoch_id = j.epoch_id AND l.link_id = j.link_id
                 WHERE j.epoch_id = s.epoch_id AND j.overlay = 'drift'
                   AND (l.spec_node_id = s.node_id OR l.code_node_id = s.node_id))
+              OR EXISTS (SELECT 1 FROM judge_rollups r WHERE r.epoch_id = s.epoch_id
+                  AND r.node_id = s.node_id AND r.verdict = 'drift'))
             THEN 'drift' ELSE s.status END AS status,
-       CASE WHEN s.status IN ('implemented','verified') AND EXISTS (
+       CASE WHEN s.status IN ('implemented','verified') AND (EXISTS (
                 SELECT 1 FROM link_judgments j JOIN links l ON l.epoch_id = j.epoch_id AND l.link_id = j.link_id
                 WHERE j.epoch_id = s.epoch_id AND j.overlay = 'drift'
                   AND (l.spec_node_id = s.node_id OR l.code_node_id = s.node_id))
+              OR EXISTS (SELECT 1 FROM judge_rollups r WHERE r.epoch_id = s.epoch_id
+                  AND r.node_id = s.node_id AND r.verdict = 'drift'))
             THEN 'llm' ELSE 'deterministic' END AS provenance,
        EXISTS (SELECT 1 FROM link_suggestions g WHERE g.epoch_id = s.epoch_id AND g.state = 'open'
                  AND (g.spec_node_id = s.node_id OR g.code_node_id = s.node_id)) AS suggested,

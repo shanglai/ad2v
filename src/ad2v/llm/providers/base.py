@@ -31,6 +31,39 @@ class ProviderResult:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+# -- chat with function calling (P7, ADR-0056) -----------------------------------------------------
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    args: dict[str, Any]
+
+
+@dataclass
+class ChatMsg:
+    """One conversation message, provider-neutral. `raw` keeps a model turn exactly as the provider
+    returned it (Gemini's thought signatures must be sent back unchanged)."""
+
+    role: str  # "user" | "model" | "tool"
+    text: str | None = None
+    calls: list[ToolCall] = field(default_factory=list)  # model: the tool calls it made
+    results: list[tuple[ToolCall, str]] = field(default_factory=list)  # tool: (call, result text)
+    raw: Any = None
+
+
+@dataclass
+class ChatResponse:
+    text: str
+    calls: list[ToolCall]
+    input_tokens: int = 0
+    output_tokens: int = 0
+    model_version: str | None = None
+    latency_ms: int = 0
+    attempts: int = 1
+    raw: Any = None
+    finish_reason: str | None = None
+
+
 class LLMProvider(Protocol):
     name: str
     model: str

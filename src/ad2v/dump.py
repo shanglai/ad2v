@@ -29,7 +29,7 @@ from typing import Any
 from ad2v import ddl, ids, materialize, store
 
 INFORMATIVE_TABLES = frozenset(
-    {"summaries", "narrations", "link_judgments", "link_suggestions", "spec_extractions"}
+    {"summaries", "narrations", "link_judgments", "link_suggestions", "spec_extractions", "judge_rollups"}
 )
 INFORMATIVE_PROVENANCE = frozenset({"llm", "runtime"})
 INFORMATIVE_SOURCES = frozenset({"llm_inferred", "runtime"})

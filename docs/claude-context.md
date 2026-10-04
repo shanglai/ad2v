@@ -1,14 +1,13 @@
 # ad2v: context for a new Claude session
 
-You are picking up **ad2v** after seven phases of work (P1–P6.1). This file brings you up to date:
+You are picking up **ad2v** after eight phases of work (P1–P7). This file brings you up to date:
 goals, standing rules, architecture, decisions, findings, open issues, and the developer's open
 questions (at the end). Read it fully before acting. Then read `status.md`, the latest
 `REPORT.md`, and any ADR you need (`docs/adr/`).
 
-Snapshot: 2026-10-03, after the P6.1 commit (see `git log -1`). P6 (`fe17661`) is pushed to
-`origin/master`; P6.1 is committed locally and not pushed.
+Snapshot: 2026-10-03, after the P7 commit (see `git log -1`). P6.1 (`b7e1726`) is pushed to
+`origin/main` and `origin/master`; P7 is committed locally and not pushed.
 - Repo: `C:\Users\David\Documents\projects\agents\ad2v` (GitHub `shanglai/ad2v`).
-- `origin/main` still holds only the initial commit. All work is on `master`.
 
 ---
 
@@ -43,7 +42,7 @@ Principles:
 3. **Every report includes an "Accrued cost per phase" table** (P1…Pn): cloud and LLM spend.
    Claude's own usage is not metered per phase; the account is on Max with extra usage disabled,
    so say so. Totals so far: P1–P3 $0, P4 $0.592 (Vertex AI, gemini-3.8-flash, 125 calls), P5 $0,
-   P6 $0, P6.1 $0, **total $0.592**. The developer explicitly asked for this at the end of each phase.
+   P6 $0, P6.1 $0, P7 $0.385 (Vertex, 163 calls), **total $0.977**. The developer explicitly asked for this at the end of each phase.
 4. **No copyleft dependencies**, transitive ones included, on both the Python and npm sides:
    GPL, LGPL, AGPL, MPL, EPL, CDDL, CC-BY-SA, OFL-only fonts.
    - **`certifi` (MPL-2.0) is banned**, which rules out `httpx`, `requests`, provider SDKs and
@@ -51,10 +50,12 @@ Principles:
    - The npm license gate (`viewer/scripts/check-licenses.mjs`) runs in every build and must stay
      green.
    - Update `docs/dependencies.md` whenever dependencies change.
-5. **Randomness** uses seed 987654. Layout and ordering use none.
+5. **Randomness** uses seed 987654. Layout and ordering use none. Exception: security tokens use
+   `secrets` (the chat token, ADR-0057).
 6. **No LLM calls and no cloud resources** unless the developer approves them for that phase.
-   P4's live run was approved; P5, P6 and P6.1 had none (P6.1's bootstrap uses the `fake`
-   provider only).
+   P4's and P7's live runs were approved (P7: cap $2.00, project `mapper-cat-3`, ADC only, labels
+   `project=ad2v` / `ad2v_task`, STOP and ask before the first real call with static and
+   calibrated estimates); P5, P6 and P6.1 had none.
 7. **Never add write actions to the viewer or to MCP.** Accepting suggestions, LLM runs,
    materialize, prune and extract stay CLI steps; show the copyable command instead.
 8. **Clean up at the end of a phase:** bench clones (`bench/`, gitignored), Playwright browsers
@@ -62,7 +63,7 @@ Principles:
    used once, and scratch files. `node_modules/` stays gitignored.
 9. If context runs low, finish the current milestone, skip the rest, and mark them "not done" in
    the report.
-10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0052**.
+10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0063**.
 11. **Environment:** Windows 11, Python 3.12 (`.venv`), Node 24 / npm 11, git; everything must be
     cross-platform.
     - Tooling caveat: shell heredocs have mangled backslashes and quotes several times (issues
@@ -78,12 +79,12 @@ Principles:
 | P4 | `128729b` | BYOM LLM layer (informative only): judge, link suggestions, summaries, narrations, prose-spec extraction, offline eval; format v0.4 | live Vertex run $0.592; judge accuracy 0.818, kappa 0.699 |
 | P5 | `aeef69a` | viewer: deterministic layout `nestgrid-v1` (Python, persisted grids), three.js LOD map, status styling, replay, epoch diff overlay, `ad2v view` | dispatch 60 fps (Intel UHD), first render 0.86 s; 12 screenshots |
 | P6 | `fe17661` | MCP server (stdlib, protocol 2026-07-28, dual-era), 13 agent tools + 20 app-only tools, map as an MCP App (`ui://ad2v/map`), deterministic retrieval + eval | Inspector 38/38; App e2e 10/10; dispatch tool p95 ≤ 37 ms |
-| P6.1 | `git log -1` | real-repo readiness: route recall, spec discovery, spec-kit/Kiro/custom presets, `ad2v specs bootstrap/review/approve`, replay camera, opaque "dim the rest", floor contrast | fixture export endpoint missing → implemented; dispatch 286/290 route paths corrected; dispatch 59.9 fps with dim |
+| P6.1 | `b7e1726` | real-repo readiness: route recall, spec discovery, spec-kit/Kiro/custom presets, `ad2v specs bootstrap/review/approve`, replay camera, opaque "dim the rest", floor contrast | fixture export endpoint missing → implemented; dispatch 286/290 route paths corrected; dispatch 59.9 fps with dim |
+
+| P7 | `git log -1` | verified quickstart, settings prefixes, retrieval v2 (70-question eval), the viewer's own chat (`ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, nestgrid-v2 (flag), format v0.5 | template 23 -> 0 unresolved; MRR P6-25 0.89 -> 0.98; live judge catches REQ-009 (low: acc 0.9, k 0.81, $0.0017/call); summaries -60%/call; dispatch 59.9 fps |
 
 **Next, as planned by the developer:**
-- **P7:** the standalone viewer's own chat agent (BYOM), LLM refinements (reasoning budget, judge
-  gaps), and viewer UX v2 (denser layout, edge bundling, labels).
-- **P8:** open-source launch preparation.
+- **P8:** open-source launch preparation (see pending.md "After P7" and REPORT.md §10).
 
 ## 4. Architecture
 
@@ -110,9 +111,17 @@ Principles:
 - **LLM layer:** `llm/` (providers `fake`, `vertex`, `openai_compatible` over stdlib urllib;
   `runner.py` with cache, budget and plan; tasks judge, suggest, summarize, narrate,
   extract-prose; fencing of untrusted input).
-- **Serving:** `view.py` (`ad2v view`: 127.0.0.1, GET/HEAD, strict CSP); `mcp/` (P6, below).
+- **Serving:** `view.py` (`ad2v view`: 127.0.0.1, GET/HEAD, strict CSP; with `--chat` also
+  `/api/chat/*` behind a token, Host and Origin checks); `mcp/` (P6, below).
+- **Chat (P7):** `chat/agent.py` (ChatService: turn loop, ≤ 6 steps, last step forced to
+  `ad2v_answer`, citation check, budget meter, `llm_results` task `chat`), `chat/http.py`
+  (security, SSE), `chat/schemas.py` (MCP schema → Vertex / OpenAI tool declarations); providers
+  have `chat()` with function calling (Gemini thought signatures kept verbatim).
+- **P7 extraction:** `extract/code/schema_digest.py` (SQLAlchemy / SQL DDL / Pydantic →
+  `datastore.attrs.schema_digest`, `route.attrs.schema_models`); settings prefixes in
+  `extract/code/python.py` (`path_constants`, opt-in Settings defaults); `upgrade.py` (v0.4 → v0.5).
 
-### 4.2 The file (format v0.4)
+### 4.2 The file (format v0.5; v0.4 readable, upgraded in place on write)
 
 - **Column classes:** N (normative), I (informative: LLM, wall clock, pins), V (volatile line
   numbers).
@@ -121,9 +130,10 @@ Principles:
 - **Derived tables exist only for *materialized* epochs:** `node_status`, `status_rollup`,
   `glyphs`, `links`, `workflows`, `workflow_steps`, `workflow_step_nodes`, `layout`,
   `layout_grids`. `ad2v materialize --epochs last:N` prepares a file for history browsing.
-- **LLM tables:** `llm_results`, `llm_runs`, `link_judgments`, `link_suggestions`, `summaries`,
-  `narrations`; the `node_status_effective` view.
-- The spec is `docs/spec/ad2v-format-v0.4.md`: §11 the LLM layer, §12 layout and viewer, §13 MCP
+- **LLM tables:** `llm_results` (tasks incl. `chat`), `llm_runs`, `link_judgments`,
+  `judge_rollups` (v0.5), `link_suggestions`, `summaries`, `narrations`; the
+  `node_status_effective` view (judged drift or a roll-up drift).
+- The spec is `docs/spec/ad2v-format-v0.5.md`: §11 the LLM layer, §12 layout and viewer, §13 MCP
   and retrieval rules.
 
 ### 4.3 Viewer (`viewer/`: Vite 7, TypeScript strict, three 0.180, sql.js)
@@ -181,10 +191,10 @@ Principles:
 
 ### 4.5 Tests and gates
 
-- `pytest`: 266 tests (`-m mcp`: 25).
-- Viewer: Vitest 39 (incl. contrast checks); `npm run test:mcp` covers parity, Inspector
-  conformance and the App e2e.
-- Playwright: the P5 tour (2), the App (10), replay camera (2), dim (3).
+- `pytest`: 320 tests + 1 cloud skip (`-m mcp`: 25; `-m slow`: the quickstart guard).
+- Viewer: Vitest 49; `npm run test:mcp` covers parity, Inspector conformance and the App e2e.
+- Playwright: the P5 tour (2), the App (10), replay camera (2), dim (3), chat (3, against a real
+  `ad2v view --chat` with the fake provider), UX v2 (2).
 - ESLint, `tsc`, ruff and the license gate are all clean.
 - Coverage of new modules is ≥ 90%.
 
@@ -247,6 +257,19 @@ Principles:
   - 0049: `ad2v specs bootstrap/review/approve` (CLI only; approval = moving the file);
   - 0050: replay camera (10% off-screen threshold, a deviation from the prompt's 30%);
   - 0051: opaque "dim the rest", body tokens, contrast fixes.
+- **0052–0062 (P7):**
+  - 0052: verified quickstart; `specs bootstrap --from` is repo-relative;
+  - 0053: settings prefixes (`pairing.path_constants`, opt-in `resolve_settings_defaults`);
+  - 0054: retrieval v2 (propagation, spec ids, tests factor, resource words, status order) and
+    the 70-question eval protocol;
+  - 0055: format v0.5 and the in-place upgrade;
+  - 0056: the chat agent (server-side, in-process tools, `ad2v_answer`, grounding, budget);
+  - 0057: chat endpoint security; the `secrets` exception to the seed rule;
+  - 0058: thinking per task (3.8 Flash: low/medium/high only);
+  - 0059: datastore schema digests (SQL files are epoch inputs);
+  - 0060: judge roll-up for containers/components;
+  - 0061: viewer UX v2 (labels, edge modes, portals, dashes, hidden replay steps);
+  - 0062: nestgrid-v2 behind a flag (v1 stays the default).
 
 ## 6. Findings worth knowing
 
@@ -278,6 +301,12 @@ Principles:
   - full-stack-fastapi-template: all 23 routes `path_unresolved` (prefix
     `settings.API_V1_STR`); tails correct.
   - dispatch: 290 routes, 286 paths corrected to `/api/v1/{organization}/…`.
+- **P7 (live):** the judge at thinking `low` beat `default` (accuracy 0.9 vs 0.8, κ 0.81 vs
+  0.64) at 29% of the cost; both caught REQ-009 thanks to the schema digest. Summaries and
+  narrations at `low` cost ~60% less per call, and output came in under the static estimate
+  (0.48× / 0.90×). The chat's first live run hit the step cap (fixed: forced last step).
+- **Retrieval:** structural changes did most of the work; on real code, tests and migrations
+  still crowd out app code (issue 79).
 - **Licenses:**
   - npm has 166 packages (MIT 131, Apache-2.0 18, ISC 7, BSD 9, BlueOak 1).
   - The MCP Inspector can't be a dependency (its tree includes lightningcss, MPL), so it runs via
@@ -288,31 +317,27 @@ Principles:
 - **Extractor recall:**
   - #4: `io_in_loop` recall is unmeasured.
   - #5: clients stored on `self` are not tracked.
-  - #70: routes under a `settings.*` prefix are `path_unresolved` (pair as `needs_review`).
   - #8: f-string URLs are named by their literal prefix only.
   - #10: duplicate definitions; the first one wins.
   - #32: nested loops over the same IO are both flagged.
   - #33: incremental speed-up is bounded (≈ 0.5×).
 - **LLM:**
   - #41: plan estimates need per-model calibration.
-  - #42: richer judge slices (callers, data shapes).
-  - #43: container and component links are judged on a digest only.
+  - #80: the judge misses "partial" when the gap is in the return shape (REQ-006).
+  - #81: bootstrap omits statements now and then; the review step catches it.
 - **Viewer:**
-  - #54: sparse layout on big repos; a `nestgrid-v2` (shelf or squarified packing, same
-    slot-stability rule) is wanted.
-  - #55: dash aliasing.
-  - Edge bundling, label collisions, overlapping portal chips.
-  - #71: a replay step not visible at the current LOD highlights its ancestor; #73 first render
-    1.2 s; #74 first-replay p5 dip.
+  - #82: default layout (nestgrid-v2 is denser on dispatch, less on the fixture); single-child
+    chains should collapse.
+  - #73: first render 1.31 s with v1 vs 0.87 s with v2 (follows the world extent).
 - **MCP:**
   - #66: app-mode cards count only the loaded slice.
-  - #67: `ad2v_status` sorts by name, not specificity.
-  - #68: the question set is too small to tune on.
+  - #78: in-process `ad2v_locate` p95 72 ms (within target).
+  - #79: tests and migrations outrank app code on real repos.
   - Not implemented: `subscriptions/listen`; a web-host sandbox-proxy test; any remote deployment
     (out of scope, with a checklist in `docs/mcp.md`).
 - **Language support:** code extraction is **Python only**.
 
-## 8. How inputs are found (P6.1)
+## 8. How inputs are found (P6.1, P7)
 
 `ad2v extract --repo <code dir> [--spec <dir> ...] [--manifest ad2v.yaml] --out x.ad2v`.
 No folder layout is required.
@@ -330,20 +355,23 @@ No folder layout is required.
 - **Prose without a convention** (ADR-0049): `ad2v specs bootstrap --from <paths> --plan`, then
   `--yes --max-cost-usd N` (real model calls; P6.1 tested with `fake` only), `ad2v specs review`,
   `ad2v specs approve <file>`. Proposals use `-X` ids in `<spec root>/.ad2v-extracted/`.
+- **SQL DDL** (`*.sql`) is read for schema digests and is an epoch input (P7).
 - **`ad2v.yaml`** optionally sets: `system`, `containers`, `exclude`, `spec_root`,
-  `spec_markdown`, `spec_ids` (`test_name_prefixes`), `pairing`, `orphan_policy`,
-  `rules_overlay`, `workflows`, `llm`.
+  `spec_markdown`, `spec_ids` (`test_name_prefixes`), `pairing` (incl. `orphan_policy`,
+  `path_constants`, `resolve_settings_defaults`), `rules_overlay`, `workflows`, `llm` (incl.
+  `tasks.<task>.thinking`, `output_language: auto`).
 
 ## 9. Where things are
 
-- Reports: `REPORT.md` (P6.1), `docs/reports/P1.md`–`P6.md`, `P6.1.md`.
-- Screenshots: `docs/reports/P5-screens/`, `P6-screens/`, `P6.1-screens/`.
-- Demo: `docs/reports/P5-demo.html`, rebuilt in P6.1 with the current viewer.
+- Reports: `REPORT.md` (P7), `docs/reports/P1.md`–`P6.md`, `P6.1.md`, `P7.md`.
+- Screenshots: `docs/reports/P5-screens/`, `P6-screens/`, `P6.1-screens/`, `P7-screens/`.
+- Demo: `docs/reports/P5-demo.html`, rebuilt in P7 with the current viewer.
 - Tracking: `status.md`, `issues.md`, `pending.md`.
 - Docs: `docs/adr/`, `docs/spec/`, `docs/dependencies.md`, `docs/mcp.md`,
-  `docs/quickstart-draft.md` (not verified end-to-end).
+  `docs/quickstart.md` (verified; `tests/test_quickstart.py` guards it).
 - Fixtures: `fixtures/payments-recon/` (code, `specs/`, goldens, `expected-questions.yaml`),
-  `fixtures/sdd-presets/{spec-kit,kiro,custom}`. The viewer demo file
+  `fixtures/sdd-presets/{spec-kit,kiro,custom}` (+ `expected-questions.yaml`),
+  `fixtures/retrieval-eval/fastapi-template.yaml` (questions only; the clone is not shipped). The viewer demo file
   `viewer/tests/fixtures/demo.ad2v` is gitignored; build it with `npm run fixtures`.
 
 ## 10. The developer's questions from P6, and what P6.1 did
@@ -358,4 +386,8 @@ No folder layout is required.
 5. **Markdown without the convention:** use a preset or a custom regex; otherwise
    `ad2v specs bootstrap` proposes convention files for human approval (ADR-0049).
 
-Next is P7 (see pending.md "After P6.1" first). Do not start it without the developer's prompt.
+P7 answered the remaining questions: the viewer now has its own chat (`ad2v view --chat`),
+FastAPI settings prefixes resolve, and the quickstart is verified.
+
+Next is P8, the open-source launch (see pending.md "After P7" and REPORT.md §10). Do not start it
+without the developer's prompt.

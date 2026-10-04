@@ -25,8 +25,9 @@ Like mermaid.js, ad2v is an open **format** plus reference implementations. Lice
 | P4 | bring-your-own-model LLM layer (informative only): semantic judge, link suggestions, summaries, narrations, prose-spec extraction, evaluation; format v0.4 | done ([report](docs/reports/P4.md)) |
 | P5 | three.js viewer: deterministic layout, LOD map, status styling, replay, epoch diff; `ad2v view` | done ([report](docs/reports/P5.md), [demo](docs/reports/P5-demo.html)) |
 | P6 | MCP server (stdlib, protocol 2026-07-28) + the map as an MCP App; deterministic retrieval | done ([report](docs/reports/P6.md), [setup](docs/mcp.md)) |
-| **P6.1** | real-repo readiness: route recall (factories, `add_api_route`, Starlette, Flask), spec discovery, spec-kit / Kiro / custom presets, `ad2v specs` bootstrap, replay camera, opaque "dim the rest" | **done** ([report](REPORT.md), [quickstart draft](docs/quickstart-draft.md)) |
-| P7 | the viewer's own chat agent (BYOM), LLM refinements, viewer UX v2 | planned |
+| P6.1 | real-repo readiness: route recall (factories, `add_api_route`, Starlette, Flask), spec discovery, spec-kit / Kiro / custom presets, `ad2v specs` bootstrap, replay camera, opaque "dim the rest" | done ([report](docs/reports/P6.1.md)) |
+| **P7** | verified quickstart, settings prefixes, retrieval v2, the viewer's own chat agent (BYOM, `ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, format v0.5 | **done** ([report](REPORT.md), [quickstart](docs/quickstart.md)) |
+| P8 | open-source launch preparation | planned |
 
 Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
 line numbers): the same inputs (code, specs, rules, manifest, test results) give the same normative
@@ -101,8 +102,9 @@ ad2v log      project.ad2v [--format table|json]
 ad2v pin      project.ad2v <epoch> [--label v1.2]      ad2v unpin project.ad2v <epoch>
 ad2v prune    project.ad2v --keep-last N [--keep-pinned]
 ad2v materialize project.ad2v (--epoch <epoch> | --epochs last:N)   # last N + pinned
-ad2v layout   project.ad2v                 # nestgrid-v1 for epochs that lack a layout
+ad2v layout   project.ad2v [--algorithm nestgrid-v1|nestgrid-v2]   # v2: experimental shelf packing
 ad2v view     project.ad2v [--port 0] [--no-browser]
+              [--chat --manifest ad2v.yaml [--chat-budget-usd 0.25]]  # chat with your own model
 ad2v mcp      (--file project.ad2v | --root <dir>) [--http [--port N]] [--no-warm]   # MCP server, read-only
 ad2v status   project.ad2v [--epoch <epoch>] [--side spec|code] [--status stale] [--all] [--format table|json]
 ad2v inspect  project.ad2v [--epoch <epoch>] [--node <id|qualified_name>] [--kind loop] [--top-risk N]
@@ -170,12 +172,12 @@ repository code or tests.
 
 ## Documents
 
-- [Format spec v0.4](docs/spec/ad2v-format-v0.4.md) (normative: the product; §11 the LLM layer, §12 layout and viewer)
+- [Format spec v0.5](docs/spec/ad2v-format-v0.5.md) (normative: the product; §11 the LLM layer, §12 layout and viewer, §13 MCP, retrieval and chat)
 - [Glyph grammar v0.2](docs/spec/glyph-grammar-v0.2.md) and [visual tokens v0.2](docs/spec/visual-tokens-v0.2.md)
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
-- [DDL](schema/ad2v-v0.4.sql), [IR JSON Schema](schema/ir-v0.4.schema.json), [themes](schema/themes/)
+- [DDL](schema/ad2v-v0.5.sql), [IR JSON Schema](schema/ir-v0.5.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
-- [REPORT.md](REPORT.md) (P6), [MCP setup](docs/mcp.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
+- [REPORT.md](REPORT.md) (P7), [quickstart](docs/quickstart.md), [MCP setup](docs/mcp.md), [P6.1 report](docs/reports/P6.1.md), [P6 report](docs/reports/P6.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
 ## Optional manifest (`ad2v.yaml`)
 
@@ -195,6 +197,8 @@ pairing:
   orphan_policy: auto              # auto (orphans only once specs exist) | strict | off
   links: []                        # human-confirmed pairs (accepted suggestions): manifest_link
   rejected: []                     # rejected suggestions, never proposed again
+  path_constants: {"settings.API_V1_STR": "/api/v1"}   # values for unresolvable route prefixes
+  resolve_settings_defaults: false # true: read literal pydantic Settings defaults (warned)
 rules_overlay: rules-overlay.yaml  # deep-merged over the built-in rules (changes rules_hash)
 llm:                              # informative only: never in config_hash or an epoch id
   provider: vertex                # fake | vertex | openai_compatible
@@ -203,6 +207,11 @@ llm:                              # informative only: never in config_hash or an
   model: gemini-3.8-flash
   pricing: {input_per_mtok: 0.75, output_per_mtok: 3.75}
   budget_usd: 1.00
+  output_language: auto           # chat answers in the question's language
+  tasks:                          # thinking per task: off | low | default | token budget (Gemini 2.5)
+    judge: {thinking: default}
+    summarize: {thinking: low}
+    chat: {thinking: low, max_output_tokens: 2048}
 ```
 
 Without a manifest, each top-level directory that has `pyproject.toml`, `setup.py` or `Dockerfile`
@@ -238,5 +247,5 @@ test (the viewer's data over the real stdio server), protocol conformance with t
 retrieval eval also runs standalone:
 `python -m ad2v.mcp.evaluate <file> fixtures/payments-recon/expected-questions.yaml [--tune]`.
 
-After editing `schema/ad2v-v0.4.sql`, regenerate the spec's column table with
+After editing `schema/ad2v-v0.5.sql`, regenerate the spec's column table with
 `python -m ad2v.ddl`. A test fails if you forget.

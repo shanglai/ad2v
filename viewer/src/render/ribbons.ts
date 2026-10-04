@@ -21,11 +21,16 @@ varying float vAlong;
 varying float vStyle;
 varying float vAlpha;
 varying float vSide;
+varying float vPxPerUnit;
 void main() {
   vec4 a = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   vec4 b = projectionMatrix * modelViewMatrix * vec4(other, 1.0);
   vec2 sa = a.xy / a.w * viewport * 0.5;
   vec2 sb = b.xy / b.w * viewport * 0.5;
+  // P7 (issue 55): this segment's own screen px per world unit, so a dash has the same on-screen
+  // length on foreshortened and lifted segments (one global factor aliased into cross-hatching)
+  float wl = length(other - position);
+  vPxPerUnit = wl > 1e-6 ? length(sb - sa) / wl : 0.0;
   vec2 dir = normalize(sb - sa + vec2(1e-6, 0.0));
   vec2 n = vec2(-dir.y, dir.x) * side * widthPx * 0.5;
   a.xy += n / (viewport * 0.5) * a.w;
@@ -43,6 +48,7 @@ varying float vAlong;
 varying float vStyle;
 varying float vAlpha;
 varying float vSide;
+varying float vPxPerUnit;
 float pattern(vec4 p, float d) {
   float period = p.x + p.y + p.z + p.w;
   if (period <= 0.0) return 1.0;
@@ -53,7 +59,7 @@ float pattern(vec4 p, float d) {
   return 0.0;
 }
 void main() {
-  float d = vAlong * pxPerUnit + dashOffset;
+  float d = vAlong * (vPxPerUnit > 0.0 ? vPxPerUnit : pxPerUnit) + dashOffset;
   float on = 1.0;
   if (vStyle > 0.5 && vStyle < 1.5) on = pattern(dotted, d);
   else if (vStyle > 1.5 && vStyle < 2.5) on = pattern(dashed, d);

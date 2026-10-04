@@ -7,6 +7,7 @@ add_api_route, and the router is mounted under a prefix taken from a module cons
 from fastapi import APIRouter, FastAPI
 
 from recon_api import db
+from recon_api.settings import audit
 
 API_PREFIX = "/v1"
 RUNS_PREFIX = f"{API_PREFIX}/reconciliations"
@@ -22,4 +23,5 @@ def create_app() -> FastAPI:
     runs = APIRouter()
     runs.add_api_route("/{run_id}/export", export_run, methods=["GET"])
     app.include_router(runs, prefix=RUNS_PREFIX)
+    app.include_router(audit)  # prefix from a Settings default (P7)
     return app

@@ -325,6 +325,22 @@ class Server:
             "instructions": self.instructions,
         }
 
+    def call_tool(
+        self, name: str, args: dict[str, Any], cancel: threading.Event | None = None
+    ) -> dict[str, Any]:
+        """In-process `tools/call` (P7: the viewer's chat agent): the same validation, handlers and
+        fenced output as a client call over a transport. Raises RpcError for an unknown tool."""
+        req = Request(
+            0,
+            "tools/call",
+            {"name": name, "arguments": args},
+            MODERN,
+            {},
+            modern=True,
+            cancel=cancel or threading.Event(),
+        )
+        return self._call(req)
+
     def _call(self, req: Request) -> dict[str, Any]:
         name = req.params.get("name")
         tool = self.tools.get(name) if isinstance(name, str) else None

@@ -1,0 +1,15 @@
+# P7 M2: requirement lookups over the SDD preset fixtures (namespaced spec-kit ids, synthesized Kiro
+# ids, custom ids). Each question names the fixture whose map it runs on (`ad2v extract --repo
+# fixtures/sdd-presets/<fixture>`). Written before any P7 retrieval change and frozen (hash in
+# docs/reports/P7.md); held-out ids drawn before measuring: random.Random(987654).sample(p01..p10, 3).
+questions:
+  - {id: p01, fixture: spec-kit, type: requirement, q: "FR-001", gold: ["001-payments:FR-001", "002-refunds:FR-001"]}
+  - {id: p02, fixture: spec-kit, type: requirement, holdout: true, q: "002-refunds:FR-002", gold: ["002-refunds:FR-002"]}
+  - {id: p03, fixture: spec-kit, type: requirement, q: "which requirement limits the refund amount?", gold: ["002-refunds:FR-001"]}
+  - {id: p04, fixture: spec-kit, type: requirement, q: "what is the success criterion for charge latency?", gold: ["001-payments:SC-001"]}
+  - {id: p05, fixture: kiro, type: requirement, q: "ORDEREXPORT-1.2", gold: ["ORDEREXPORT-1.2"]}
+  - {id: p06, fixture: kiro, type: requirement, q: "acceptance criterion 1.3", gold: ["ORDEREXPORT-1.3"]}
+  - {id: p07, fixture: kiro, type: requirement, holdout: true, q: "what happens when an export has no orders?", gold: ["ORDEREXPORT-1.2"]}
+  - {id: p08, fixture: kiro, type: requirement, q: "which requirement forbids two exports for the same date?", gold: ["ORDEREXPORT-2.2"]}
+  - {id: p09, fixture: custom, type: requirement, holdout: true, q: "BILL-3", gold: ["BILL-3"]}
+  - {id: p10, fixture: custom, type: requirement, q: "which requirement numbers invoices without gaps?", gold: ["BILL-2"]}

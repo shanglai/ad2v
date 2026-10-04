@@ -173,6 +173,7 @@ def pair_links(
                 ]
                 if ep_names != rt_names:
                     ev.append({"kind": "param_name_mismatch", "spec": ep_names, "code": rt_names})
+                ev.extend(_prefix_evidence(nodes[rt].attrs))
                 drift = _structural_drift(graph, ep, rt, len(rt_names))
                 ev.extend(drift)
                 if ambiguous:
@@ -353,6 +354,24 @@ def _structural_target(graph: ir.Graph, target: str) -> str | None:
         if nid in graph.nodes:
             return nid
     return None
+
+
+def _prefix_evidence(attrs: dict[str, Any]) -> list[dict[str, Any]]:
+    """P7 (ADR-0053): where a route's prefix came from, when it was not a literal in the code."""
+    out: list[dict[str, Any]] = []
+    for src in attrs.get("prefix_sources", []):
+        kind, _, expr = src.partition(":")
+        if kind == "path_constants":
+            out.append({"kind": "prefix_from_path_constants", "expression": expr})
+        elif kind == "settings_default":
+            out.append(
+                {
+                    "kind": "prefix_from_settings_default",
+                    "setting": expr,
+                    "warning": "a default; the environment can override it at run time",
+                }
+            )
+    return out
 
 
 def _structural_drift(graph: ir.Graph, ep: str, rt: str, route_params: int) -> list[dict[str, Any]]:

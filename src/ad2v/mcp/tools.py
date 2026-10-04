@@ -23,6 +23,7 @@ from ad2v.mcp import locate, slices
 from ad2v.mcp.files import FileAccessError, FileSet
 from ad2v.mcp.index import (
     BEHAVIOR_KINDS,
+    PORT_KINDS,
     EpochIndex,
     IndexCache,
     clean_name,
@@ -617,13 +618,23 @@ def t_neighborhood(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
     return result("\n".join(text), s)
 
 
+def status_rank(kind: str) -> int:
+    """`ad2v_status` order (P7, issue 67): ports (and spec endpoints) first, then containers and
+    components, then everything else; qualified name within a rank."""
+    if kind in PORT_KINDS or kind == "spec_endpoint":
+        return 0
+    if kind in ("container", "component", "spec_component"):
+        return 1
+    return 2
+
+
 def t_status(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
     ix, _ = ctx.index(a)
     mode = a.get("mode") or "normative"
     within = set(ix.subtree(ctx.node(ix, a["container"]))) if a.get("container") else None
     counts: dict[str, int] = {}
     match = []
-    for nid in sorted(ix.nodes, key=lambda i: ix.nodes[i]["qname"]):
+    for nid in sorted(ix.nodes, key=lambda i: (status_rank(ix.nodes[i]["kind"]), ix.nodes[i]["qname"])):
         n = ix.nodes[nid]
         if within is not None and nid not in within:
             continue

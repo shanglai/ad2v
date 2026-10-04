@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -178,6 +179,11 @@ def test_candidates_and_errors(tmp_path):
     assert "docs/image.png" not in got
     with pytest.raises(bootstrap.BootstrapError):
         bootstrap.candidates(repo, [repo / "nope"])
+    # P7 (ADR-0052): --from is relative to the repo, like --spec-root; outside the repo is refused
+    rel = {c.rel for c in bootstrap.candidates(repo, [Path("docs")])}
+    assert "docs/NOTES.md" in rel
+    with pytest.raises(bootstrap.BootstrapError, match="inside the repository"):
+        bootstrap.candidates(repo, [repo.parent])
     assert bootstrap.spec_root_of(repo, None) == (repo / "specs").resolve()
     assert bootstrap.spec_root_of(repo, "elsewhere") == (repo / "elsewhere").resolve()
     r = bootstrap.bootstrap(repo, [repo / "docs" / "short.md"], None, spec_root=repo / "specs")

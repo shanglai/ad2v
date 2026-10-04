@@ -1,4 +1,4 @@
-"""SQLite storage for .ad2v files, format v0.4 (multi-epoch, content-addressed base facts).
+"""SQLite storage for .ad2v files, format v0.5 (multi-epoch, content-addressed base facts).
 
 Base facts (nodes, edges, unresolved refs, test results, code facts) are stored once per
 distinct content in `*_versions` tables and referenced per epoch. Readers use the v0.2-shaped
@@ -56,7 +56,14 @@ PHYSICAL_TABLES = frozenset(
 )
 # Informative per-epoch rows built from the LLM cache (P4). Dropped with the derived rows (and
 # before them: they reference links and workflows), rebuilt from `llm_results` without calls.
-LLM_DERIVED_TABLES = ("link_judgments", "link_suggestions", "spec_extractions", "narrations", "summaries")
+LLM_DERIVED_TABLES = (
+    "judge_rollups",
+    "link_judgments",
+    "link_suggestions",
+    "spec_extractions",
+    "narrations",
+    "summaries",
+)
 VIEWS = ("nodes", "edges", "unresolved_refs", "test_results")
 DERIVED_TABLES = (
     "glyphs",
@@ -165,6 +172,11 @@ def open_rw(path: Path) -> sqlite3.Connection:
     except sqlite3.DatabaseError as e:
         conn.close()
         raise NotAnAd2vFile(f"not an ad2v file: {path} ({e})") from e
+    if version is not None and version[0] == "0.4":  # P7: upgraded in place (ADR-0055)
+        from ad2v.upgrade import upgrade_v04
+
+        upgrade_v04(conn)
+        version = (ir.FORMAT_VERSION,)
     if version is None or version[0] != ir.FORMAT_VERSION:
         conn.close()
         raise NotAnAd2vFile(

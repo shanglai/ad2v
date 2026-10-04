@@ -1,4 +1,4 @@
-# The ad2v file format, version 0.4
+# The ad2v file format, version 0.5
 
 Status: **draft, normative**. The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
@@ -16,8 +16,22 @@ Companion documents:
 - [`visual-tokens-v0.2.md`](visual-tokens-v0.2.md): how statuses become line styles and colors
   (status → style normative, palettes informative; unchanged in v0.3 and v0.4).
 - [`spec-markdown-convention.md`](spec-markdown-convention.md): the Markdown spec convention (normative for extractors).
-- [`../../schema/ad2v-v0.4.sql`](../../schema/ad2v-v0.4.sql): DDL (normative).
-- [`../../schema/ir-v0.4.schema.json`](../../schema/ir-v0.4.schema.json): JSON Schema of the IR (normative).
+- [`../../schema/ad2v-v0.5.sql`](../../schema/ad2v-v0.5.sql): DDL (normative).
+- [`../../schema/ir-v0.5.schema.json`](../../schema/ir-v0.5.schema.json): JSON Schema of the IR (normative).
+
+### Changes from v0.4
+
+v0.5 (P7) changes only informative objects and adds normative attributes. Epoch ids of
+repositories without `*.sql` files and every normative table keep their shape.
+
+- `llm_results.task` also allows `chat` (§13.3); new table `judge_rollups`; the view
+  `node_status_effective` reads it (§11.4).
+- `datastore` nodes may carry `attrs.schema_digest`, and `http_route` nodes
+  `attrs.schema_models` (§3.9). `*.sql` files are epoch inputs (they enter `repo_tree_hash`).
+- `http_route` nodes may carry `attrs.prefix_sources` (§6.1, `pairing.path_constants` and
+  `pairing.resolve_settings_defaults`).
+- Readers accept 0.4 and 0.5. A writer upgrades a 0.4 file in place, in one transaction
+  (ADR-0055).
 
 ### Changes from v0.3
 
@@ -115,7 +129,7 @@ given and their hash differs from the parent's (§6.7).
 
 ## 3. The IR
 
-The IR is the logical model of one epoch. `schema/ir-v0.4.schema.json` defines its JSON form, and
+The IR is the logical model of one epoch. `schema/ir-v0.5.schema.json` defines its JSON form, and
 the views and tables in §5 store it.
 
 ### 3.1 Node
@@ -311,6 +325,19 @@ constructor or `pure`. For datastore libraries, library-level calls do not count
 (`direct_calls_touch: false`) unless listed in `touch_functions`: `sqlalchemy.inspect()` is not IO,
 while `session.execute()` is.
 
+### 3.9 Datastore schema digests (normative, v0.5, ADR-0059)
+
+A producer MAY attach `attrs.schema_digest = {"tables": [...]}` to `datastore` nodes, derived from
+the repository text only: SQLAlchemy declarative classes (`__tablename__`, `Column`/`mapped_column`,
+`UniqueConstraint`/unique `Index` in `__table_args__`) and `CREATE TABLE` statements in `*.sql`
+files. Each table is `{table, source: "sqlalchemy" | "sql", path, class?, columns: [{name, type,
+pk?, unique?, not_null?, fk?}], unique: [[column, ...], ...]}`, sorted by table, source and path.
+A model attaches to every datastore read or written by its module or by a module that imports it;
+SQL DDL attaches to the only datastore whose `libraries` include a SQL library; otherwise a
+synthetic `datastore:<lib>:models` node under the code system holds the tables.
+`http_route` nodes MAY carry `attrs.schema_models = [{role: "request" | "response", class,
+fields: [{name, type}]}]` for Pydantic models used by their handler.
+
 ### 3.8 Risk severity (normative, ADR-0014)
 
 Every behavior node gets `attrs.severity` (float), `attrs.severity_reach` (int) and
@@ -420,6 +447,14 @@ stored. Materialized and in-memory rows MUST be identical.
 ## 6. Pairing and statuses (normative)
 
 ### 6.1 Pairing methods
+
+**Route prefixes from settings (v0.5, ADR-0053).** When a route prefix is an expression the
+extractor cannot fold, `pairing.path_constants` (expression source text without whitespace →
+value) supplies it; with `pairing.resolve_settings_defaults: true` a literal class-attribute default
+of a pydantic Settings/BaseModel field is used. Such routes carry `attrs.prefix_sources` and their
+links the evidence `prefix_from_path_constants` / `prefix_from_settings_default` (the latter with a
+warning that the environment can override it). Otherwise the route stays `path_unresolved` and pairs
+as `needs_review` (ADR-0046).
 
 A **link** relates one spec node and one code node. It is found by one of five deterministic
 methods (`links.method`). All of them run, and a pair found twice by different methods gives two links:
@@ -663,7 +698,7 @@ A conforming v0.4 file:
 - has `version_key` values that recompute from their payloads, no version row unreferenced by any
   membership row, and at most one version per id per epoch;
 - has the head materialized, and `epochs.materialized` consistent with `epoch_materialized`;
-- for every epoch: rows that validate against `ir-v0.4.schema.json`, `id = node_id(side, kind,
+- for every epoch: rows that validate against `ir-v0.5.schema.json`, `id = node_id(side, kind,
   qualified_name)` for every node, `subtree_hash` values that recompute (§2), a matching
   `contains`/`declares` edge for every `parent_id`, and lineage rows whose new ids are nodes of the
   epoch (and whose old ids are nodes of the parent, when the parent is the immediately preceding
@@ -784,6 +819,12 @@ llm_evidence_json)` follows these rules:
 Viewers show the normative status by default, with a toggle for the effective status.
 
 ### 11.4 Semantic judge (`judge`)
+
+**v0.5 (ADR-0060):** links whose spec or code side is a container, component or spec component
+are not judged. `judge_rollups` holds, per such node with confident judgments below it, the worst
+verdict (drift > partial > conforms > cannot_tell), its confidence, counts and link ids; a roll-up
+`drift` turns an implemented/verified node into effective `drift` (provenance `llm`). The thinking
+level per task (`llm.tasks.<task>.thinking`) is part of `params_hash` (ADR-0058).
 
 For every link with both sides, a method other than `none`, a status of implemented, verified or
 stale, and a code side that is not a test, the slice contains:
@@ -936,6 +977,12 @@ graph. A consumer that ranks components by question SHOULD use the `retrieval:` 
 rules stored with the epoch, and fall back to its own defaults when there is none (files
 extracted before P6).
 
+### 13.1a Retrieval v2 keys (P7, ADR-0054)
+
+`retrieval:` may also hold `propagation` (`lambda`, `spec_intents`, `spec_side_boost`,
+`code_intents`), `id_match` and `tests` (`factor`, `triggers`). A consumer that finds a key missing
+in the stored section SHOULD take it from its own defaults (the stored keys still win).
+
 ### 13.2 The MCP server (informative)
 
 `ad2v mcp` exposes `.ad2v` files read-only over the Model Context Protocol (2026-07-28, with
@@ -955,6 +1002,14 @@ legacy `initialize` accepted).
     ancestors.
   - The app renders the answers of `ad2v_show` (node ids plus a camera intent: `focus`, `fit`,
     `path`, `replay`, `diff`; never coordinates) from the file's own layout.
+
+### 13.3 The viewer's chat (informative, P7)
+
+`ad2v view --chat` runs a bring-your-own-model agent server-side over the same tools (all agent
+tools except `ad2v_files` and `ad2v_llm_plan`, through the MCP dispatcher). Each model call is an
+`llm_results` row with `task = 'chat'` and subject `chat:<session>:<turn>:<step>`; each turn is an
+`llm_runs` row with `tasks_json = ["chat"]`. Answers cite node ids, checked against the turn's
+tool results (ADR-0056, ADR-0057).
 
 ## Appendix A: column classes (normative)
 
@@ -1423,5 +1478,17 @@ Every column in the DDL is marked **N** (normative), **I** (informative), **V** 
 | `result_id` | I |  |
 | `output_path` | I | spec-root-relative |
 | `state` | I |  |
+
+**judge_rollups**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | I |  |
+| `node_id` | I | a container, component or spec_component |
+| `verdict` | I |  |
+| `confidence` | I | of the judgment that set the verdict |
+| `counts_json` | I | {"conforms": n, "partial": n, ...} (confident ones) |
+| `link_ids_json` | I | the judged descendant links that count |
+| `min_confidence` | I | the threshold used |
 
 <!-- END COLUMN CLASSES -->

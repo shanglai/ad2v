@@ -129,7 +129,9 @@ def gc(conn: sqlite3.Connection, drop_llm_cache: bool = False) -> dict[str, int]
     llm_removed = 0
     if drop_llm_cache:
         refs = " UNION ".join(
-            f"SELECT result_id FROM {t} WHERE result_id IS NOT NULL" for t in store.LLM_DERIVED_TABLES
+            f"SELECT {t}.result_id FROM {t} WHERE {t}.result_id IS NOT NULL"
+            for t in store.LLM_DERIVED_TABLES
+            if t != "judge_rollups"  # no result_id: a roll-up is derived from judgments, not a call
         )
         before = conn.total_changes
         conn.execute(f"DELETE FROM llm_run_results WHERE result_id NOT IN ({refs})")

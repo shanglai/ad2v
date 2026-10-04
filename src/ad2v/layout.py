@@ -23,7 +23,8 @@ from typing import Any
 
 from ad2v import ids, ir, store
 
-ALGORITHM = "nestgrid-v1"
+ALGORITHM = "nestgrid-v1"  # the default
+ALGORITHMS = ("nestgrid-v1", "nestgrid-v2")  # v2: shelf packing (P7, ADR-0062), behind a flag
 PAD = 0.5  # inner padding of a parent
 GAP = 0.3  # between grid tracks
 PORT = 0.4  # port notch footprint
@@ -71,16 +72,23 @@ class Grid:
     rows: list[float] = field(default_factory=list)  # row heights
     slots: dict[str, tuple[int, int]] = field(default_factory=dict)  # child id -> (row, col)
     ports: dict[str, tuple[str, int]] = field(default_factory=dict)  # port id -> ("e" | "s", index)
+    # nestgrid-v2 only: per child, its x offset in its shelf and its reserved width; the shelf width
+    xoff: dict[str, float] = field(default_factory=dict)
+    widths: dict[str, float] = field(default_factory=dict)
+    target: float = 0.0
 
     def to_json(self) -> str:
-        return ids.canonical_json(
-            {
-                "cols": self.cols,
-                "rows": self.rows,
-                "slots": {k: list(v) for k, v in sorted(self.slots.items())},
-                "ports": {k: list(v) for k, v in sorted(self.ports.items())},
-            }
-        )
+        d: dict[str, Any] = {
+            "cols": self.cols,
+            "rows": self.rows,
+            "slots": {k: list(v) for k, v in sorted(self.slots.items())},
+            "ports": {k: list(v) for k, v in sorted(self.ports.items())},
+        }
+        if self.widths:
+            d["xoff"] = dict(sorted(self.xoff.items()))
+            d["widths"] = dict(sorted(self.widths.items()))
+            d["target"] = self.target
+        return ids.canonical_json(d)
 
     def edge_len(self, edge: str) -> int:
         return max((i + 1 for e, i in self.ports.values() if e == edge), default=0)
@@ -89,7 +97,15 @@ class Grid:
     def from_json(s: str) -> Grid:
         d = json.loads(s)
         ports = {k: (v[0], v[1]) for k, v in d.get("ports", {}).items()}
-        return Grid(list(d["cols"]), list(d["rows"]), {k: (v[0], v[1]) for k, v in d["slots"].items()}, ports)
+        return Grid(
+            list(d["cols"]),
+            list(d["rows"]),
+            {k: (v[0], v[1]) for k, v in d["slots"].items()},
+            ports,
+            dict(d.get("xoff", {})),
+            dict(d.get("widths", {})),
+            float(d.get("target", 0.0)),
+        )
 
 
 @dataclass
@@ -251,8 +267,141 @@ class Layouter:
         return self.boxes
 
 
+# -- nestgrid-v2: shelf packing (P7, ADR-0062) ---------------------------------------------------
+def assign_shelves(
+    children: list[str], sizes: dict[str, tuple[float, float]], prev: Grid | None, g: ir.Graph
+) -> Grid:
+    """Shelves for a parent's (non-port) children with v1's persistence rule: a child keeps its
+    shelf and x offset while it fits its reserved width (quantized with headroom, never shrinking);
+    removed children free their interval; new children fill a free interval, then the end of a
+    shelf within the target width, then a new shelf. A child that outgrows its interval moves
+    alone; nobody else does."""
+    grid = Grid()
+    grid.target = prev.target if prev and prev.target else 0.0
+    grid.rows = list(prev.rows) if prev and prev.widths else []
+    keep: list[str] = []
+    for c in children:
+        if prev and c in prev.widths and c in prev.slots:
+            need = sizes[c][0]
+            if need <= prev.widths[c] + 1e-9:
+                keep.append(c)
+                grid.slots[c] = prev.slots[c]
+                grid.xoff[c] = prev.xoff[c]
+                grid.widths[c] = prev.widths[c]
+    new = sorted((c for c in children if c not in grid.slots), key=lambda c: _order(g, c))
+    res = {c: quantize(sizes[c][0] * HEADROOM) for c in new}
+    if not grid.target:  # first layout: shelves about as wide as a square of the children's area
+        area = sum(res[c] * quantize(sizes[c][1] * HEADROOM) for c in new)
+        grid.target = round(max([*res.values(), math.sqrt(area) * 1.15, 1.0]), 4)
+
+    def used(shelf: int) -> list[tuple[float, float]]:
+        return sorted(
+            (grid.xoff[c], grid.xoff[c] + grid.widths[c]) for c, (s, _) in grid.slots.items() if s == shelf
+        )
+
+    for c in new:
+        w = res[c]
+        placed = False
+        for shelf in range(len(grid.rows)):
+            x = 0.0
+            for a, b in used(shelf) + [(max(grid.target, w) + GAP + 1e9, 0.0)]:
+                if a - x >= w + GAP - 1e-9 and x + w <= max(grid.target, w) + 1e-9:
+                    grid.slots[c], grid.xoff[c], grid.widths[c] = (shelf, 0), round(x, 4), w
+                    placed = True
+                    break
+                x = max(x, b + GAP)
+            if placed:
+                break
+        if not placed:
+            grid.rows.append(0.0)
+            grid.slots[c], grid.xoff[c], grid.widths[c] = (len(grid.rows) - 1, 0), 0.0, w
+    return grid
+
+
+class ShelfLayouter(Layouter):
+    """nestgrid-v2: same ports, heights and roots as v1; children packed on shelves."""
+
+    def measure(self, nid: str) -> tuple[float, float]:
+        inner, ports = self.children(nid)
+        n = self.g.nodes[nid]
+        prev = self.prev.get(nid)
+        if not inner:
+            s = leaf_side(self.sizes.get(nid, 1))
+            w = h = s
+            grid = Grid()
+        else:
+            sizes = {c: self.measure(c) for c in inner}
+            grid = assign_shelves(inner, sizes, prev, self.g)
+            need = [0.0] * len(grid.rows)
+            for c in inner:
+                need[grid.slots[c][0]] = max(need[grid.slots[c][0]], sizes[c][1])
+            grid.rows = [
+                old if v <= old else quantize(v * HEADROOM) for old, v in zip(grid.rows, need, strict=True)
+            ]
+            grid.rows = [r or 1.0 for r in grid.rows]
+            used = max((grid.xoff[c] + grid.widths[c] for c in inner), default=1.0)
+            w = 2 * PAD + used
+            h = 2 * PAD + sum(grid.rows) + GAP * (len(grid.rows) - 1)
+        if ports:
+            grid.ports = assign_ports(ports, prev, self.g)
+            h = max(h, PORT_STEP * grid.edge_len("e") + PAD)
+            w = max(w, PORT_STEP * grid.edge_len("s") + PAD)
+        if inner or ports:
+            self.grids[nid] = grid
+        self.boxes[nid] = Box(w=round(w, 4), h=round(h, 4), d=self._height(n, bool(inner)))
+        return self.boxes[nid].w, self.boxes[nid].h
+
+    def place(self, nid: str, x: float, y: float, z: float) -> None:
+        b = self.boxes[nid]
+        b.x, b.y, b.z = round(x, 4), round(y, 4), round(z, 4)
+        inner, ports = self.children(nid)
+        top = z + b.d
+        if inner:
+            grid = self.grids[nid]
+            row_y = [y + PAD + sum(grid.rows[:r]) + GAP * r for r in range(len(grid.rows))]
+            for c in inner:
+                self.place(c, x + PAD + grid.xoff[c], row_y[grid.slots[c][0]], top)
+        if ports:
+            self._place_ports(nid, x, y, z, ports)
+
+    def _place_ports(self, nid: str, x: float, y: float, z: float, ports: list[str]) -> None:
+        b, slots = self.boxes[nid], self.grids[nid].ports
+        for p in ports:
+            pb = self.boxes.setdefault(p, Box())
+            pb.w = pb.h = PORT
+            pb.d = 0.3
+            edge, i = slots[p]
+            if edge == "e":
+                pb.x, pb.y = round(x + b.w - PORT / 2, 4), round(y + PAD / 2 + PORT_STEP * i, 4)
+            else:
+                pb.x, pb.y = round(x + PAD / 2 + PORT_STEP * i, 4), round(y + b.h - PORT / 2, 4)
+            pb.z = round(z, 4)
+            self.boxes[p] = pb
+
+
+def density(g: ir.Graph, boxes: dict[str, Box]) -> dict[str, float]:
+    """Occupied / parent area: the children's footprints over the parents' inner areas, summed over
+    every parent with children (area-weighted), and at the top level only (the system's children)."""
+    kids = g.children()
+    occ = tot = top_occ = top_tot = 0.0
+    for pid, cs in kids.items():
+        inner = [c for c in cs if c in boxes and g.nodes[c].kind not in PORT_KINDS]
+        if not inner or pid not in boxes:
+            continue
+        pb = boxes[pid]
+        a = max(1e-9, (pb.w - 2 * PAD) * (pb.h - 2 * PAD))
+        o = sum(boxes[c].w * boxes[c].h for c in inner)
+        occ, tot = occ + o, tot + a
+        if g.nodes[pid].parent_id is None:
+            top_occ, top_tot = top_occ + o, top_tot + a
+    return {
+        "all": round(occ / tot, 4) if tot else 0.0,
+        "top": round(top_occ / top_tot, 4) if top_tot else 0.0,
+    }
+
+
 # -- storage ------------------------------------------------------------------------------------
-# The same table as in schema/ad2v-v0.4.sql, for v0.4 files created before P5 (additive).
+# The same table as in schema/ad2v-v0.5.sql, for v0.4 files created before P5 (additive).
 DDL = """
 CREATE TABLE IF NOT EXISTS layout_grids (
     epoch_id  TEXT NOT NULL REFERENCES epochs(epoch_id),
@@ -264,61 +413,70 @@ CREATE TABLE IF NOT EXISTS layout_grids (
 """
 
 
-def has_layout(conn: sqlite3.Connection, epoch_id: str) -> bool:
+def has_layout(conn: sqlite3.Connection, epoch_id: str, algorithm: str = ALGORITHM) -> bool:
     return (
         conn.execute(
-            "SELECT 1 FROM layout WHERE epoch_id = ? AND algorithm = ? LIMIT 1", (epoch_id, ALGORITHM)
+            "SELECT 1 FROM layout WHERE epoch_id = ? AND algorithm = ? LIMIT 1", (epoch_id, algorithm)
         ).fetchone()
         is not None
     )
 
 
-def _prev_grids(conn: sqlite3.Connection, epoch_id: str) -> dict[str, Grid]:
+def _prev_grids(conn: sqlite3.Connection, epoch_id: str, algorithm: str = ALGORITHM) -> dict[str, Grid]:
     """The parent epoch's grids with ids mapped through this epoch's lineage."""
     ep = store.get_epoch(conn, epoch_id)
     if ep.parent_epoch_id is None:
         return {}
     rows = conn.execute(
         "SELECT node_id, grid_json FROM layout_grids WHERE epoch_id = ? AND algorithm = ?",
-        (ep.parent_epoch_id, ALGORITHM),
+        (ep.parent_epoch_id, algorithm),
     ).fetchall()
     fwd = {o: n for o, n, m, _ in store.load_lineage(conn, epoch_id) if m != "ambiguous"}
     out = {}
     for nid, gj in rows:
         g = Grid.from_json(gj)
         g.slots = {fwd.get(c, c): s for c, s in g.slots.items()}
+        g.xoff = {fwd.get(c, c): v for c, v in g.xoff.items()}
+        g.widths = {fwd.get(c, c): v for c, v in g.widths.items()}
         out[fwd.get(nid, nid)] = g
     return out
 
 
-def compute(conn: sqlite3.Connection, epoch_id: str) -> tuple[dict[str, Box], dict[str, Grid]]:
+def compute(
+    conn: sqlite3.Connection, epoch_id: str, algorithm: str = ALGORITHM
+) -> tuple[dict[str, Box], dict[str, Grid]]:
     g = store.load_graph(conn, epoch_id)
     from ad2v import glyphs
 
     sizes = {gl.node_id: gl.size_weight for gl in glyphs.compute(g)}
-    lay = Layouter(g, sizes, _prev_grids(conn, epoch_id))
+    cls = ShelfLayouter if algorithm == "nestgrid-v2" else Layouter
+    lay = cls(g, sizes, _prev_grids(conn, epoch_id, algorithm))
     boxes = lay.run()
     return boxes, lay.grids
 
 
-def write(conn: sqlite3.Connection, epoch_id: str) -> int:
+def write(conn: sqlite3.Connection, epoch_id: str, algorithm: str = ALGORITHM) -> int:
     """Compute and store the layout of one epoch (replacing an existing one). Returns rows."""
-    boxes, grids = compute(conn, epoch_id)
-    conn.execute("DELETE FROM layout WHERE epoch_id = ? AND algorithm = ?", (epoch_id, ALGORITHM))
-    conn.execute("DELETE FROM layout_grids WHERE epoch_id = ? AND algorithm = ?", (epoch_id, ALGORITHM))
+    if algorithm not in ALGORITHMS:
+        raise ValueError(f"unknown layout algorithm {algorithm!r} (known: {', '.join(ALGORITHMS)})")
+    boxes, grids = compute(conn, epoch_id, algorithm)
+    conn.execute("DELETE FROM layout WHERE epoch_id = ? AND algorithm = ?", (epoch_id, algorithm))
+    conn.execute("DELETE FROM layout_grids WHERE epoch_id = ? AND algorithm = ?", (epoch_id, algorithm))
     conn.executemany(
         "INSERT INTO layout(epoch_id, node_id, lod, algorithm, x, y, z, w, h, d)"
         " VALUES (?,?,?,?,?,?,?,?,?,?)",
-        [(epoch_id, nid, 0, ALGORITHM, b.x, b.y, b.z, b.w, b.h, b.d) for nid, b in sorted(boxes.items())],
+        [(epoch_id, nid, 0, algorithm, b.x, b.y, b.z, b.w, b.h, b.d) for nid, b in sorted(boxes.items())],
     )
     conn.executemany(
         "INSERT INTO layout_grids VALUES (?,?,?,?)",
-        [(epoch_id, nid, ALGORITHM, gr.to_json()) for nid, gr in sorted(grids.items())],
+        [(epoch_id, nid, algorithm, gr.to_json()) for nid, gr in sorted(grids.items())],
     )
     return len(boxes)
 
 
-def ensure(conn: sqlite3.Connection, epoch_ids: list[str] | None = None) -> list[str]:
+def ensure(
+    conn: sqlite3.Connection, epoch_ids: list[str] | None = None, algorithm: str = ALGORITHM
+) -> list[str]:
     """Lay out every epoch (or the given ones, with their missing ancestors first) lacking a layout."""
     rows = store.epoch_rows(conn)
     wanted = set(epoch_ids) if epoch_ids is not None else {r["epoch_id"] for r in rows}
@@ -326,8 +484,8 @@ def ensure(conn: sqlite3.Connection, epoch_ids: list[str] | None = None) -> list
     for r in rows:  # oldest first: each epoch inherits its parent's grids
         e = r["epoch_id"]
         needed = e in wanted or any(w for w in wanted if _is_ancestor(conn, e, w))
-        if needed and not has_layout(conn, e):
-            write(conn, e)
+        if needed and not has_layout(conn, e, algorithm):
+            write(conn, e, algorithm)
             done.append(e)
     return done
 
@@ -341,10 +499,10 @@ def _is_ancestor(conn: sqlite3.Connection, a: str, b: str) -> bool:
     return False
 
 
-def load(conn: sqlite3.Connection, epoch_id: str) -> dict[str, dict[str, Any]]:
+def load(conn: sqlite3.Connection, epoch_id: str, algorithm: str = ALGORITHM) -> dict[str, dict[str, Any]]:
     return {
         r["node_id"]: dict(r)
         for r in conn.execute(
-            "SELECT * FROM layout WHERE epoch_id = ? AND algorithm = ?", (epoch_id, ALGORITHM)
+            "SELECT * FROM layout WHERE epoch_id = ? AND algorithm = ?", (epoch_id, algorithm)
         )
     }

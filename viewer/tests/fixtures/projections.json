@@ -1,5 +1,5 @@
 {
- "epoch": "e_9bf4d72f3701c9bac3d3",
+ "epoch": "e_79cf864b0a1d075a3882",
  "workflows": [
   {
    "workflowId": "w_12d7b033dfe3ba0cc3a9",
@@ -675,6 +675,251 @@
       "span": [
        5,
        5
+      ]
+     }
+    ]
+   },
+   "levels": [
+    1,
+    2,
+    3
+   ]
+  },
+  {
+   "workflowId": "w_18d858374278bfb7295f",
+   "name": "GET /{run_id}/audit",
+   "byDepth": {
+    "0": [
+     {
+      "nodeIds": [
+       "n_f5c61bf725e41dc9d03c"
+      ],
+      "touched": [
+       "n_36e3c300a97758a97dc6",
+       "n_00945eee37cfff8533f3",
+       "n_06685926b17714e130ca",
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       0,
+       3
+      ]
+     }
+    ],
+    "1": [
+     {
+      "nodeIds": [
+       "n_8ee753c0f3c8415b29b3"
+      ],
+      "touched": [
+       "n_36e3c300a97758a97dc6",
+       "n_00945eee37cfff8533f3",
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       0,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ],
+    "2": [
+     {
+      "nodeIds": [
+       "n_36e3c300a97758a97dc6"
+      ],
+      "touched": [
+       "n_36e3c300a97758a97dc6"
+      ],
+      "span": [
+       0,
+       0
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_52e25e2794321b76ddc5"
+      ],
+      "touched": [
+       "n_00945eee37cfff8533f3",
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       1,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ],
+    "3": [
+     {
+      "nodeIds": [
+       "n_36e3c300a97758a97dc6"
+      ],
+      "touched": [
+       "n_36e3c300a97758a97dc6"
+      ],
+      "span": [
+       0,
+       0
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_ce175df042477247d51f"
+      ],
+      "touched": [
+       "n_00945eee37cfff8533f3"
+      ],
+      "span": [
+       1,
+       1
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_cec29cbba51c6e041970"
+      ],
+      "touched": [
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       2,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ],
+    "4": [
+     {
+      "nodeIds": [
+       "n_36e3c300a97758a97dc6"
+      ],
+      "touched": [
+       "n_36e3c300a97758a97dc6"
+      ],
+      "span": [
+       0,
+       0
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_00945eee37cfff8533f3"
+      ],
+      "touched": [
+       "n_00945eee37cfff8533f3"
+      ],
+      "span": [
+       1,
+       1
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_06685926b17714e130ca"
+      ],
+      "touched": [
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       2,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ],
+    "5": [
+     {
+      "nodeIds": [
+       "n_36e3c300a97758a97dc6"
+      ],
+      "touched": [
+       "n_36e3c300a97758a97dc6"
+      ],
+      "span": [
+       0,
+       0
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_00945eee37cfff8533f3"
+      ],
+      "touched": [
+       "n_00945eee37cfff8533f3"
+      ],
+      "span": [
+       1,
+       1
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_06685926b17714e130ca"
+      ],
+      "touched": [
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       2,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
       ]
      }
     ]

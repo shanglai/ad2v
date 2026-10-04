@@ -4,6 +4,8 @@ import os
 
 import litellm
 
+from recon_api import db
+
 CLASSIFIER_MODEL = os.environ.get("RECON_CLASSIFIER_MODEL", "gpt-4o-mini")
 LABELS = ("timing", "fee", "fx", "duplicate", "unknown")
 
@@ -28,4 +30,5 @@ def classify_run(run: dict) -> list[dict]:
     labelled = []
     for attempt in run["match_attempts"]:
         labelled.extend(classify_unmatched(attempt["unmatched"]))
+    db.save_classifications(run["run_id"], labelled)
     return labelled

@@ -1,0 +1,16 @@
+{
+  "recordings": [
+    {
+      "task": "chat",
+      "subject": "Walk me through starting a reconciliation run.",
+      "output": [
+        {"call": [{"name": "ad2v_locate", "args": {"question": "start a reconciliation run"}}]},
+        {"call": [{"name": "ad2v_show", "args": {"intent": "focus", "node_ids": ["http:api:POST /v1/reconciliations"]}}]},
+        {"answer": {
+          "answer_markdown": "A run starts at **POST /v1/reconciliations**, handled by `start_run`.\n\n- it fetches the bank statements\n- then matches them against the ledger\n\n<img src=x onerror=alert(1)> [not a node](https://evil.example)",
+          "citations": []
+        }}
+      ]
+    }
+  ]
+}

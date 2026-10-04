@@ -4,8 +4,20 @@
 import * as THREE from "three";
 import type { Box, EdgeRow, StatusInfo } from "../data/types";
 import { aggregateEdges, DEFAULT_GROUPS, type AggEdge, type EdgeGroup } from "../model/edges";
+import {
+  declutterEdges,
+  EDGE_LIMIT,
+  labelPriority,
+  liftEdges,
+  mergePortals,
+  placeLabels,
+  type EdgeMode,
+  type LabelCand,
+  type PortalIn,
+  type WallSide,
+} from "../model/declutter";
 import { Lod, THRESHOLDS } from "../model/lod";
-import type { SceneTree } from "../model/tree";
+import { PORT_KINDS, type SceneTree } from "../model/tree";
 import type { DiffEntry } from "../model/text";
 import { OVERLAY_BADGES, statusColors, token, type LineStyle, type Theme } from "../theme";
 import { Atlas, badgeKey, BillboardSet, type Billboard } from "./billboards";
@@ -98,7 +110,13 @@ export class MapScene {
   private flight: { from: THREE.Vector3; to: THREE.Vector3; z0: number; z1: number; t0: number; ms: number } | null =
     null;
   private readonly instanceIds = new Map<THREE.InstancedMesh, string[]>();
-  private portals: Array<{ el: HTMLElement; at: THREE.Vector3 }> = [];
+  private portals: Array<{ el: HTMLElement; at: THREE.Vector3; side: WallSide; stack: number }> = [];
+  // P7 UX v2 (ADR-0061)
+  private edgeMode: EdgeMode = "all";
+  edgeLimit = EDGE_LIMIT;
+  private hoverId: string | null = null;
+  private prevLabels = new Set<string>();
+  edgeStats = { visible: 0, hidden: 0, limited: false };
   private perf: PerfStats = { fps: 0, frameMs: 0, drawCalls: 0, visibleNodes: 0, triangles: 0 };
   private frames: number[] = [];
   reducedMotion = false;
@@ -209,6 +227,27 @@ export class MapScene {
 
   get dimEnabled(): boolean {
     return this.dimOn;
+  }
+
+  /** P7: all edges, only the selection's (+ hover), or aggregated to parents below the label LOD. */
+  setEdgeMode(mode: EdgeMode): void {
+    this.edgeMode = mode;
+    this.visKey = "";
+    this.dirty = true;
+  }
+
+  get edgesMode(): EdgeMode {
+    return this.edgeMode;
+  }
+
+  /** Hovering a node shows its edges when edges are decluttered (selection mode, or over the limit). */
+  setHover(id: string | null): void {
+    if (id === this.hoverId) return;
+    this.hoverId = id;
+    if (this.edgeMode === "selection" || this.edgeStats.limited) {
+      this.visKey = "";
+      this.dirty = true;
+    }
   }
 
   /** Whether a visible node is drawn dimmed now (for tests and the a11y summary). */
@@ -732,10 +771,12 @@ export class MapScene {
         const A = m.tree.nodes.get(a)!.box, B = m.tree.nodes.get(b)!.box;
         return B.w * B.h - A.w * A.h || (a < b ? -1 : 1);
       });
-    const taken: Array<[number, number, number, number]> = [];
-    const out: Billboard[] = [];
+    // P7 (ADR-0061): greedy by priority (problem statuses > ports > footprint > name), screen-space
+    // collision rejection, and hysteresis for labels that were shown last time
+    const ppu = this.pxPerUnit();
+    const cands: LabelCand[] = [];
+    const where = new Map<string, { at: THREE.Vector3; text: string }>();
     for (const id of cand) {
-      if (out.length > 400) break;
       const n = m.tree.nodes.get(id)!;
       const text = m.label(id);
       const at = this.anchorOf(id, topOf.get(id) ?? n.box.z + n.box.d);
@@ -744,11 +785,16 @@ export class MapScene {
       const w = Math.min(48, text.length) * 6.4 + 8, h = 16;
       const rect: [number, number, number, number] = [sx - w / 2, sy - h, sx + w / 2, sy];
       if (rect[2] < 0 || rect[0] > W || rect[3] < 0 || rect[1] > H) continue;
-      if (taken.some((t) => rect[0] < t[2] && t[0] < rect[2] && rect[1] < t[3] && t[1] < rect[3])) continue;
-      taken.push(rect);
-      out.push({ key: `label:${text}`, at, offsetPx: [0, 18], scale: 1, dim: this.isDimmed(id) ? this.theme.dim.factor : 0 });
+      const status = m.status.get(id)?.status ?? "none";
+      cands.push({ id, rect, priority: labelPriority(status, PORT_KINDS.has(n.row.kind)), area: n.box.w * n.box.h * ppu * ppu, name: text });
+      where.set(id, { at, text });
     }
-    return out;
+    const placed = placeLabels(cands, this.prevLabels, 400);
+    this.prevLabels = new Set(placed);
+    return placed.map((id) => {
+      const { at, text } = where.get(id)!;
+      return { key: `label:${text}`, at, offsetPx: [0, 18] as [number, number], scale: 1, dim: this.isDimmed(id) ? this.theme.dim.factor : 0 };
+    });
   }
 
   /** Where a node's label and badges go: its top centre, or the front-left corner of an open slab. */
@@ -760,6 +806,11 @@ export class MapScene {
   }
 
   private rep = (id: string): string | null => this.model!.tree.representative(id, this.lods);
+
+  /** The visible node that stands for `id` at the current LOD (itself, or its nearest visible ancestor). */
+  representative(id: string): string | null {
+    return this.model ? this.rep(id) : null;
+  }
 
   private arc(a: THREE.Vector3, b: THREE.Vector3, lift: number): THREE.Vector3[] {
     const pts: THREE.Vector3[] = [];
@@ -787,7 +838,26 @@ export class MapScene {
   private buildEdges(topOf: Map<string, number>): void {
     const m = this.model!;
     const th = this.theme;
-    const agg: AggEdge[] = aggregateEdges(m.edges, this.rep, this.edgeGroups);
+    let agg: AggEdge[] = aggregateEdges(m.edges, this.rep, this.edgeGroups);
+    if (this.edgeMode === "aggregated") {
+      // below the label LOD a representative is lifted to its visible parent: one ribbon per parent pair
+      agg = liftEdges(agg, (id) => {
+        const p = m.tree.nodes.get(id)?.row.parentId ?? null;
+        return (this.lods.get(id) ?? Lod.Open) < Lod.Detail && p !== null && this.lods.has(p) ? p : id;
+      });
+    }
+    const touching = new Set<string>();
+    for (const t of [this.selection, this.hoverId]) {
+      if (t === null) continue;
+      touching.add(t);
+      const r = this.rep(t);
+      if (r !== null) touching.add(r);
+    }
+    for (const id of this.emph ?? []) touching.add(this.rep(id) ?? id);
+    const dc = declutterEdges(agg, this.edgeMode, touching, this.edgeLimit);
+    this.edgeStats = { visible: dc.edges.length, hidden: dc.hidden, limited: dc.limited };
+    agg = dc.edges;
+    const portalsIn: PortalIn[] = [];
     const lines: Polyline[] = [];
     const edgeColor = new THREE.Color(th.edge);
     const edgeDim = dimmed(th, th.edge);
@@ -804,27 +874,29 @@ export class MapScene {
         const inner = inA ? a : b, outer = inA ? b : a, dest = inA ? e.dst : e.src;
         const wall = wallPoint(focusBox, inner, outer);
         lines.push({ points: this.arc(inner, wall, 0.6), closed: false, color: colorOf(e.src, e.dst), widthPx: width, style: EDGE_STYLE[e.group], alpha: 0.9 });
-        this.addPortal(wall, dest);
+        portalsIn.push({ dest, label: m.label(dest), side: wallSide(focusBox, wall), at: [wall.x, wall.y, wall.z] });
         continue;
       }
       if (focusBox && !inA && !inB && this.lods.get(this.focus!) === Lod.Open) continue; // outside the room
       lines.push({ points: this.arc(a, b, 1), closed: false, color: colorOf(e.src, e.dst), widthPx: width, style: EDGE_STYLE[e.group], alpha: 0.75 });
     }
     this.edgeSet.set(lines);
+    // P7: one chip per destination ("→ api ×3"), stacked per wall side
+    for (const p of mergePortals(portalsIn)) this.addPortal(new THREE.Vector3(...p.at), p.dest, p.text, p.side, p.stack, p.count);
   }
 
-  private addPortal(at: THREE.Vector3, dest: string): void {
-    if (this.portals.length >= 40) return;
+  private addPortal(at: THREE.Vector3, dest: string, text: string, side: WallSide, stack: number, count: number): void {
     const el = document.createElement("button");
     el.className = "portal";
-    el.textContent = `→ ${this.model!.label(dest)}`;
-    el.title = `Leaves this container. Click to fly to ${this.model!.label(dest)}`;
+    el.textContent = text;
+    el.dataset.count = String(count);
+    el.title = `${count > 1 ? `${count} edges leave` : "Leaves"} this container. Click to fly to ${this.model!.label(dest)}`;
     el.addEventListener("click", (ev) => {
       ev.stopPropagation();
       this.on.portal(dest);
     });
     this.container.appendChild(el);
-    this.portals.push({ el, at });
+    this.portals.push({ el, at, side, stack });
   }
 
   private placePortals(): void {
@@ -832,7 +904,7 @@ export class MapScene {
     for (const p of this.portals) {
       const s = p.at.clone().project(this.camera);
       p.el.style.left = `${((s.x + 1) / 2) * el.clientWidth}px`;
-      p.el.style.top = `${((1 - s.y) / 2) * el.clientHeight}px`;
+      p.el.style.top = `${((1 - s.y) / 2) * el.clientHeight + p.stack * 22}px`; // stacked per wall side
     }
   }
 
@@ -908,6 +980,11 @@ export class MapScene {
     this.renderer.setClearColor(this.theme.background);
     this.billboards?.setBackground(this.theme.background); // labels dim toward it (P6.1)
   }
+}
+
+function wallSide(b: Box, p: THREE.Vector3): WallSide {
+  const dx = (p.x - (b.x + b.w / 2)) / (b.w || 1), dz = (p.z - (b.y + b.h / 2)) / (b.h || 1);
+  return Math.abs(dx) >= Math.abs(dz) ? (dx >= 0 ? "e" : "w") : dz >= 0 ? "s" : "n";
 }
 
 function wallPoint(b: Box, inner: THREE.Vector3, outer: THREE.Vector3): THREE.Vector3 {

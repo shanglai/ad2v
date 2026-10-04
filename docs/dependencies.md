@@ -78,7 +78,12 @@ After P6: **166 packages** (MIT 131, Apache-2.0 18, ISC 7, BSD-2-Clause 6, BSD-3
 BlueOak-1.0.0 1). The MCP App build (`build:app`) is also checked for a 2 MB budget and for any
 embedded wasm: it is 988 KB, with no wasm.
 
-P6.1 adds **no dependencies** (Python or npm); the license gate is unchanged and green. The App
+P6.1 adds **no dependencies** (Python or npm); the license gate is unchanged and green.
+
+P7 adds **no dependencies** either: the chat agent, SSE, the schema digest (`ast`) and the token
+(`secrets`) use the standard library; the viewer's chat panel and Markdown renderer are plain
+TypeScript (no jsdom, no Markdown library). npm stays at **166 packages** (MIT 131, Apache-2.0 18,
+ISC 7, BSD-2-Clause 6, BSD-3-Clause 3, BlueOak-1.0.0 1); the App build is 1.01 MB, no wasm. The App
 build is 993 KB.
 
 **MCP Inspector** (`@modelcontextprotocol/inspector` 2.8.0, Apache-2.0/MIT) is used for protocol
@@ -133,6 +138,6 @@ dependencies.
 
 ## Benchmarks
 
-The performance measurements (P1–P3, P5, P6, P6.1) used shallow clones of third-party repositories in `bench/`
+The performance measurements (P1–P3, P5, P6, P6.1, P7) used shallow clones of third-party repositories in `bench/`
 (gitignored): dispatch (Apache-2.0) and full-stack-fastapi-template (MIT). They were deleted after
 the measurements. Nothing from them is redistributed.

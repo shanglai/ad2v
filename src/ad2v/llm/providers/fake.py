@@ -15,11 +15,12 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 from pathlib import Path
 from typing import Any
 
 from ad2v.llm.config import SEED
-from ad2v.llm.providers.base import ProviderResult, estimate_tokens
+from ad2v.llm.providers.base import ChatMsg, ChatResponse, ProviderResult, ToolCall, estimate_tokens
 
 CAUTIOUS = ("cannot_tell", "no_match")
 
@@ -61,6 +62,52 @@ class FakeProvider:
         parsed = out if not isinstance(out, str) else None
         n_in = estimate_tokens(system, user_parts)
         return ProviderResult(text, parsed, n_in, max(1, len(text) // 4), f"{self.model}-replay", 0)
+
+    # -- chat (P7): scripted multi-step transcripts ------------------------------------------------
+    def chat(
+        self, system: str, messages: list[ChatMsg], tools: list[dict[str, Any]], params: dict[str, Any]
+    ) -> ChatResponse:
+        """A recording for ("chat", question) is a list of steps, one per model call in the turn:
+        {"call": [{"name", "args"}]}, {"answer": {...}} (the ad2v_answer tool), or {"text": "..."};
+        a step may carry "usage": {"input_tokens", "output_tokens"}. Without a recording: locate,
+        then answer citing the first node ids the tool returned (grounded by construction)."""
+        step = int(params.get("step", 0))
+        subject = str(params.get("subject"))
+        self.calls.append({"task": "chat", "subject": subject, "step": step, "system": system})
+        script = self.recordings.get(("chat", subject))
+        if isinstance(script, list):
+            st = script[min(step, len(script) - 1)]
+        elif step == 0:
+            st = {"call": [{"name": "ad2v_locate", "args": {"question": subject[:500]}}]}
+        else:
+            last = next((m for m in reversed(messages) if m.role == "tool"), None)
+            text = "\n".join(t for _, t in last.results) if last else ""
+            found = list(dict.fromkeys(re.findall(r"\bn_[0-9a-f]{20}\b", text)))[:3]
+            st = {
+                "answer": {
+                    "answer_markdown": "The most relevant parts of the map for this question are cited below "
+                    "(offline fake provider: no model was called).",
+                    "citations": found,
+                }
+            }
+        calls = []
+        if "call" in st:
+            calls = [
+                ToolCall(f"call_{step}_{i}", c["name"], dict(c.get("args") or {}))
+                for i, c in enumerate(st["call"])
+            ]
+        elif "answer" in st:
+            calls = [ToolCall(f"call_{step}_a", "ad2v_answer", dict(st["answer"]))]
+        texts = [m.text or "" for m in messages] + [t for m in messages for _, t in m.results]
+        n_in = estimate_tokens(system, texts)
+        usage = st.get("usage") or {}
+        return ChatResponse(
+            text=str(st.get("text", "")),
+            calls=calls,
+            input_tokens=int(usage.get("input_tokens", n_in)),
+            output_tokens=int(usage.get("output_tokens", max(1, len(json.dumps(st)) // 4))),
+            model_version=f"{self.model}-replay",
+        )
 
 
 def synthesize(schema: dict[str, Any], rng: random.Random, tag: str, index: int = 0) -> Any:

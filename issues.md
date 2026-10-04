@@ -62,8 +62,8 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 39 | medium | Live run: Vertex answered HTTP 400 INVALID_ARGUMENT to the extract-prose request; bisecting (400s are not billed; one successful diagnostic call) showed the nested response schema (array of objects inside an array of objects) was rejected. | **fixed**: flat schema with a `component` field per requirement; ad2v regroups (ADR-0030) |
 | 40 | medium | Live run: two suggest results for code-side items were invalid because the model cited the spec candidate's lines, which the validator did not allow. | **fixed**: evidence may cite any numbered line shown for the item or that candidate; a match still needs code lines when the code side has any |
 | 41 | medium | Reasoning ("thought") tokens made actual output ≈ 3× the static estimate on the judge and ≈ 2.2× over all tasks; the plan under-estimated the fixture cost ($0.25 planned vs $0.54 for the same calls). | **mitigated**: the budget pre-check uses the observed average output per task after the first call (ADR-0032); open: per-model calibration of plan estimates (pending.md) |
-| 42 | medium | The planted REQ-009 drift ("at most once per run", re-classification per match attempt) came back `cannot_tell` in both live runs: the slice does not show what a run's attempts contain. | open: richer slices (callers, data shapes) in a later phase |
-| 43 | low | Container/component links (CMP-002 ↔ container:worker) are judged on an IR digest only, and the live judge answered `cannot_tell`. | open (pending.md) |
+| 42 | medium | The planted REQ-009 drift ("at most once per run", re-classification per match attempt) came back `cannot_tell` in both live runs: the slice does not show what a run's attempts contain. | **resolved in P7** (ADR-0059): judge slices carry a datastore schema digest; the live judge caught REQ-009 as drift at both thinking levels (0.9 confidence) |
+| 43 | low | Container/component links (CMP-002 ↔ container:worker) are judged on an IR digest only, and the live judge answered `cannot_tell`. | **resolved in P7** (ADR-0060): containers/components are no longer judged; deterministic roll-up of their descendants' judgments |
 | 44 | low | The live suggester proposed REQ-008 (bounded backoff) ↔ `fetch_statement` with a wrong rationale ("bounded" because `wait_exponential` caps the delay; the retry has no `stop=`). The pairing is plausible; the claim is not. | by design: suggestions need human confirmation, and an accepted link is then judged |
 | 45 | low | The machine's gcloud default project is a different project; a request without an explicit quota project could be billed there. | **guarded**: every Vertex request names `llm.project` in the URL and sends `x-goog-user-project` |
 | 46 | low | `plan --epoch all` cannot know children's summary result ids for epochs not yet run, so parent summaries are counted once per distinct digest; the multi-epoch summary estimate is approximate. | accepted |
@@ -79,8 +79,8 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 51 | high | On dispatch the home view was clipped: the camera stood a fixed 1,000 units from its target (the map is ~8,500 wide), and the minimum zoom (0.02) could not fit the whole map. | **fixed**: clip planes, camera distance and minimum zoom scale with the map extent (ADR-0037) |
 | 52 | low | The workflow selector grew with long workflow names and wrapped the toolbar onto two rows (dispatch). | **fixed**: capped width with ellipsis |
 | 53 | low | The fallback card pluralized `class` as "classs". | **fixed**, test added |
-| 54 | medium | Dispatch's layout is sparse: the system box is ~8,500 × 4,300 units and the dense code sits in one region, so the home view shows mostly empty slabs and an edge hairball between a few open components. | open (pending.md): tighter packing in a `nestgrid-v2`, edge bundling |
-| 55 | low | Very long dashed edges alias into a cross-hatch at high zoom (dispatch). | open (pending.md) |
+| 54 | medium | Dispatch's layout is sparse: the system box is ~8,500 × 4,300 units and the dense code sits in one region, so the home view shows mostly empty slabs and an edge hairball between a few open components. | partly addressed in P7 (ADR-0062): `nestgrid-v2` behind a flag shrinks dispatch's code root 4.8x (density 0.50 -> 0.55); v1 stays the default (stability tie, lower density on the small fixture) |
+| 55 | low | Very long dashed edges alias into a cross-hatch at high zoom (dispatch). | **fixed in P7** (ADR-0061): per-segment screen-space dash length |
 | 56 | low | Headed Chromium cannot be launched from the agent's sandbox (`spawn UNKNOWN`). | worked around: headless Chromium with hardware ANGLE (D3D11) on the real GPU (ADR-0038) |
 | 57 | low | Headless e2e uses SwiftShader, where frame rates are meaningless; e2e does not assert fps. | by design: fps is measured in the M9 bench on the GPU |
 
@@ -97,18 +97,30 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 64 | low | The P5 viewer's "accept suggestion" command omitted the file argument (`ad2v suggestions accept <id>` fails). | **fixed**: `ad2v suggestions accept <file> <id> --manifest ad2v.yaml` |
 | 65 | low | `ad2v.mcp.__init__` imported the function `app_tools`, shadowing the submodule of the same name. | **fixed**: `make_app_tools` |
 | 66 | low | In app mode, a deterministic card counts only the loaded part of a subtree ("3 components, 15 modules" when more exist below). | open (pending.md): ask the server for the digest |
-| 67 | low | For "which endpoint is not in the spec?", `ad2v_status` lists by qualified name, so containers come before the route (MRR 0.25); `ad2v_locate` ranks it first. | open: rank status results by kind specificity |
-| 68 | low | Weight tuning improved the tuning set but lowered held-out MRR (0.94 → 0.84 locate-only) on 8 questions: noise-level overfitting. | accepted and reported (ADR-0043); needs a larger question set (pending.md) |
+| 67 | low | For "which endpoint is not in the spec?", `ad2v_status` lists by qualified name, so containers come before the route (MRR 0.25); `ad2v_locate` ranks it first. | **fixed in P7** (ADR-0054): ports and spec endpoints first, then containers/components (q14 MRR 1.0) |
+| 68 | low | Weight tuning improved the tuning set but lowered held-out MRR (0.94 → 0.84 locate-only) on 8 questions: noise-level overfitting. | **addressed in P7** (ADR-0054): combined 70-question set (48 tuning / 22 held out), structural changes first; held-out MRR rose on every set |
 | 69 | low | `diff` intent in the MCP App loads both whole epochs (the classifier needs every node). | accepted (ADR-0041); fine up to dispatch size (~5 MB per epoch) |
 
 ## P6.1
 
 | # | Severity | Issue | Status |
 |---|---|---|---|
-| 70 | medium | On full-stack-fastapi-template all 23 routes are `path_unresolved`: the prefix is `settings.API_V1_STR`, a pydantic `BaseSettings` default that the environment can override. | by design (ADR-0046): tails are correct and pair as `needs_review`; an opt-in Settings-default resolver is in pending.md |
-| 71 | low | A replay step whose node is not visible at the current LOD (an `env:` port inside a closed container) highlights its deepest visible ancestor, so with Dim on that whole ancestor stays undimmed. | open: the ring (ADR-0050) marks a port once it is visible; consider opening the container |
+| 70 | medium | On full-stack-fastapi-template all 23 routes are `path_unresolved`: the prefix is `settings.API_V1_STR`, a pydantic `BaseSettings` default that the environment can override. | **resolved in P7** (ADR-0053): `pairing.path_constants` or opt-in `resolve_settings_defaults`; the template goes 23 -> 0 unresolved |
+| 71 | low | A replay step whose node is not visible at the current LOD (an `env:` port inside a closed container) highlights its deepest visible ancestor, so with Dim on that whole ancestor stays undimmed. | **fixed in P7** (ADR-0061): the step card says "inside <ancestor>" and offers "zoom to step" |
 | 72 | medium | The published demo (built in P5) drew dark-theme body colors in the light theme, so dark-grey bodies sat under dark-grey edges (related to the user's question about the P5 demo). Body colors were hard-coded per theme name and never tested. | **fixed** (ADR-0051): `body.*` tokens, `bodyColor()`, contrast tests in both themes; demo rebuilt |
-| 73 | low | Dispatch first render is 1.17–1.22 s, against 0.86 s in P5 on the same machine. | open: under the 3 s target; cause not isolated |
-| 74 | low | The first replay run after loading dispatch has a p5 frame rate of 30 fps (median 59.9), whether Dim is on or off; the second run holds 59.5. | open: warm-up (atlas growth, first rebuilds); not caused by dimming |
+| 73 | low | Dispatch first render is 1.17–1.22 s, against 0.86 s in P5 on the same machine. | P7: 1.31 s with v1 but 0.87 s with nestgrid-v2 on the same machine and file: the cost follows the v1 world extent (huge, sparse root), not UX v2; still under the 3 s target |
+| 74 | low | The first replay run after loading dispatch has a p5 frame rate of 30 fps (median 59.9), whether Dim is on or off; the second run holds 59.5. | **not reproduced in P7**: four replay runs (both dim orders) all held p5 59.5-59.9 fps |
 | 75 | low | spec-kit success criteria (`SC-001`) are parsed as requirements (`category: success_criterion`) so tests can cite them; spec-kit treats them as outcomes. | accepted (ADR-0048) |
 | 76 | low | A router that is never statically included keeps its decorator path as if exact: dispatch's 4 `/slack/*` routes are attached at runtime by a plugin loop (`install_plugin_events(api_router)`), so their real prefix is missing and they are not flagged. | open: mark routes of never-included routers `path_unresolved` (pending.md) |
+
+## P7
+
+| # | Severity | Issue | Status |
+|---|---|---|---|
+| 77 | medium | Live chat: on "Which requirement is drifting and why?" the model spent all 6 steps on tools (several per step) and never answered; the unanswered question then stayed in the history and the next answer covered it. | **fixed**: the last allowed step forces `ad2v_answer` (Vertex `ANY` + allowed names, OpenAI `tool_choice`); unanswered turns are not carried; re-run answered both |
+| 78 | low | In-process `ad2v_locate` p95 on dispatch is 72 ms (P6: 37 ms over stdio): retrieval v2 adds link propagation and id matching per query. | accepted: target < 300 ms |
+| 79 | low | Template retrieval: test functions still outrank app code for "how does a user log in?" (t03) and Alembic migrations for database questions (t10, t15). | open (pending.md): exclude or de-weight migrations; stronger test de-weighting |
+| 80 | low | The judge (default and low) still calls REQ-006 `conforms` where the label is `partial` (matched total not computed). | open: needs return-shape context, like the schema digest for data |
+| 81 | low | `specs bootstrap` on operations.md (live) proposed 4 faithful requirements but left out the 02:00 UTC schedule. | accepted: review step; the human edits before approving |
+| 82 | low | nestgrid-v2 is less dense than v1 on the small fixture (0.43 vs 0.46) while much denser on dispatch. | open: decide the default in P8 |
+| 83 | medium | `ad2v prune --drop-llm-cache` never deleted anything once a referenced table lacked `result_id` (SQLite bound the name to the outer query). | **fixed** (ADR-0060): qualified subquery |

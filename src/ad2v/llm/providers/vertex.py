@@ -18,7 +18,16 @@ from collections.abc import Callable
 from typing import Any
 
 from ad2v.llm.config import SEED
-from ad2v.llm.providers.base import HttpOpen, ProviderError, ProviderResult, parse_json, post_json
+from ad2v.llm.providers.base import (
+    ChatMsg,
+    ChatResponse,
+    HttpOpen,
+    ProviderError,
+    ProviderResult,
+    ToolCall,
+    parse_json,
+    post_json,
+)
 
 TOKEN_MARGIN_S = 300
 DEFAULT_TOKEN_LIFETIME_S = 3600
@@ -135,7 +144,12 @@ class VertexProvider:
         return {"Authorization": f"Bearer {self.tokens.token()}", "x-goog-user-project": self.project}
 
     def request_body(
-        self, task: str, system: str, user_parts: list[str], schema: dict[str, Any] | None
+        self,
+        task: str,
+        system: str,
+        user_parts: list[str],
+        schema: dict[str, Any] | None,
+        thinking_level: Any = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "contents": [{"role": "user", "parts": [{"text": p} for p in user_parts]}],
@@ -149,6 +163,9 @@ class VertexProvider:
                 "responseMimeType": "application/json",
                 "responseSchema": to_vertex_schema(schema),
             }
+            thinking = thinking_config(thinking_level, self.model)
+            if thinking:
+                body["generationConfig"]["thinkingConfig"] = thinking
         return body
 
     def count_tokens(self, task: str, system: str, user_parts: list[str]) -> int:
@@ -167,7 +184,7 @@ class VertexProvider:
         response_schema: dict[str, Any],
         params: dict[str, Any],
     ) -> ProviderResult:
-        body = self.request_body(task, system, user_parts, response_schema)
+        body = self.request_body(task, system, user_parts, response_schema, params.get("thinking"))
         self.last_request = body
         t0 = time.perf_counter()
         data, attempts = post_json(
@@ -188,6 +205,114 @@ class VertexProvider:
             attempts=attempts,
             extra={"finish_reason": cands[0].get("finishReason") if cands else None},
         )
+
+    # -- chat with function calling (P7, ADR-0056) ----------------------------------------------
+    @staticmethod
+    def chat_contents(messages: list[ChatMsg]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for m in messages:
+            if m.role == "user":
+                out.append({"role": "user", "parts": [{"text": m.text or ""}]})
+            elif m.role == "model":
+                if m.raw is not None:  # exactly as returned: keeps thoughtSignature parts
+                    out.append(m.raw)
+                    continue
+                parts: list[dict[str, Any]] = [{"text": m.text}] if m.text else []
+                parts += [{"functionCall": {"name": c.name, "args": c.args}} for c in m.calls]
+                out.append({"role": "model", "parts": parts})
+            else:
+                out.append(
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"functionResponse": {"name": c.name, "response": {"content": text}}}
+                            for c, text in m.results
+                        ],
+                    }
+                )
+        return out
+
+    def chat_body(
+        self, system: str, messages: list[ChatMsg], tools: list[dict[str, Any]], params: dict[str, Any]
+    ) -> dict[str, Any]:
+        from ad2v.chat.schemas import vertex_tools
+
+        gen: dict[str, Any] = {"seed": SEED}
+        if params.get("max_output_tokens"):
+            gen["maxOutputTokens"] = int(params["max_output_tokens"])
+        thinking = thinking_config(params.get("thinking"), self.model)
+        if thinking:
+            gen["thinkingConfig"] = thinking
+        return {
+            "contents": self.chat_contents(messages),
+            "systemInstruction": {"parts": [{"text": system}]},
+            "tools": vertex_tools(tools),
+            "toolConfig": {
+                "functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["ad2v_answer"]}
+                if params.get("force_answer")
+                else {"mode": "AUTO"}
+            },
+            "generationConfig": gen,
+            "labels": {"project": "ad2v", "ad2v_task": "chat"},
+        }
+
+    def chat(
+        self, system: str, messages: list[ChatMsg], tools: list[dict[str, Any]], params: dict[str, Any]
+    ) -> ChatResponse:
+        body = self.chat_body(system, messages, tools, params)
+        self.last_request = body
+        t0 = time.perf_counter()
+        data, attempts = post_json(
+            self.url("generateContent"), body, self._headers(), opener=self.opener, sleep=self.sleep
+        )
+        cands = data.get("candidates") or []
+        content = (cands[0].get("content") or {"role": "model", "parts": []}) if cands else None
+        parts = (content or {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        calls = [
+            ToolCall(
+                str(p["functionCall"].get("id") or f"call_{i}"),
+                str(p["functionCall"].get("name", "")),
+                dict(p["functionCall"].get("args") or {}),
+            )
+            for i, p in enumerate(parts)
+            if "functionCall" in p
+        ]
+        usage = data.get("usageMetadata") or {}
+        return ChatResponse(
+            text=text,
+            calls=calls,
+            input_tokens=int(usage.get("promptTokenCount", 0)),
+            output_tokens=int(usage.get("candidatesTokenCount", 0)) + int(usage.get("thoughtsTokenCount", 0)),
+            model_version=data.get("modelVersion"),
+            latency_ms=int((time.perf_counter() - t0) * 1000),
+            attempts=attempts,
+            raw={"role": "model", "parts": parts} if content is not None else None,
+            finish_reason=cands[0].get("finishReason") if cands else None,
+        )
+
+
+# Thinking controls by model family (P7, ADR-0058; Vertex/Gemini docs read 2026-10-03):
+# - Gemini 3.7 / 3.8 Flash: thinkingLevel low | medium | high (default medium); no minimal, no budget;
+# - other Gemini 3.x: thinkingLevel minimal | low | medium | high;
+# - Gemini 2.5: thinkingBudget (0 = off).
+NO_MINIMAL = ("gemini-3.7-flash", "gemini-3.8-flash")
+
+
+def thinking_config(level: Any, model: str = "") -> dict[str, Any] | None:
+    """`llm.tasks.<task>.thinking` -> Vertex thinkingConfig. `default` sends nothing (the model's own)."""
+    if level in (None, "default"):
+        return None
+    m = model.lower()
+    if m.startswith("gemini-2."):
+        if isinstance(level, int) and not isinstance(level, bool):
+            return {"thinkingBudget": level}
+        return {"thinkingBudget": 0 if level == "off" else 1024}
+    if isinstance(level, int) and not isinstance(level, bool):
+        raise ProviderError(f"{model or 'this model'} takes a thinking level, not a token budget ({level})")
+    if level == "off":
+        return {"thinkingLevel": "low" if m.startswith(NO_MINIMAL) else "minimal"}
+    return {"thinkingLevel": str(level)}
 
 
 def dumps_request(body: dict[str, Any]) -> str:

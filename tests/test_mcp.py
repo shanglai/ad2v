@@ -713,11 +713,13 @@ def test_retrieval_eval_regression(demo):
     from ad2v.mcp import evaluate
 
     qs = evaluate.load_questions(REPO / "fixtures" / "payments-recon" / "expected-questions.yaml")
-    assert len(qs) == 25 and sum(1 for q in qs if q.get("holdout")) == 8
+    assert len(qs) == 40 and sum(1 for q in qs if q.get("holdout")) == 13  # P7: 25 + 15
     ev = evaluate.Evaluator(demo, qs)
     r = ev.run(use_tool=True)
-    assert r["overall"]["recall@5"] >= 0.9 and r["overall"]["mrr"] >= 0.85, r["overall"]
-    assert r["held_out"]["recall@5"] >= 0.85, r["held_out"]
+    assert r["overall"]["recall@5"] >= 0.9 and r["overall"]["mrr"] >= 0.88, r["overall"]
+    assert r["held_out"]["recall@5"] >= 0.9, r["held_out"]
+    p6 = evaluate.Evaluator(demo, [q for q in qs if int(q["id"][1:]) <= 25]).run(use_tool=True)
+    assert p6["overall"]["mrr"] >= 0.95, p6["overall"]  # P6's 25: 0.888 before retrieval v2
     assert evaluate.metrics(["a", "b", "c"], ["c"]) == {"recall@5": 1.0, "mrr": 1 / 3, "ndcg@5": 0.5}
     assert evaluate.metrics([], ["x"])["mrr"] == 0.0
     with pytest.raises(KeyError):
@@ -767,8 +769,8 @@ def test_evaluate_tune_and_cli(demo, capsys):
     assert t["objective"] >= before  # coordinate descent never makes the tuning objective worse
     assert set(t["retrieval"]["field_weights"]) == set(evaluate.locate.FIELDS)
     held = ev.run(use_tool=True, only="holdout")
-    assert held["overall"]["n"] == 8 and all(q["holdout"] for q in held["questions"])
+    assert held["overall"]["n"] == 13 and all(q["holdout"] for q in held["questions"])
     assert evaluate.main([str(demo), str(qpath)]) == 0
     assert "held-out" in capsys.readouterr().out
     assert evaluate.main([str(demo), str(qpath), "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["before"]["with_tools"]["overall"]["n"] == 25
+    assert json.loads(capsys.readouterr().out)["before"]["with_tools"]["overall"]["n"] == 40

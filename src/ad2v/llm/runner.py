@@ -110,7 +110,14 @@ class Executor:
 
     # -- keys ---------------------------------------------------------------------------------
     def params(self, task: str) -> dict[str, Any]:
-        return {"temperature": 0, "seed": SEED, "output_language": self.cfg.output_language, "task": task}
+        # P7 (ADR-0058): the thinking level is part of the cache key
+        return {
+            "temperature": 0,
+            "seed": SEED,
+            "output_language": self.cfg.output_language,
+            "task": task,
+            "thinking": self.cfg.thinking(task),
+        }
 
     def key(self, job: Job) -> tuple[str, str, str, str, str, str]:
         prompt = load_prompt(job.task)
@@ -180,7 +187,11 @@ class Executor:
             return None
         try:
             pr = self.provider.generate(
-                job.task, system, job.user_parts, job.schema, {"subject": job.subject}
+                job.task,
+                system,
+                job.user_parts,
+                job.schema,
+                {"subject": job.subject, "thinking": self.cfg.thinking(job.task)},
             )
         except ProviderError as e:
             pr = None

@@ -119,7 +119,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     b = ssub.add_parser("bootstrap", help="propose requirements from free-prose files (plan first)")
     common(b)
     b.add_argument(
-        "--from", dest="sources", nargs="+", required=True, metavar="PATH", help="files or folders"
+        "--from",
+        dest="sources",
+        nargs="+",
+        required=True,
+        metavar="PATH",
+        help="files or folders, relative to --repo",
     )
     b.add_argument(
         "--plan", action="store_true", help="list qualifying files and the offline estimate; no calls"

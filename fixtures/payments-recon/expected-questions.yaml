@@ -4,6 +4,10 @@
 #
 # gold: qualified names (kind:qname when a name is ambiguous). tool: the tool a model would obviously
 # call (`locate` unless the question names a status or a diff). holdout: never used for tuning.
+#
+# P7: q01-q25 are P6's, unchanged. q26-q40 were written before any P7 retrieval change and frozen
+# (hash in docs/reports/P7.md); their held-out ids were drawn before measuring:
+# random.Random(987654).sample(q26..q40, 5) = q27, q29, q32, q34, q35.
 questions:
   - {id: q01, type: where, q: "where are bank statements fetched?",
      gold: ["api/recon_api/bank_client.py::fetch_statement", "api/recon_api/bank_client.py::fetch_all_statements", "api/recon_api/bank_client.py"]}
@@ -47,3 +51,27 @@ questions:
      gold: ["REQ-003", "api/recon_api/matching.py::amounts_equal", "api/tests/test_matching.py::test_req_003_amounts_within_one_cent_match"]}
   - {id: q24, type: describe, q: "what is the api container?", gold: ["container:api"]}
   - {id: q25, type: describe, holdout: true, q: "which external service is the bank API?", gold: ["external_service:env:BANK_API_URL"]}
+  # --- P7 additions ---------------------------------------------------------------------------
+  - {id: q26, type: where, q: "where is a run exported?", gold: ["api/recon_api/factory.py::export_run"]}
+  - {id: q27, type: endpoint, holdout: true, q: "which endpoint returns the audit trail of a run?",
+     gold: ["http:api:GET /{run_id}/audit", "api/recon_api/settings.py::run_audit"]}
+  - {id: q28, type: requirement, q: "what does the spec say about exporting a run?",
+     gold: ["spec_endpoint:GET /reconciliations/{run_id}/export"]}
+  - {id: q29, type: status, holdout: true, q: "which spec items need review?", tool: {name: status, status: needs_review},
+     gold: ["spec_endpoint:GET /reconciliations/{run_id}/audit", "spec_endpoint:GET /health"]}
+  - {id: q30, type: risk, q: "could the bank client retry forever?", gold: ["api/recon_api/bank_client.py::fetch_statement@retry#297043df"]}
+  - {id: q31, type: where, q: "where are run results saved to the database?", gold: ["api/recon_api/db.py::record_run"]}
+  - {id: q32, type: requirement, holdout: true, q: "which requirement says transactions are paired with ledger entries?", gold: ["REQ-002"]}
+  - {id: q33, type: requirement, q: "is there a requirement to classify each unmatched transaction only once?", gold: ["REQ-009"]}
+  - {id: q34, type: requirement, holdout: true, q: "what must the worker log when a nightly run completes?", gold: ["REQ-010"]}
+  - {id: q35, type: where, holdout: true, q: "where are the operator settings defined?",
+     gold: ["api/recon_api/settings.py", "api/recon_api/settings.py::Settings"]}
+  - {id: q36, type: requirement, q: "REQ-006", gold: ["REQ-006"]}
+  - {id: q37, type: flow, q: "what does the CLI command listen-uploads do?",
+     gold: ["cli:worker:listen-uploads", "worker/recon_worker/cli.py::listen_uploads"]}
+  - {id: q38, type: describe, q: "which queue carries run-completed events?",
+     gold: ["queue:env:RECON_EVENTS_TOPIC", "worker/recon_worker/events.py::publish_run_completed"]}
+  - {id: q39, type: risk, q: "which loop matches transactions against the ledger?",
+     gold: ["api/recon_api/matching.py::match_batch@loop#a4e53c24", "api/recon_api/matching.py::match_batch"]}
+  - {id: q40, type: requirement, q: "which scenario covers classifying unmatched transactions?",
+     gold: ["features/reconciliation.feature::Statement reconciliation::Classify unmatched transactions"]}

@@ -11,8 +11,8 @@ from typing import Any
 
 from ad2v import ids
 
-FORMAT_VERSION = "0.4"
-SUPPORTED_FORMAT_VERSIONS = ("0.4",)
+FORMAT_VERSION = "0.5"
+SUPPORTED_FORMAT_VERSIONS = ("0.4", "0.5")  # 0.4 files are upgraded in place on write (ADR-0055)
 
 SIDES = ("code", "spec")
 

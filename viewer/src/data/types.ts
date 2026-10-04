@@ -1,4 +1,4 @@
-// Row types the viewer reads from an .ad2v file (format v0.4). Everything here is read-only.
+// Row types the viewer reads from an .ad2v file (format v0.5; reads v0.4 too). Everything here is read-only.
 
 export type Side = "code" | "spec";
 export type StatusMode = "normative" | "effective";

@@ -27,7 +27,7 @@
       "output": {
         "matches": [
           {
-            "candidate": "C2",
+            "candidate": "C1",
             "verdict": "match",
             "confidence": 0.86,
             "rationale": "The api container serves the reconciliation HTTP routes and the MCP tool described by the component.",

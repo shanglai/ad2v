@@ -13,7 +13,7 @@ describe("LocalFileSource against the demo file", async () => {
     expect(epochs[0]!.parentEpochId).toBeNull();
     expect(epochs[2]!.changeKind).toBe("spec");
     const meta = await ds.meta();
-    expect(meta.formatVersion).toBe("0.4");
+    expect(meta.formatVersion).toBe("0.5");
     expect(meta.llmProviders).toEqual(["fake"]);
   });
 

@@ -82,6 +82,24 @@ Items consciously left out so far, grouped by the phase that should pick them up
   chains with prefixes (issues 7, 22); spec-root discovery; spec-kit/Kiro/custom presets;
   `ad2v specs bootstrap/review/approve`; replay camera; opaque "dim the rest".
 
+## Done in P7 (moved from this list)
+
+- Settings-default prefixes (issue 70), retrieval v2 with a 70-question eval (issues 67, 68), the
+  viewer's own chat agent, thinking per task, schema digests (issue 42), judge roll-up (issue 43),
+  viewer UX v2 (issues 55, 71), nestgrid-v2 behind a flag (issue 54), a verified quickstart.
+
+## After P7: P8 (open-source launch) candidates
+
+- Decide the default layout (nestgrid-v2 is far denser on dispatch, slightly less on the fixture;
+  issue 82); top-level single-child chains (`dispatch > dispatch > src > dispatch`) should collapse.
+- Retrieval: exclude or de-weight migrations (Alembic), stronger test de-weighting, synonyms for
+  spec vocabulary ("latency" vs "complete in under 3 seconds") (issue 79).
+- Judge: return-shape context for "partial" cases (issue 80); a second labeled repository.
+- Chat: streaming partial answers; a per-turn cost cap; conversation export; an OpenAI-compatible
+  live test against a local server.
+- Packaging: wheel with the built viewer and app, version 0.7.0, CHANGELOG, CONTRIBUTING, a
+  public demo map without fake LLM rows.
+
 ## After P6.1: real-repo readiness
 
 - Opt-in resolver for pydantic `BaseSettings` defaults (`settings.API_V1_STR`), labeled as a

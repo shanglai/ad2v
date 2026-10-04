@@ -1,5 +1,22 @@
 # Status
 
+## P7 (done): verified quickstart, settings prefixes, retrieval v2, chat agent, LLM refinements, UX v2
+
+Single final commit at the end. P6.1 report: docs/reports/P6.1.md. Context: docs/claude-context.md.
+Cloud: only mapper-cat-3, ADC, labels project=ad2v; no real LLM call before M8 approval; cap $2.00.
+
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | Verified quickstart (docs/quickstart.md + tests/test_quickstart.py) | done: every local command run; draft deleted; 10 guard tests (slow) + 1 cloud skip; CLI fix: specs bootstrap --from is repo-relative (ADR-0052); doc fixes: history range, suggestions --manifest, manifest auto-load, UI names, .ad2v/ gitignore |
+| M2 | Settings prefixes (issue 70) + retrieval v2 + eval sets | done: path_constants + opt-in resolve_settings_defaults (ADR-0053), fixture audit route 3 modes, template 23 -> 0 unresolved; retrieval v2 (ADR-0054): propagation, ids, tests factor, resource words, status order; sets 40/10/20 frozen; MRR P6 25: 0.888 -> 1.00, fixture40 0.813 -> 0.912, presets 0.642 -> 0.85, template 0.529 -> 0.762; 280 pytest |
+| M3 | Chat backend (ad2v view --chat, SSE, tools in-process, security) | done: format v0.5 + in-place upgrade (ADR-0055); src/ad2v/chat (agent, schemas, http); provider chat() for vertex/openai/fake; Server.call_tool; ad2v view --chat/--manifest/--chat-budget-usd; 17 chat tests (scripts 5.3, security, SSE, converters); ADR-0056/0057; 299 pytest |
+| M4 | Chat UI (panel, meter, follow, citations) | done: ui/chat.ts (ChatPanel, TurnCard, SSE), ui/markdown.ts (DOM-only, node links only), meter + estimate + Follow + Ctrl+Enter/Esc; chat intents without cards; e2e chat 3/3 both themes (real ad2v view --chat, fake provider); P7-screens chat-follow |
+| M5 | Viewer UX v2 (labels, edge declutter, portals, dashes, issue 71, nestgrid-v2) | done (screenshots of dispatch + re-taken sets in M7 run): model/declutter.ts (labels priority+hysteresis, edge modes all/selection/aggregated + limit 150, merged portals), per-segment dash scale, issue 71 marker + zoom to step, suggestions badge + hint, contents list; nestgrid-v2 (ADR-0062): dispatch density 0.498 -> 0.552, root 4.8x smaller, stability 100% both, v1 stays default; vitest 49, e2e ux-v2 2/2 |
+| M6 | LLM refinements (thinking, schema digest, judge roll-up) | done: llm.tasks.<task>.thinking mapped per model family (3.8 Flash: low/medium/high, no minimal/budget), in params_hash (ADR-0058); schema digest (sqlalchemy/sql/pydantic, judge slice <=40 lines; fixture models.py + schema.sql, classify_run -> db.save_classifications) (ADR-0059); judge_rollups + effective view, containers not judged (12 -> 11 jobs); prune --drop-llm-cache bug fixed (ADR-0060); 310 pytest |
+| M7 | Tests and gates, dispatch perf | done: pytest 320 + 1 cloud skip (95% cov; new modules 90-100%), vitest 49, eslint/tsc/ruff clean, builds + license gate, test:mcp (Inspector 38/38, App e2e 10/10), Playwright tour 2, replay-camera 2, dim 3, chat 3, ux-v2 2; dispatch in-process tools p95 <= 72 ms (targets 150/300), viewer 59.9 fps median (p5 59.5), first render 1.31 s v1 / 0.87 s v2, declutter 716 -> 50 edges; P7-screens 34 files; final retrieval MRR P6-25 0.98, fixture40 0.90, presets 0.85, template 0.76 |
+| M8 | Live Vertex run (approval required, cap $2.00) | done (approved): 163 calls, $0.385 actual (plan $0.44 static / $0.72 calibrated); judge default acc 0.8 k 0.64 $0.066 vs low acc 0.9 k 0.81 $0.019, REQ-009 caught by both; summarize+narrate low $0.186 (-60%/call vs P4); chat 5 q $0.078 (Q1 hit the step cap -> fix: forced answer on the last step + unanswered turns dropped from history; Q1+Q2 re-run $0.028); bootstrap 1 call $0.007, faithful; dispatch summarize+narrate re-estimate $10.60 (P4 ~$24.5) |
+| M9 | Docs | done: README, quickstart (chat, settings prefixes, thinking), mcp.md, format spec v0.5 (changes, 3.9 digest, 6.1 prefixes, 11.4 roll-up, 13.1a/13.3), dependencies (no new deps), issues (closed 42 43 55 67 70 71; new 77-83), pending, claude-context; ADR-0052..0062; REPORT.md + docs/reports/P7.md |
+
 ## P6.1 (done): real-repo readiness
 
 Single final commit at the end. P6 report is at docs/reports/P6.md. Context: docs/claude-context.md.

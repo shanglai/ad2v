@@ -60,7 +60,10 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["mcp: the MCP server (P6); run just these with pytest -m mcp"]
+markers = [
+  "mcp: the MCP server (P6); run just these with pytest -m mcp",
+  "slow: end-to-end CLI runs (P7 quickstart); skip with -m \"not slow\"",
+]
 
 [tool.ruff]
 line-length = 110

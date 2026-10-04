@@ -19,12 +19,16 @@ import sqlite3
 from typing import Any
 
 from ad2v import ids, ir, store
+from ad2v.extract.code.schema_digest import MAX_LINES, digest_lines
 from ad2v.llm import fence
 from ad2v.llm.context import EpochView
 from ad2v.llm.prompts import load as load_prompt
 from ad2v.llm.runner import Executor, Job, Result
 
 JUDGEABLE_STATUSES = frozenset({"implemented", "verified", "stale"})
+# P7 (ADR-0060): containers and components get a deterministic roll-up, never a judge call
+ROLLUP_KINDS = frozenset({"container", "component", "spec_component"})
+SEVERITY = {"drift": 3, "partial": 2, "conforms": 1, "cannot_tell": 0}
 VERDICTS = ("conforms", "partial", "drift", "cannot_tell")
 
 SCHEMA: dict[str, Any] = {
@@ -58,6 +62,9 @@ def judgeable(view: EpochView) -> list[ir.Link]:
         if lk.spec_node_id is None or lk.code_node_id is None or lk.method == "none":
             continue
         code = view.graph.nodes[lk.code_node_id]
+        spec = view.graph.nodes[lk.spec_node_id]
+        if code.kind in ROLLUP_KINDS or spec.kind in ROLLUP_KINDS:
+            continue
         if lk.status in JUDGEABLE_STATUSES and not code.attrs.get("is_test"):
             out.append(lk)
     return sorted(out, key=lambda lk: lk.link_id)
@@ -123,6 +130,15 @@ def build_slice(view: EpochView, lk: ir.Link) -> dict[str, Any]:
         "callee_signatures": callees,
         "resources": view.resources_reached(code.id),
     }
+    # P7 (ADR-0059): the schema of the datastores the code reaches, ≤ 40 lines (the REQ-009 gap)
+    schema: list[str] = []
+    by_q = {n.qualified_name: n for n in view.graph.nodes.values() if n.kind == "datastore"}
+    for q in out["code"]["resources"]:
+        d = by_q.get(q)
+        if d is not None and d.attrs.get("schema_digest"):
+            schema += [f"datastore {q}"] + digest_lines(d.attrs["schema_digest"], MAX_LINES)
+    if schema:
+        out["code"]["schema"] = schema[:MAX_LINES]
     if lk.status == "stale":
         out["since_agreement"] = stale_diff(view, lk, spec, code, sl["stale_diff_max_lines"])
     return out
@@ -191,6 +207,9 @@ def serialize(sl: dict[str, Any]) -> list[str]:
     parts.append(
         fence.fence("ir", "ad2v IR digest (derived from the repository)", ids.canonical_json(ir_part))
     )
+    if code.get("schema"):
+        body = "\n".join(code["schema"])
+        parts.append(fence.fence("schema", "datastore schema digest (derived from the repository)", body))
     if "since_agreement" in sl:
         diffs = sl["since_agreement"]
         body = "\n\n".join("\n".join(d["lines"]) for d in diffs["diffs"]) or diffs.get("note", "(no diff)")
@@ -275,7 +294,49 @@ def run(view: EpochView, ex: Executor, link_ids: set[str] | None = None) -> list
             rows.append(row(view.epoch_id, lk, res, view.cfg.min_confidence))
     if ex.mode != "plan":
         write(view.conn, view.epoch_id, rows, replace=link_ids is None)
+        write_rollups(view.conn, view.epoch_id, rollup(view.conn, view.epoch_id, view.cfg.min_confidence))
     return rows
+
+
+def rollup(conn: sqlite3.Connection, epoch_id: str, min_confidence: float) -> list[tuple[Any, ...]]:
+    """A container's, component's or spec component's verdict: the worst confident verdict among
+    its descendants' link judgments (drift > partial > conforms > cannot_tell), with its
+    confidence and the counts. Deterministic: the same judgments give the same rows."""
+    nodes = {r[0]: (r[1], r[2]) for r in conn.execute(
+        "SELECT id, kind, parent_id FROM nodes WHERE epoch_id = ?", (epoch_id,))}  # fmt: skip
+    rows = conn.execute(
+        "SELECT j.link_id, j.verdict, j.confidence, l.spec_node_id, l.code_node_id FROM link_judgments j"
+        " JOIN links l ON l.epoch_id = j.epoch_id AND l.link_id = j.link_id"
+        " WHERE j.epoch_id = ? AND j.valid = 1 AND j.confidence >= ? ORDER BY j.link_id",
+        (epoch_id, min_confidence),
+    ).fetchall()
+    acc: dict[str, list[tuple[str, str, float]]] = {}
+    for link_id, verdict, conf, spec_id, code_id in rows:
+        seen: set[str] = set()
+        for start in (spec_id, code_id):
+            cur = nodes.get(start, (None, None))[1]
+            while cur is not None and cur in nodes:
+                if nodes[cur][0] in ROLLUP_KINDS and cur not in seen:
+                    seen.add(cur)
+                    acc.setdefault(cur, []).append((link_id, verdict, conf))
+                cur = nodes[cur][1]
+    out = []
+    for nid in sorted(acc):
+        js = acc[nid]
+        worst = max(js, key=lambda j: (SEVERITY[j[1]], j[2], j[0]))
+        counts: dict[str, int] = {}
+        for _, v, _ in js:
+            counts[v] = counts.get(v, 0) + 1
+        out.append(
+            (epoch_id, nid, worst[1], worst[2], ids.canonical_json(counts),
+             ids.canonical_json(sorted(j[0] for j in js)), min_confidence)
+        )  # fmt: skip
+    return out
+
+
+def write_rollups(conn: sqlite3.Connection, epoch_id: str, rows: list[tuple[Any, ...]]) -> None:
+    conn.execute("DELETE FROM judge_rollups WHERE epoch_id = ?", (epoch_id,))
+    conn.executemany("INSERT INTO judge_rollups VALUES (?,?,?,?,?,?,?)", rows)
 
 
 def write(conn: sqlite3.Connection, epoch_id: str, rows: list[tuple[Any, ...]], replace: bool = True) -> None:

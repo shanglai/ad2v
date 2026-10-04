@@ -58,6 +58,15 @@ paths:
       responses:
         "200":
           description: The run's rows.
+  /reconciliations/{run_id}/audit:
+    get:
+      operationId: auditReconciliation
+      summary: The audit trail of a reconciliation run.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: The run's audit events.
   /reconciliations/{run_id}/approve:
     post:
       operationId: approveReconciliation

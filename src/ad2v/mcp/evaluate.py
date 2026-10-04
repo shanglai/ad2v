@@ -148,56 +148,95 @@ class Evaluator:
         }
 
     def objective(self) -> float:
-        m = self.run(use_tool=False, only="tune")["overall"]
-        return round(m["recall@5"] + m["mrr"] + m["ndcg@5"], 6)
+        return objective([self])
 
     def tune(self, passes: int = 3) -> dict[str, Any]:
-        """Coordinate descent over field weights, the intent strength and the status boost.
-        Deterministic: fixed value lists, fixed parameter order, ties keep the current value."""
-        base_intents = copy.deepcopy(self.base["intents"])
-        cfg = {
-            "field_weights": dict(self.base["field_weights"]),
-            "status_boost": self.base["status_boost"],
-            "scale": 1.0,
+        return tune([self], passes)
+
+
+def objective(evs: list[Evaluator]) -> float:
+    """recall@5 + MRR + nDCG@5 over the non-held-out questions of every evaluator, pooled."""
+    rows = [q for ev in evs for q in ev.run(use_tool=False, only="tune")["questions"]]
+    m = _mean(rows)
+    return round(m["recall@5"] + m["mrr"] + m["ndcg@5"], 6)
+
+
+def tune(evs: list[Evaluator], passes: int = 3) -> dict[str, Any]:
+    """Coordinate descent over field weights, the intent strength and the status boost, on the
+    pooled tuning questions of one or more maps (P7: >= 60 questions combined). Deterministic:
+    fixed value lists, fixed parameter order, ties keep the current value."""
+    first = evs[0]
+    base_intents = copy.deepcopy(first.base["intents"])
+    cfg = {
+        "field_weights": dict(first.base["field_weights"]),
+        "status_boost": first.base["status_boost"],
+        "scale": 1.0,
+    }
+
+    def materialize(c: dict[str, Any]) -> dict[str, Any]:
+        intents = copy.deepcopy(base_intents)
+        for p in intents.values():
+            p["kinds"] = {
+                k: round(1 + (float(m) - 1) * c["scale"], 4) for k, m in (p.get("kinds") or {}).items()
+            }
+        return {
+            "field_weights": c["field_weights"],
+            "status_boost": c["status_boost"],
+            "prefix_min": first.base.get("prefix_min", 0),
+            "intents": intents,
         }
 
-        def materialize(c: dict[str, Any]) -> dict[str, Any]:
-            intents = copy.deepcopy(base_intents)
-            for p in intents.values():
-                p["kinds"] = {
-                    k: round(1 + (float(m) - 1) * c["scale"], 4) for k, m in (p.get("kinds") or {}).items()
-                }
-            return {
-                "field_weights": c["field_weights"],
-                "status_boost": c["status_boost"],
-                "prefix_min": self.base.get("prefix_min", 0),
-                "intents": intents,
-            }
+    def apply(c: dict[str, Any]) -> None:
+        for ev in evs:
+            ev.apply(c)
 
-        self.apply(materialize(cfg))
-        best = self.objective()
-        for _ in range(passes):
-            changed = False
-            for f in locate.FIELDS:
-                for v in FIELD_VALUES:
-                    trial = copy.deepcopy(cfg)
-                    trial["field_weights"][f] = v
-                    self.apply(materialize(trial))
-                    s = self.objective()
-                    if s > best + 1e-9:
-                        best, cfg, changed = s, trial, True
-            for key, values in (("status_boost", BOOST_VALUES), ("scale", SCALE_VALUES)):
-                for v in values:
-                    trial = {**copy.deepcopy(cfg), key: v}
-                    self.apply(materialize(trial))
-                    s = self.objective()
-                    if s > best + 1e-9:
-                        best, cfg, changed = s, trial, True
-            if not changed:
-                break
-        final = materialize(cfg)
-        self.apply(final)
-        return {"objective": best, "retrieval": final, "scale": cfg["scale"]}
+    apply(materialize(cfg))
+    best = objective(evs)
+    for _ in range(passes):
+        changed = False
+        for f in locate.FIELDS:
+            for v in FIELD_VALUES:
+                trial = copy.deepcopy(cfg)
+                trial["field_weights"][f] = v
+                apply(materialize(trial))
+                s = objective(evs)
+                if s > best + 1e-9:
+                    best, cfg, changed = s, trial, True
+        for key, values in (("status_boost", BOOST_VALUES), ("scale", SCALE_VALUES)):
+            for v in values:
+                trial = {**copy.deepcopy(cfg), key: v}
+                apply(materialize(trial))
+                s = objective(evs)
+                if s > best + 1e-9:
+                    best, cfg, changed = s, trial, True
+        if not changed:
+            break
+    final = materialize(cfg)
+    apply(final)
+    return {"objective": best, "retrieval": final, "scale": cfg["scale"]}
+
+
+def run_grouped(
+    files: dict[str, Path], questions: list[dict[str, Any]], use_tool: bool = True
+) -> dict[str, Any]:
+    """Questions that name their map (`fixture: <name>`), each scored on that map (P7): one
+    Evaluator per map, the rows merged into one overall / tuning / held-out / by-type summary."""
+    per: list[dict[str, Any]] = []
+    for name in sorted({q["fixture"] for q in questions}):
+        qs = [q for q in questions if q["fixture"] == name]
+        per += Evaluator(files[name], qs).run(use_tool=use_tool)["questions"]
+    order = {q["id"]: i for i, q in enumerate(questions)}
+    per.sort(key=lambda p: order[p["id"]])
+    by_type: dict[str, list[dict[str, float]]] = {}
+    for p in per:
+        by_type.setdefault(p["type"], []).append(p)
+    return {
+        "overall": _mean(per),
+        "tuning_set": _mean([p for p in per if not p["holdout"]]),
+        "held_out": _mean([p for p in per if p["holdout"]]),
+        "by_type": {t: _mean(v) for t, v in sorted(by_type.items())},
+        "questions": per,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

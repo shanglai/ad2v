@@ -1,0 +1,42 @@
+# P7 M2: a code-only retrieval set for fastapi/full-stack-fastapi-template (MIT), pinned at
+# cb740b656d7a0a6c5e12c7bf8e50343ec94ee9c7. Questions and gold ids were written from reading the
+# code BEFORE any retrieval ran on this repository, then frozen (the hash is in docs/reports/P7.md).
+# Held-out ids were drawn before any measurement: random.Random(987654).sample(t01..t20, 6).
+#
+# Map: `ad2v extract --repo <clone>/backend --out tpl.ad2v` with an ad2v.yaml containing
+# `pairing: {resolve_settings_defaults: true}` (so routes carry their /api/v1 prefix), container
+# name `tpl` (name_hint). The clone is not redistributed; this file holds only questions and ids.
+repo: https://github.com/fastapi/full-stack-fastapi-template
+commit: cb740b656d7a0a6c5e12c7bf8e50343ec94ee9c7
+questions:
+  - {id: t01, type: where, q: "where is the password hashed?", gold: ["app/core/security.py::get_password_hash"]}
+  - {id: t02, type: where, q: "where are access tokens created?", gold: ["app/core/security.py::create_access_token"]}
+  - {id: t03, type: flow, q: "how does a user log in?",
+     gold: ["http:tpl:POST /api/v1/login/access-token", "app/api/routes/login.py::login_access_token"]}
+  - {id: t04, type: where, holdout: true, q: "where is the current user resolved from the token?",
+     gold: ["app/api/deps.py::get_current_user"]}
+  - {id: t05, type: where, holdout: true, q: "where are password reset emails generated?",
+     gold: ["app/utils.py::generate_reset_password_email"]}
+  - {id: t06, type: where, q: "which function sends emails?", gold: ["app/utils.py::send_email"]}
+  - {id: t07, type: where, holdout: true, q: "where is a user authenticated by email and password?",
+     gold: ["app/crud.py::authenticate"]}
+  - {id: t08, type: flow, q: "how does a new user sign up?",
+     gold: ["http:tpl:POST /api/v1/users/signup", "app/api/routes/users.py::register_user"]}
+  - {id: t09, type: endpoint, q: "which endpoint deletes an item?",
+     gold: ["http:tpl:DELETE /api/v1/items/{id}", "app/api/routes/items.py::delete_item"]}
+  - {id: t10, type: where, q: "where is the database initialized with the first superuser?", gold: ["app/core/db.py::init_db"]}
+  - {id: t11, type: where, q: "where is the password reset token verified?", gold: ["app/utils.py::verify_password_reset_token"]}
+  - {id: t12, type: endpoint, q: "which endpoint lets users change their own password?",
+     gold: ["http:tpl:PATCH /api/v1/users/me/password", "app/api/routes/users.py::update_password_me"]}
+  - {id: t13, type: where, holdout: true, q: "where are the app settings defined?",
+     gold: ["app/core/config.py", "app/core/config.py::Settings"]}
+  - {id: t14, type: where, q: "what checks that the user is a superuser?", gold: ["app/api/deps.py::get_current_active_superuser"]}
+  - {id: t15, type: where, q: "where is the database session created?", gold: ["app/api/deps.py::get_db"]}
+  - {id: t16, type: where, q: "which module defines the user and item models?", gold: ["app/models.py"]}
+  - {id: t17, type: endpoint, q: "which endpoint lists items?",
+     gold: ["http:tpl:GET /api/v1/items", "app/api/routes/items.py::read_items"]}
+  - {id: t18, type: endpoint, holdout: true, q: "what does the health check endpoint do?",
+     gold: ["http:tpl:GET /api/v1/utils/health-check", "app/api/routes/utils.py::health_check"]}
+  - {id: t19, type: where, holdout: true, q: "where is a user looked up by email?", gold: ["app/crud.py::get_user_by_email"]}
+  - {id: t20, type: endpoint, q: "which endpoint sends a test email?",
+     gold: ["http:tpl:POST /api/v1/utils/test-email", "app/api/routes/utils.py::test_email"]}

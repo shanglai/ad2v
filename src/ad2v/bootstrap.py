@@ -68,8 +68,12 @@ def spec_root_of(repo: Path, given: str | None, manifest: Path | None = None) ->
 
 def candidates(repo: Path, sources: list[Path], rules: list[dict[str, Any]] | None = None) -> list[Candidate]:
     files: list[Path] = []
+    root = repo.resolve()
     for s in sources:
-        s = Path(s)
+        # relative to the repository, like --spec-root (ADR-0052); proposals must track a repo path
+        s = Path(s) if Path(s).is_absolute() else root / s
+        if s.exists() and not s.resolve().is_relative_to(root):
+            raise BootstrapError(f"--from must be inside the repository: {s}")
         if s.is_dir():
             files += sorted(
                 p

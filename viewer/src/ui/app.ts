@@ -42,6 +42,8 @@ import {
   type ThemeChoice,
 } from "../theme";
 import { copyText, h } from "./dom";
+import { EDGE_MODES, type EdgeMode } from "../model/declutter";
+import { ChatPanel } from "./chat";
 import { Replay } from "./replay";
 
 const RESOURCE_KINDS = new Set(["datastore", "queue", "external_service", "llm_endpoint", "ui"]);
@@ -143,6 +145,7 @@ export class App {
   private readonly hud = h("div", { class: "hud hidden", id: "hud" });
 
   private readonly app: boolean;
+  chat: ChatPanel | null = null;
   private readonly fileName: string;
   private readonly expanding = new Set<string>();
   private viewTimer: number | null = null;
@@ -177,7 +180,12 @@ export class App {
     this.startPerfProbe();
     window.__ad2v = this;
     if (this.app && it) await this.applyIntent(it);
-    else this.card(this.welcomeCard());
+    else {
+      this.card(this.welcomeCard());
+      const hint = this.suggestionsHint();
+      if (hint) this.card(hint);
+    }
+    if (this.chat) void this.chat.init();
   }
 
   // -- data --------------------------------------------------------------------------------------
@@ -361,9 +369,17 @@ export class App {
       this.panel.append(h("div", { class: "panel-head" }, h("strong", {}, "Details"), collapse), this.timeline);
       this.root.append(this.toolbar, h("main", { class: "body" }, this.mapEl, this.panel), this.replayBar, this.tooltip, this.hud);
     } else {
-      const chat = h("div", { class: "chat" },
-        h("input", { type: "text", disabled: true, placeholder: "Chat about this map from Claude or another MCP host: ad2v mcp (see docs/mcp.md)", "aria-label": "chat (use an MCP host)" }));
-      this.panel.append(h("div", { class: "panel-head" }, h("strong", {}, "Timeline"), collapse), this.timeline, chat);
+      // P7: the viewer's own chat (ad2v view --chat); disabled with the enabling command otherwise
+      this.chat = new ChatPanel(
+        {
+          fileName: this.fileName,
+          select: (id) => this.select(id, true, true),
+          show: (it) => void this.applyIntent(it, false), // the chat turn is the card
+          label: (id) => this.cur?.byId.get(id)?.name ?? null,
+        },
+        (el) => this.card(el),
+      );
+      this.panel.append(h("div", { class: "panel-head" }, h("strong", {}, "Timeline"), this.chat.meterEl, collapse), this.timeline, this.chat.el);
       this.root.append(this.toolbar, h("main", { class: "body" }, this.mapEl, this.panel), this.replayBar, this.scrubber, this.tooltip, this.hud);
     }
     this.mapEl.append(this.searchResults);
@@ -380,6 +396,13 @@ export class App {
     if (this.app) return this.renderAppToolbar();
     const diffCount = [...this.cur.statusE].filter(([, s]) => s.status !== s.normative).length;
     const llm = this.meta.llmProviders.length ? ` · LLM: ${this.meta.llmProviders.join(", ")}` : "";
+    const openSug = this.openSuggestions();
+    const mode = this.scene.edgesMode;
+    const stats = this.scene.edgeStats;
+    const edgeSel = h("select", { id: "edge-mode", "aria-label": "which edges to draw",
+      title: stats.limited || stats.hidden ? `${stats.hidden} edge(s) hidden; hover or select a node to see its edges` : "which edges to draw",
+      onchange: (e) => { this.scene.setEdgeMode((e.target as HTMLSelectElement).value as EdgeMode); } },
+      ...EDGE_MODES.map((m) => h("option", { value: m, selected: m === mode }, `Edges: ${m}`)));
     const wfSel = h("select", { id: "workflows", "aria-label": "replay a workflow", onchange: (e) => {
       const v = (e.target as HTMLSelectElement).value;
       if (v) void this.startReplay(v);
@@ -393,10 +416,32 @@ export class App {
       h("button", { id: "toggle-effective", class: this.effective ? "on" : "", "aria-pressed": String(this.effective), title: "normative status (deterministic) or effective status (with LLM judgments)",
         onclick: () => this.toggleEffective() }, `${this.effective ? "Effective" : "Normative"} status · ${diffCount} differ`),
       h("button", { id: "toggle-suggestions", class: this.showSuggestions ? "on" : "", "aria-pressed": String(this.showSuggestions),
-        onclick: () => { this.showSuggestions = !this.showSuggestions; this.pushModel(); this.renderToolbarState(); } }, `Suggestions ${this.showSuggestions ? "on" : "off"}`),
+        title: `${openSug} open link suggestion(s) from the LLM layer`,
+        onclick: () => { this.showSuggestions = !this.showSuggestions; this.pushModel(); this.renderToolbarState(); } },
+        `Suggestions ${this.showSuggestions ? "on" : "off"}`, openSug ? h("span", { class: "badge", id: "sug-count" }, String(openSug)) : null),
+      edgeSel,
       wfSel,
       h("button", { id: "toggle-theme", title: "theme: system / dark / light", onclick: () => this.cycleTheme() }, `Theme: ${this.themeChoice}`),
     );
+  }
+
+  private openSuggestions(): number {
+    return dedupSuggestions(this.cur.suggestions, (id) => this.cur.tree.nodes.get(id)?.depth ?? 99).length;
+  }
+
+  /** P7: once per browser, a hint when the file has open suggestions (localStorage may be unavailable). */
+  private suggestionsHint(): HTMLElement | null {
+    const n = this.openSuggestions();
+    const key = "ad2v.hint.suggestions";
+    try {
+      if (!n || localStorage.getItem(key)) return null;
+      localStorage.setItem(key, "1");
+    } catch {
+      if (!n) return null;
+    }
+    return h("section", { class: "card info hint", id: "sug-hint" },
+      h("p", {}, `${n} open link suggestion(s) from the LLM layer. Turn on `, h("strong", {}, "Suggestions"), " in the toolbar to see them on the map; accept or reject them with ",
+        h("code", {}, `ad2v suggestions list ${this.fileName} --open`), "."));
   }
 
   /** App mode: breadcrumbs of the selection, status toggle, theme, diff label and "Open full map". */
@@ -527,13 +572,13 @@ export class App {
     }
   }
 
-  enter(id: string): void {
+  enter(id: string, addCard = true): void {
     const go = (): void => {
       const n = this.cur.tree.nodes.get(id);
       if (!n) return;
       const target = n.children.length ? id : (this.cur.tree.parent(id) ?? id);
       this.scene.setFocus(target);
-      this.select(id, true);
+      this.select(id, addCard);
       this.scene.flyTo(target);
     };
     if (this.app && !this.cur.expanded.has(id)) void this.expand(id).then(go);
@@ -541,24 +586,24 @@ export class App {
   }
 
   /** App mode: carry out an `ad2v_show` intent (node ids + camera intent; never coordinates). */
-  async applyIntent(it: ShowIntent): Promise<void> {
+  async applyIntent(it: ShowIntent, cards = true): Promise<void> {
     const ids = it.nodes.filter((x) => this.cur.byId.has(x));
     const instant = this.scene.reducedMotion;
     switch (it.intent) {
       case "focus":
         this.scene.setEmphasis(ids); // P6.1: dim the rest (ADR-0051)
-        if (ids.length === 1) this.enter(ids[0]!);
-        else if (ids.length) { this.scene.fit(ids, instant); this.select(ids[0]!, true); }
+        if (ids.length === 1) this.enter(ids[0]!, cards);
+        else if (ids.length) { this.scene.fit(ids, instant); this.select(ids[0]!, cards); }
         break;
       case "fit":
         this.scene.fit(ids, instant);
-        this.card(this.listCard("Components", ids));
+        if (cards) this.card(this.listCard("Components", ids));
         break;
       case "path":
         this.scene.setReplay({ nodes: [], prev: [], path: ids });
         this.scene.setEmphasis(ids);
         this.scene.frameStep(ids, instant);
-        this.card(this.listCard("Path", ids, true));
+        if (cards) this.card(this.listCard("Path", ids, true));
         break;
       case "replay":
         if (it.workflowId) {
@@ -659,6 +704,7 @@ export class App {
   }
 
   private onHover(id: string | null, x: number, y: number): void {
+    this.scene.setHover(id); // P7: a decluttered map shows the hovered node's edges
     if (!id) { this.tooltip.classList.remove("show"); return; }
     const n = this.cur.byId.get(id)!;
     const st = (this.effective ? this.cur.statusE : this.cur.statusN).get(id);
@@ -754,6 +800,16 @@ export class App {
         statusChip("normative", sn?.status ?? "none"),
         se && se.status !== se.normative ? statusChip(`effective${se.provenance === "llm" ? " (AI)" : ""}`, se.status) : null),
       reasons.length ? h("ul", { class: "reasons" }, ...reasons) : null);
+    // P7 (ADR-0061): what is inside, with statuses; click to fly (labels on the map are culled)
+    const kids = d.tree.nodes.get(id)?.children ?? [];
+    const kidsEl = kids.length
+      ? h("ul", { class: "children" }, ...[...kids]
+        .sort((a, b) => (d.byId.get(a)?.name ?? a).localeCompare(d.byId.get(b)?.name ?? b))
+        .slice(0, 60)
+        .map((k) => h("li", {},
+          h("button", { class: "linkish", onclick: () => this.select(k, true, true) }, d.byId.get(k)?.name ?? k),
+          " ", statusChip("", (this.effective ? d.statusE : d.statusN).get(k)?.status ?? "none"))))
+      : null;
     // summary
     const summaryEl = sum?.card || sum?.deep
       ? h("div", {}, sum.card ? this.mentionsEl(sum.card, sum.mentions) : null, sum.deep ? this.mentionsEl(sum.deep, sum.mentions) : null,
@@ -807,6 +863,7 @@ export class App {
     return h("section", { class: "card node", "data-node": id },
       header,
       sec("Summary", true, summaryEl),
+      kidsEl ? sec(`Contents (${kids.length})`, kids.length <= 30, kidsEl) : null,
       myLinks.length ? sec(`Spec ↔ code links (${myLinks.length})`, true, ...linkEls) : null,
       sugEls.length ? sec(`Suggestions (${sugEls.length})`, true, ...sugEls) : null,
       risk ? sec("Risk", true, risk) : null,
@@ -907,9 +964,15 @@ export class App {
     if (announce) {
       const nar = r.narration();
       const text = nar.text ?? this.fallbackStep(cur.nodeIds, prev?.nodeIds ?? [], r.index);
+      // P7 (issue 71): a step not visible at this LOD is drawn as its visible ancestor; say so
+      const hidden = cur.nodeIds.filter((id) => !this.scene.visibleLods().has(id));
+      const anc = hidden.length ? this.scene.representative(hidden[0]!) : null;
       this.card(h("section", { class: "card step", "data-level": r.level, "data-index": r.index },
         nar.parent ? h("p", { class: "subtitle" }, nar.parent) : null,
         h("p", {}, stripIds(text)),
+        hidden.length && anc ? h("p", { class: "muted inside", id: "step-inside" },
+          `inside ${this.label(anc)} `,
+          h("button", { class: "linkish", id: "zoom-to-step", onclick: () => this.scene.fit(hidden, this.scene.reducedMotion) }, "zoom to step")) : null,
         h("p", { class: "muted" }, `level ${r.level} · step ${r.index + 1}/${r.coarse.length} · fine span ${cur.span[0]}–${cur.span[1]}${nar.text ? "" : " · deterministic narration"}`)));
     }
   }

@@ -40,6 +40,8 @@ links:
     code: worker/recon_worker/events.py::publish_run_completed
     label: conforms
     note: publishes a run-completed payload to the run events topic.
+  # P7 (ADR-0060): containers are no longer judged directly; their verdict is a roll-up of their
+  # descendants' judgments, so this label is kept for P4 comparisons but no longer scored.
   - spec: CMP-002
     code: container:worker
     label: conforms

@@ -4,39 +4,15 @@
 // page declares no network origins at all.
 import { App as McpApp, applyHostStyleVariables } from "@modelcontextprotocol/ext-apps/app-with-deps";
 import { RemoteSliceSource, type ToolResult } from "./data/RemoteSliceSource";
-import { App, type ShowIntent } from "./ui/app";
+import { App } from "./ui/app";
+import { toIntent, type ShowResult } from "./ui/intent";
 import { h } from "./ui/dom";
 import "./style.css";
-
-interface ShowResult {
-  file?: string;
-  epoch?: string;
-  intent?: ShowIntent["intent"];
-  nodes?: Array<{ id: string }>;
-  workflow_id?: string | null;
-  detail_level?: number | null;
-  epoch_from?: string | null;
-  epoch_to?: string | null;
-  theme?: "auto" | "light" | "dark";
-}
 
 const root = document.getElementById("app")!;
 
 function message(title: string, text: string): void {
   root.replaceChildren(h("section", { class: "card info app-msg" }, h("h3", {}, title), h("p", {}, text)));
-}
-
-function toIntent(s: ShowResult): ShowIntent {
-  return {
-    intent: s.intent ?? "focus",
-    nodes: (s.nodes ?? []).map((n) => n.id),
-    epoch: s.epoch ?? null,
-    workflowId: s.workflow_id ?? null,
-    detailLevel: s.detail_level ?? null,
-    epochFrom: s.epoch_from ?? null,
-    epochTo: s.epoch_to ?? null,
-    theme: s.theme ?? "auto",
-  };
 }
 
 async function main(): Promise<void> {

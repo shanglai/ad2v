@@ -50,6 +50,39 @@ STATUS_WORDS = {
 }
 STATUS_STEMS = {stem(w): s for w, s in STATUS_WORDS.items()}  # "drifts", "drifting" -> drift
 
+# P7 retrieval v2 (ADR-0054): spec ids in a question, matched exactly against spec items
+QUERY_ID = re.compile(
+    r"(?<![\w:.-])((?:[a-z0-9][a-z0-9-]*:)?[A-Za-z][A-Za-z0-9]*-X?[0-9]+(?:\.[0-9]+)?)(?![\w.-])",
+    re.I,
+)
+SUB_ID = re.compile(r"(?<![\w.-])([0-9]+\.[0-9]+)(?![\w.])")  # a Kiro criterion: "1.2"
+TEST_PATH = re.compile(r"(^|/)(tests?/|test_[^/]*\.py|[^/]*_test\.py)")
+RESOURCE_WORDS = {
+    "datastore": "datastore database db store table",
+    "queue": "queue topic subscription events messages",
+    "external_service": "external service api client",
+    "llm_endpoint": "llm model endpoint ai",
+    "ui": "ui frontend page",
+}
+TOUCH_EDGES = ("reads", "writes", "publishes", "consumes", "invokes_llm", "invokes_external")
+
+
+def query_ids(question: str) -> tuple[set[str], set[str]]:
+    """Spec ids written in the question (upper-cased, namespace kept) and bare sub-ids ("1.2")."""
+    ids = {
+        m if ":" not in m else m.split(":", 1)[0].lower() + ":" + m.split(":", 1)[1]
+        for m in QUERY_ID.findall(question)
+    }
+    ids = {i.split(":", 1)[0] + ":" + i.split(":", 1)[1].upper() if ":" in i else i.upper() for i in ids}
+    return ids, set(SUB_ID.findall(question))
+
+
+def id_matches(spec_id: str, ids: set[str], subs: set[str]) -> bool:
+    if spec_id in ids:
+        return True
+    bare = spec_id.split(":", 1)[1] if ":" in spec_id else spec_id
+    return bare in ids or any(bare.endswith("-" + s) for s in subs)
+
 
 def _bundled_retrieval() -> dict[str, Any]:
     return rules_mod.load().get("retrieval") or {}
@@ -62,7 +95,8 @@ def retrieval_rules(conn: sqlite3.Connection, epoch_id: str) -> dict[str, Any]:
         stored = store.load_rules(conn, rh).get("retrieval")
     except Exception:  # noqa: BLE001 - an old file without stored rules
         stored = None
-    return stored or _bundled_retrieval()
+    # keys the stored section predates (P7: propagation, id_match, tests) come from the bundled rules
+    return {**_bundled_retrieval(), **stored} if stored else _bundled_retrieval()
 
 
 @dataclass
@@ -71,6 +105,18 @@ class Locator:
     priors: dict[str, dict[str, Any]]
     status_boost: float
     prefix_min: int = 0
+    # P7 retrieval v2 (ADR-0054), from the `retrieval:` rules
+    link_lambda: float = 0.0  # spec score = max(own, lambda * best linked code score), and back
+    spec_intents: tuple[str, ...] = ()
+    spec_side_boost: float = 1.0  # a spec intent prefers spec items
+    code_intents: tuple[str, ...] = ()
+    id_match: float = 0.0  # added when the question names the item's spec id
+    test_factor: float = 1.0  # test code, unless the question is about tests
+    test_triggers: frozenset[str] = frozenset()
+    linked: dict[str, list[str]] = field(default_factory=dict)
+    spec_ids: dict[str, str] = field(default_factory=dict)
+    is_test: set[str] = field(default_factory=set)
+    sides: dict[str, str] = field(default_factory=dict)
     k1_docs: dict[str, BM25] = field(default_factory=dict)
     kinds: dict[str, str] = field(default_factory=dict)
     status: dict[str, set[str]] = field(default_factory=dict)
@@ -101,12 +147,8 @@ class Locator:
                 for kd, m in (p.get("kinds") or {}).items():
                     mult[kd] = mult.get(kd, 1.0) * float(m)
         wanted_status = sorted({STATUS_STEMS[stem(w)] for w in words if stem(w) in STATUS_STEMS})
-        scored: list[tuple[float, str, dict[str, float]]] = []
-        for nid, kd in self.kinds.items():
-            if kind and kd != kind:
-                continue
-            if side and ix is not None and ix.nodes[nid]["side"] != side:
-                continue
+        raw: dict[str, tuple[float, dict[str, float]]] = {}
+        for nid in self.kinds:
             per: dict[str, float] = {}
             total = 0.0
             for f in FIELDS:
@@ -118,6 +160,43 @@ class Locator:
                 if s:
                     per[f] = round(s * w, 4)
                     total += s * w
+            if total:
+                raw[nid] = (total, per)
+        # link propagation (P7): with a spec intent a spec item scores at least lambda x its best
+        # normatively linked code item, and symmetrically with a code intent
+        to_side = set()
+        if self.link_lambda and set(fired) & set(self.spec_intents):
+            to_side.add("spec")
+        if self.link_lambda and set(fired) & set(self.code_intents):
+            to_side.add("code")
+        if to_side:
+            prop: dict[str, tuple[float, dict[str, float]]] = {}
+            for nid, partners in self.linked.items():
+                if self.sides.get(nid) not in to_side:
+                    continue
+                best = max((raw[p][0] for p in partners if p in raw), default=0.0) * self.link_lambda
+                own = raw.get(nid, (0.0, {}))
+                if best > own[0]:
+                    prop[nid] = (best, {**own[1], "linked": round(best, 4)})
+            raw.update(prop)
+        q_ids, q_subs = query_ids(question) if self.id_match else (set(), set())
+        about_tests = bool(words & self.test_triggers)
+        scored: list[tuple[float, str, dict[str, float]]] = []
+        for nid, kd in self.kinds.items():
+            if kind and kd != kind:
+                continue
+            if side and ix is not None and ix.nodes[nid]["side"] != side:
+                continue
+            total, per = raw.get(nid, (0.0, {}))
+            per = dict(per)
+            sid = self.spec_ids.get(nid)
+            if sid and (q_ids or q_subs) and id_matches(sid, q_ids, q_subs):
+                total += self.id_match
+                per["id"] = self.id_match
+            if total and "spec" in to_side and self.sides.get(nid) == "spec":
+                total *= self.spec_side_boost
+            if total and nid in self.is_test and not about_tests:
+                total *= self.test_factor
             if wanted_status and self.status.get(nid, set()) & set(wanted_status):
                 total = (total + 1.0) * self.status_boost
                 per["status"] = self.status_boost
@@ -145,6 +224,7 @@ def build(conn: sqlite3.Connection, ix: EpochIndex) -> Locator:
     docs: dict[str, dict[str, list[str]]] = {f: {} for f in FIELDS}
     code_lines = _code_heads(conn, ix)
     narr = _narrations_by_node(conn, ix)
+    touched = _touched_by(conn, ix)
     for nid, n in ix.nodes.items():
         a = ix.attrs.get(nid, {})
         docs["name"][nid] = tokens(n["name"] + " " + str(a.get("title", "")))
@@ -155,6 +235,9 @@ def build(conn: sqlite3.Connection, ix: EpochIndex) -> Locator:
         ]
         code += [str(t) for t in a.get("risk", [])] + [str(t) for t in a.get("touches", [])]
         code.append(code_lines.get(nid, ""))
+        if n["kind"] in RESOURCE_WORDS:  # P7: what it is, and the functions that touch it
+            code.append(RESOURCE_WORDS[n["kind"]])
+            code += [ix.nodes[f]["name"] for f in touched.get(nid, [])]
         docs["code"][nid] = tokens(" ".join(code))
         if n["side"] == "spec":
             spec = [
@@ -174,7 +257,27 @@ def build(conn: sqlite3.Connection, ix: EpochIndex) -> Locator:
     st: dict[str, set[str]] = {}
     for nid in ix.nodes:
         st[nid] = {ix.norm.get(nid, {}).get("status", "none"), ix.eff.get(nid, {}).get("status", "none")}
+    prop = cfg.get("propagation") or {}
+    tests = cfg.get("tests") or {}
+    linked, spec_ids, is_test = _links(conn, ix), {}, set()
+    for nid, n in ix.nodes.items():
+        a = ix.attrs.get(nid, {})
+        if n["side"] == "spec" and n["kind"] in ("requirement", "spec_component", "scenario"):
+            spec_ids[nid] = str(a.get("spec_id") or n["qname"])
+        if n["side"] == "code" and (a.get("is_test") or TEST_PATH.search(n["path"] or n["qname"])):
+            is_test.add(nid)
     loc = Locator(
+        link_lambda=float(prop.get("lambda", 0.0)),
+        spec_intents=tuple(prop.get("spec_intents", [])),
+        spec_side_boost=float(prop.get("spec_side_boost", 1.0)),
+        code_intents=tuple(prop.get("code_intents", [])),
+        id_match=float(cfg.get("id_match", 0.0)),
+        test_factor=float(tests.get("factor", 1.0)),
+        test_triggers=frozenset(tests.get("triggers", [])),
+        linked=linked,
+        spec_ids=spec_ids,
+        is_test=is_test,
+        sides={nid: n["side"] for nid, n in ix.nodes.items()},
         weights={k: float(v) for k, v in (cfg.get("field_weights") or {}).items()},
         priors=cfg.get("intents") or {},
         status_boost=float(cfg.get("status_boost", 2.0)),
@@ -231,6 +334,36 @@ def _code_heads(conn: sqlite3.Connection, ix: EpochIndex, max_lines: int = 12) -
             continue
         out[nid] = " ".join(lines[i - 1] for i in range(s, min(e, len(lines)) + 1))
     return out
+
+
+def _links(conn: sqlite3.Connection, ix: EpochIndex) -> dict[str, list[str]]:
+    """Deterministic spec<->code links of a materialized epoch, both directions (P7)."""
+    out: dict[str, set[str]] = {}
+    try:
+        rows = conn.execute(
+            "SELECT spec_node_id, code_node_id FROM links WHERE epoch_id = ? AND provenance = 'deterministic'"
+            " AND spec_node_id IS NOT NULL AND code_node_id IS NOT NULL",
+            (ix.epoch_id,),
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    for s, c in rows:
+        if s in ix.nodes and c in ix.nodes:
+            out.setdefault(s, set()).add(c)
+            out.setdefault(c, set()).add(s)
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def _touched_by(conn: sqlite3.Connection, ix: EpochIndex) -> dict[str, list[str]]:
+    """resource node -> the functions that read, write, publish, consume or invoke it (P7)."""
+    out: dict[str, set[str]] = {}
+    marks = ",".join("?" * len(TOUCH_EDGES))
+    for src, dst in conn.execute(
+        f"SELECT src, dst FROM edges WHERE epoch_id = ? AND kind IN ({marks})", (ix.epoch_id, *TOUCH_EDGES)
+    ):
+        if src in ix.nodes and dst in ix.nodes:
+            out.setdefault(dst, set()).add(src)
+    return {k: sorted(v) for k, v in out.items()}
 
 
 def _narrations_by_node(conn: sqlite3.Connection, ix: EpochIndex) -> dict[str, str]:

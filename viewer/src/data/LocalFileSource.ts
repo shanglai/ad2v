@@ -25,6 +25,12 @@ import type {
 } from "./types";
 
 export const LAYOUT_ALGORITHM = "nestgrid-v1";
+
+/** P7: `?layout=nestgrid-v2` shows the experimental shelf layout when the file has it (ADR-0062). */
+export function layoutAlgorithm(search: string = typeof location !== "undefined" ? location.search : ""): string {
+  const v = new URLSearchParams(search).get("layout");
+  return v === "nestgrid-v2" ? v : LAYOUT_ALGORITHM;
+}
 export const ALL = -1; // scene depth: the whole epoch
 const MENTIONS_RE = /\n\nmentions: ([^\n]*)\s*$/;
 
@@ -98,7 +104,7 @@ export class LocalFileSource implements DataSource {
     const out = new Map<string, Box>();
     for (const r of this.all(
       "SELECT node_id, x, y, z, w, h, d FROM layout WHERE epoch_id = ? AND algorithm = ? ORDER BY node_id",
-      [epoch, LAYOUT_ALGORITHM],
+      [epoch, layoutAlgorithm()],
     )) {
       out.set(String(r.node_id), { x: +r.x!, y: +r.y!, z: +r.z!, w: +r.w!, h: +r.h!, d: +r.d! });
     }

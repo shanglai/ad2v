@@ -114,6 +114,16 @@ Checklist for later:
 - [ ] Remember that a host may cache tool results (`cacheScope`) and send them to its model
   provider.
 
+## Without an MCP host: the viewer's own chat (P7)
+
+`ad2v view <file> --chat --manifest ad2v.yaml` answers questions in the viewer's panel with your own
+model (the `llm:` section). It calls the same agent tools in-process (all of them except
+`ad2v_files` and `ad2v_llm_plan`), with the same fenced untrusted text and no write actions. See
+the [quickstart](quickstart.md#7-look-at-it). P7 also changed two tool behaviors: `ad2v_status`
+lists ports and spec endpoints first, then containers/components, then the rest; `ad2v_locate`
+finds spec ids written in the question (`FR-001`, `001-payments:FR-001`, `1.2`) and propagates
+scores along spec↔code links for requirement questions.
+
 ## Troubleshooting
 
 - **stdout is for the protocol only.** On stdio every byte on stdout must be a JSON-RPC message.

@@ -408,10 +408,37 @@ def cmd_materialize(a: argparse.Namespace) -> int:
     return 0
 
 
+def chat_service(a: argparse.Namespace):  # noqa: ANN201
+    """`ad2v view --chat`: the chat agent (P7, decision 3): needs `llm:` with pricing."""
+    from ad2v.chat.agent import ChatService
+    from ad2v.cli_llm import load_config
+    from ad2v.llm.config import LLMConfigError
+    from ad2v.llm.providers import get_provider
+
+    if not a.manifest:
+        raise LLMConfigError(
+            "--chat needs --manifest ad2v.yaml with an llm: section (provider, model, pricing)"
+        )
+    cfg = load_config(a)
+    if cfg.input_per_mtok is None or cfg.output_per_mtok is None:
+        raise LLMConfigError(
+            "--chat needs llm.pricing (input_per_mtok, output_per_mtok) for the budget meter"
+        )
+    return ChatService(Path(a.file), cfg, get_provider(cfg), budget_usd=a.chat_budget_usd)
+
+
 def cmd_view(a: argparse.Namespace) -> int:  # pragma: no cover - interactive (serve() is tested)
     from ad2v import view
+    from ad2v.llm.config import LLMConfigError
 
-    view.run(Path(a.file), a.port, not a.no_browser)
+    chat = None
+    if a.chat:
+        try:
+            chat = chat_service(a)
+        except (LLMConfigError, OSError) as e:
+            print(f"ad2v view: {e}", file=sys.stderr)
+            return 2
+    view.run(Path(a.file), a.port, not a.no_browser, chat=chat)
     return 0
 
 
@@ -455,10 +482,10 @@ def cmd_layout(a: argparse.Namespace) -> int:
     try:
         wanted = [store.resolve_epoch(conn, a.epoch)] if a.epoch else None
         with conn:
-            done = layout.ensure(conn, wanted)
+            done = layout.ensure(conn, wanted, a.algorithm)
     finally:
         conn.close()
-    _out(f"laid out {len(done)} epoch(s) with {layout.ALGORITHM}\n" if done else "layout up to date\n")
+    _out(f"laid out {len(done)} epoch(s) with {a.algorithm}\n" if done else "layout up to date\n")
     return 0
 
 
@@ -619,6 +646,20 @@ def parser() -> argparse.ArgumentParser:
     vw.add_argument("file")
     vw.add_argument("--port", type=int, default=0, help="0 = any free port")
     vw.add_argument("--no-browser", action="store_true")
+    vw.add_argument(
+        "--chat",
+        action="store_true",
+        help="enable the chat panel (your model; needs --manifest with llm: + pricing)",
+    )
+    vw.add_argument("--manifest", help="ad2v.yaml with the llm: section (for --chat)")
+    vw.add_argument(
+        "--chat-budget-usd", type=float, default=0.25, help="USD cap for this session (default 0.25)"
+    )
+    vw.add_argument(
+        "--provider", choices=("fake", "vertex", "openai_compatible"), help="override llm.provider"
+    )
+    vw.add_argument("--model", help="override llm.model")
+    vw.add_argument("--replay-dir", help="fake provider: directory of recorded outputs")
     vw.set_defaults(func=cmd_view)
 
     mc = sub.add_parser("mcp", help="MCP server (read-only tools + the map as an MCP App); stdio by default")
@@ -633,6 +674,12 @@ def parser() -> argparse.ArgumentParser:
     ly = sub.add_parser("layout", help="deterministic layout (nestgrid-v1) of epochs that lack one")
     ly.add_argument("file")
     ly.add_argument("--epoch", help=f"{epoch_help} (default: every epoch)")
+    ly.add_argument(
+        "--algorithm",
+        choices=layout.ALGORITHMS,
+        default=layout.ALGORITHM,
+        help="nestgrid-v1 (default) or the experimental shelf packing nestgrid-v2 (ADR-0062)",
+    )
     ly.set_defaults(func=cmd_layout)
 
     t = sub.add_parser("preview-tokens", help="write a static HTML preview of glyphs x statuses x themes")

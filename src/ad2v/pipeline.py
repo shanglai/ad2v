@@ -31,6 +31,7 @@ from ad2v import (
 )
 from ad2v import rules as rules_mod
 from ad2v.extract import files as filewalk
+from ad2v.extract.code import schema_digest
 from ad2v.extract.code.base import CodeFacts, Layout
 from ad2v.extract.code.python import PythonExtractor
 from ad2v.extract.code.python_local import LOCAL_EXTRACTOR_VERSION
@@ -197,12 +198,24 @@ def build(
             spec_rel = root.relative_to(repo).as_posix()
             rel = [p for p in rel if not p.startswith(spec_rel + "/")]
     files = filewalk.load(repo, rel)
+    # P7 (ADR-0059): SQL DDL feeds the datastore schema digests, so it is an epoch input
+    spec_prefixes = tuple(
+        r.relative_to(repo).as_posix() + "/"
+        for r in sroots.roots
+        if r.is_dir() and r != repo and r.is_relative_to(repo)
+    )
+    sql_rel = [
+        p
+        for p in filewalk.walk(repo, config.exclude, (".sql",))
+        if not (spec_prefixes and p.startswith(spec_prefixes))
+    ]
+    sql_files = filewalk.load(repo, sql_rel)
     specs = specroots.collect(sroots, config.exclude, config.spec_markdown)
     config.effective_spec_roots = tuple(sroots.labels)
     config.spec_presets = {p: ch.preset for p, ch in sroots.choices.items()}
     tests_given = bool(test_results)
     tr_paths = [Path(t) for t in test_results or []]
-    repo_tree = ids.tree_hash({f.path: f.content_hash for f in files})
+    repo_tree = ids.tree_hash({f.path: f.content_hash for f in [*files, *sql_files]})
     spec_tree = spec_tree_hash(specs)
     if tests_given:
         tests_hash = junit.files_hash(tr_paths, repo)
@@ -245,6 +258,7 @@ def build(
     layout = Layout(graph, config, repo, system_name)
     cache = cache_loader(rules["_hash"]) if cache_loader is not None else None
     facts = extractor.extract(graph, layout, files, cache)
+    schema_digest.apply(graph, files, sql_files)
     t = lap("code_extraction", t)
     timings.update({f"code.{k}": v for k, v in extractor.timings.items()})
     if sroots.roots:

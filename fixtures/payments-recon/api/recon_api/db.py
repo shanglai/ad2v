@@ -5,6 +5,8 @@ import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from recon_api.models import Classification
+
 engine = create_engine(os.environ["RECON_DB_URL"])
 SessionLocal = sessionmaker(bind=engine)
 
@@ -46,3 +48,13 @@ def list_unmatched(run_id: str) -> list[dict]:
 def count_runs() -> int:
     with SessionLocal() as session:
         return session.execute(text("SELECT count(*) FROM recon_runs")).scalar_one()
+
+
+def save_classifications(run_id: str, rows: list[dict]) -> None:
+    with SessionLocal() as session:
+        with session.begin():
+            session.execute(
+                text("INSERT INTO classifications (run_id, reference, label) VALUES (:run_id, :reference, :label)"),
+                [{"run_id": run_id, "reference": r["reference"], "label": r.get("label")} for r in rows],
+            )
+    assert Classification.__tablename__ == "classifications"
