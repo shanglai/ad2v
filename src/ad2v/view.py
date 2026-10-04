@@ -69,8 +69,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'",
+            "script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; object-src 'none'; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
         )
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         if not head and body:
             self.wfile.write(body)
@@ -145,7 +147,18 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             chat.cancel()  # the page went away: stop before the next model call
 
+    def _host_ok(self) -> bool:
+        """P8 (docs/security.md §2): every request, not only chat, must name 127.0.0.1 or
+        localhost with our port, so a DNS-rebinding page cannot read the map."""
+        port = self.server.server_address[1]
+        if self.headers.get("Host", "") in (f"127.0.0.1:{port}", f"localhost:{port}"):
+            return True
+        self.send_error(HTTPStatus.FORBIDDEN, "bad Host")
+        return False
+
     def _serve(self, head: bool) -> None:
+        if not self._host_ok():
+            return
         path = unquote(urlsplit(self.path).path)
         if path.startswith("/api/chat/"):
             self._chat(path, post=False)

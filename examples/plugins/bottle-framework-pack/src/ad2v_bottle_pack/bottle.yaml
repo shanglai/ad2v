@@ -1,0 +1,6 @@
+# Rules fragment merged into the built-in Python extractor's rules (lists are unioned): Bottle
+# applications are route containers, so `@app.get("/x")` and `@app.route("/x")` become http_route
+# ports exactly like Flask's.
+ports:
+  http:
+    app_constructors: [bottle.Bottle]

@@ -88,17 +88,27 @@ Items consciously left out so far, grouped by the phase that should pick them up
   viewer's own chat agent, thinking per task, schema digests (issue 42), judge roll-up (issue 43),
   viewer UX v2 (issues 55, 71), nestgrid-v2 behind a flag (issue 54), a verified quickstart.
 
-## After P7: P8 (open-source launch) candidates
+## Done in P8 (moved from this list)
 
+- Packaging: the wheel ships the built viewer and app (verified in a clean venv); version
+  `0.7.0.dev0` (not 0.7.0, nothing published).
+
+## After P8: P9 (TypeScript extractor as a plug-in) and later
+
+- P9: the TypeScript extractor as the second real plug-in (after the owner's dogfood results and
+  the employer agreement); move `severity:` / `retrieval:` out of `python.yaml` into core rules first
+  (issue 89); decide whether a tree-level framework hook is needed (issue 90).
 - Decide the default layout (nestgrid-v2 is far denser on dispatch, slightly less on the fixture;
-  issue 82); top-level single-child chains (`dispatch > dispatch > src > dispatch`) should collapse.
+  issue 82; still behind its flag); top-level single-child chains should collapse.
 - Retrieval: exclude or de-weight migrations (Alembic), stronger test de-weighting, synonyms for
-  spec vocabulary ("latency" vs "complete in under 3 seconds") (issue 79).
+  spec vocabulary (issue 79); then score the blind set (`ad2v eval blind`) before and after.
 - Judge: return-shape context for "partial" cases (issue 80); a second labeled repository.
 - Chat: streaming partial answers; a per-turn cost cap; conversation export; an OpenAI-compatible
   live test against a local server.
-- Packaging: wheel with the built viewer and app, version 0.7.0, CHANGELOG, CONTRIBUTING, a
-  public demo map without fake LLM rows.
+- Release (not before the owner decides): CHANGELOG, CONTRIBUTING, a public demo map without fake
+  LLM rows, the fresh squashed public repository, trusted publishing (docs/RELEASING.md), and
+  actionlint + gitleaks on the public repository (issue 93).
+- Viewer: compare the schema with the format before querying a file (issue 91).
 
 ## After P6.1: real-repo readiness
 

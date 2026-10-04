@@ -1,13 +1,13 @@
 # ad2v: context for a new Claude session
 
-You are picking up **ad2v** after eight phases of work (P1–P7). This file brings you up to date:
+You are picking up **ad2v** after nine phases of work (P1–P8, plus P6.1). This file brings you up to date:
 goals, standing rules, architecture, decisions, findings, open issues, and the developer's open
 questions (at the end). Read it fully before acting. Then read `status.md`, the latest
 `REPORT.md`, and any ADR you need (`docs/adr/`).
 
-Snapshot: 2026-10-03, after the P7 commit (see `git log -1`). P6.1 (`b7e1726`) is pushed to
-`origin/main` and `origin/master`; P7 is committed locally and not pushed.
-- Repo: `C:\Users\David\Documents\projects\agents\ad2v` (GitHub `shanglai/ad2v`).
+Snapshot: 2026-10-04, after the P8 commit (see `git log -1`). P6.1 (`b7e1726`) is pushed to
+`origin/main` and `origin/master`; P7 (`27c24c6`) and P8 are committed locally and not pushed.
+- Repo: `<repo-root>` (the working directory of every session; GitHub `<github-owner>/ad2v`, private).
 
 ---
 
@@ -15,7 +15,7 @@ Snapshot: 2026-10-03, after the P7 commit (see `git log -1`). P6.1 (`b7e1726`) i
 
 **Comprehension debt** builds up when agents merge code faster than people can understand it.
 ad2v (agent development to viz) compares a **repository** with its **SDD specs** (spec-driven
-development) and writes **one SQLite file** (`*.ad2v`, format v0.4). The file describes both sides
+development) and writes **one SQLite file** (`*.ad2v`, format v0.5). The file describes both sides
 as one graph across a history of epochs (commits). Readers:
 
 - the **viewer**: a three.js isometric 2.5D map (like C4 with more levels), in dark and light
@@ -24,6 +24,7 @@ as one graph across a history of epochs (commits). Readers:
   render the map inline.
 
 Like mermaid.js, ad2v is an open **format** plus reference implementations, licensed Apache-2.0.
+Version **0.7.0.dev0** (pre-release; nothing is published).
 Principles:
 
 - **The LLM suggests; a human confirms.** Confirmation means editing committed files:
@@ -42,7 +43,7 @@ Principles:
 3. **Every report includes an "Accrued cost per phase" table** (P1…Pn): cloud and LLM spend.
    Claude's own usage is not metered per phase; the account is on Max with extra usage disabled,
    so say so. Totals so far: P1–P3 $0, P4 $0.592 (Vertex AI, gemini-3.8-flash, 125 calls), P5 $0,
-   P6 $0, P6.1 $0, P7 $0.385 (Vertex, 163 calls), **total $0.977**. The developer explicitly asked for this at the end of each phase.
+   P6 $0, P6.1 $0, P7 $0.385 (Vertex, 163 calls), P8 $0, **total $0.977**. The developer explicitly asked for this at the end of each phase.
 4. **No copyleft dependencies**, transitive ones included, on both the Python and npm sides:
    GPL, LGPL, AGPL, MPL, EPL, CDDL, CC-BY-SA, OFL-only fonts.
    - **`certifi` (MPL-2.0) is banned**, which rules out `httpx`, `requests`, provider SDKs and
@@ -50,10 +51,15 @@ Principles:
    - The npm license gate (`viewer/scripts/check-licenses.mjs`) runs in every build and must stay
      green.
    - Update `docs/dependencies.md` whenever dependencies change.
+   - Tools that are run but not depended on (build, twine, pip-audit, gitleaks, actionlint, the MCP
+     Inspector) run outside the tree (pipx / a throwaway venv / npx / a standalone binary) and are
+     listed under "Tools run outside the tree". Never AGPL tools (e.g. trufflehog).
 5. **Randomness** uses seed 987654. Layout and ordering use none. Exception: security tokens use
    `secrets` (the chat token, ADR-0057).
 6. **No LLM calls and no cloud resources** unless the developer approves them for that phase.
-   P4's and P7's live runs were approved (P7: cap $2.00, project `mapper-cat-3`, ADC only, labels
+   That includes CI minutes while the repo is private (P8: ubuntu on push/PR only; Windows/macOS on
+   manual dispatch).
+   P4's and P7's live runs were approved (P7: cap $2.00, project `<your-gcp-project>`, ADC only, labels
    `project=ad2v` / `ad2v_task`, STOP and ask before the first real call with static and
    calibrated estimates); P5, P6 and P6.1 had none.
 7. **Never add write actions to the viewer or to MCP.** Accepting suggestions, LLM runs,
@@ -63,9 +69,27 @@ Principles:
    used once, and scratch files. `node_modules/` stays gitignored.
 9. If context runs low, finish the current milestone, skip the rest, and mark them "not done" in
    the report.
-10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0063**.
+10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0066**.
 11. **Environment:** Windows 11, Python 3.12 (`.venv`), Node 24 / npm 11, git; everything must be
-    cross-platform.
+    cross-platform. Python 3.11 is the declared minimum (CI runs it).
+12. **Sanitization:** no local absolute paths, usernames, emails or the GCP project id in tracked
+    files; use `<repo-root>`, `<github-owner>`, `<your-gcp-project>` (P8 M6). Write "the owner" in
+    public-facing docs.
+13. **Blind eval:** never open, list or grep `AD2V_BLIND_EVAL` or `fixtures/retrieval-eval/blind/`;
+    never write blind questions (docs/blind-eval.md).
+
+## 2a. Immutable decisions since P7 (from the owner, P8)
+
+1. **Nothing is published** until the owner decides: no PyPI/TestPyPI upload, public demo, launch
+   posts, repo visibility change, GitHub Pages, tags or releases, or name registration. The owner
+   is signing an agreement with the employer first.
+2. **Split by access:** public, Apache-2.0: core, Python extractor, TypeScript extractor (P9),
+   viewer, MCP server. Private, separate repos later: a Java extractor and an "enterprise pack"
+   (framework detection, audit evidence reports). Do not create those repos or private code.
+3. That split relies on the **plug-in API** (P8): language extractors and framework detectors are
+   plug-ins, so private ones live outside this repo without forking it.
+4. The earlier P8 launch plan (PyPI release, public demo, README marketing, layout default switch)
+   is cancelled; nestgrid-v2 stays behind its flag (pending.md).
     - Tooling caveat: shell heredocs have mangled backslashes and quotes several times (issues
       15, 24). For non-trivial edits, use the editor tool or a script file.
 
@@ -81,15 +105,34 @@ Principles:
 | P6 | `fe17661` | MCP server (stdlib, protocol 2026-07-28, dual-era), 13 agent tools + 20 app-only tools, map as an MCP App (`ui://ad2v/map`), deterministic retrieval + eval | Inspector 38/38; App e2e 10/10; dispatch tool p95 ≤ 37 ms |
 | P6.1 | `b7e1726` | real-repo readiness: route recall, spec discovery, spec-kit/Kiro/custom presets, `ad2v specs bootstrap/review/approve`, replay camera, opaque "dim the rest", floor contrast | fixture export endpoint missing → implemented; dispatch 286/290 route paths corrected; dispatch 59.9 fps with dim |
 
-| P7 | `git log -1` | verified quickstart, settings prefixes, retrieval v2 (70-question eval), the viewer's own chat (`ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, nestgrid-v2 (flag), format v0.5 | template 23 -> 0 unresolved; MRR P6-25 0.89 -> 0.98; live judge catches REQ-009 (low: acc 0.9, k 0.81, $0.0017/call); summaries -60%/call; dispatch 59.9 fps |
+| P7 | `27c24c6` | verified quickstart, settings prefixes, retrieval v2 (70-question eval), the viewer's own chat (`ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, nestgrid-v2 (flag), format v0.5 | template 23 -> 0 unresolved; MRR P6-25 0.89 -> 0.98; live judge catches REQ-009 (low: acc 0.9, k 0.81, $0.0017/call); summaries -60%/call; dispatch 59.9 fps |
 
-**Next, as planned by the developer:**
-- **P8:** open-source launch preparation (see pending.md "After P7" and REPORT.md §10).
+| P8 | `git log -1` | extractor plug-in API (`ad2v.api` 1.0, entry points, opt-in, identity in the epoch, built-ins as plug-ins, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (0.7.0.dev0, not published), CI workflows (written, not run), security review, sanitization inventory, dogfood procedure | 9 fixture dump scenarios identical with epoch id / rules hash masked; examples pass the kit in a temp venv; wheel verified in a clean venv; 11 security fixes; 382 pytest |
+
+**Next, as planned by the owner:** **P9: the TypeScript extractor as a plug-in**, after the
+owner's dogfood results (docs/dogfood.md) and the employer agreement. Do not start it without the
+owner's prompt.
 
 ## 4. Architecture
 
 ### 4.1 Python (`src/ad2v/`)
 
+- **Plug-in API (P8, ADR-0063..0065):**
+  - `api.py` is the only public import surface for plug-ins (`Extractor`, `FrameworkPack`,
+    `ExtractContext`, `ExtractOutput`, `FrameworkContext`, `FileAccessor`, the IR model re-exported;
+    `API_VERSION = "1.0"`; accepts the current and previous major).
+  - Entry-point groups **`ad2v.extractors`** and **`ad2v.frameworks`**; `plugins.py` does
+    discovery (`importlib.metadata` + an internal registry of built-ins), opt-in
+    (`ad2v.yaml` `extractors.enabled`, `--extractor`), identity records in the epoch rules
+    (`plugins` key → `rules_hash` → epoch id), isolated runs (per-extractor graphs merged in name
+    order; third-party timeouts, exception isolation, `--strict`).
+  - Built-ins: `extract/code/plugin.py`: `python` 1.0.0 (`rules/python.yaml`) and
+    `python-frameworks` 1.0.0 (`rules/python-frameworks.yaml` = the old `ports:` section, pack-merged;
+    schema digests as its hook). Bump their `version` when output can change.
+  - Conformance kit: `testing/conformance.py`, CLI `ad2v extractor check <name> --fixture <dir>`;
+    `ad2v extractors list`. Examples: `examples/plugins/{routes-dsl-extractor,bottle-framework-pack}`.
+  - Parse cache key: `extractor_version = name@version[:cache version]`, `rules_hash` = the
+    extractor's effective rules hash.
 - **Extraction:**
   - `extract/` holds the code (Python, tree-sitter) and spec (Gherkin, OpenAPI, Markdown)
     extractors; `extract/spec/presets.py` (P6.1) reads spec-kit, Kiro and custom Markdown;
@@ -111,7 +154,12 @@ Principles:
 - **LLM layer:** `llm/` (providers `fake`, `vertex`, `openai_compatible` over stdlib urllib;
   `runner.py` with cache, budget and plan; tasks judge, suggest, summarize, narrate,
   extract-prose; fencing of untrusted input).
-- **Serving:** `view.py` (`ad2v view`: 127.0.0.1, GET/HEAD, strict CSP; with `--chat` also
+- **Blind eval (P8):** `mcp/blind.py`, `ad2v eval blind` (aggregates only; `AD2V_BLIND_EVAL`).
+- **Security (P8):** `store.foreign_schema_objects` (writers and the MCP server refuse triggers /
+  altered views; `trusted_schema = OFF`), `validate` size/depth/schema checks, repository-supplied
+  paths contained; threat model `docs/security.md`.
+- **Serving:** `view.py` (`ad2v view`: 127.0.0.1, GET/HEAD, strict CSP, Host checked on every
+  request; with `--chat` also
   `/api/chat/*` behind a token, Host and Origin checks); `mcp/` (P6, below).
 - **Chat (P7):** `chat/agent.py` (ChatService: turn loop, ≤ 6 steps, last step forced to
   `ad2v_answer`, citation check, budget meter, `llm_results` task `chat`), `chat/http.py`
@@ -191,10 +239,15 @@ Principles:
 
 ### 4.5 Tests and gates
 
-- `pytest`: 320 tests + 1 cloud skip (`-m mcp`: 25; `-m slow`: the quickstart guard).
+- `pytest`: 382 collected (380 pass + 1 cloud skip + 1 symlink skip on Windows); `-m mcp`, `-m slow`
+  (the quickstart guard).
 - Viewer: Vitest 49; `npm run test:mcp` covers parity, Inspector conformance and the App e2e.
 - Playwright: the P5 tour (2), the App (10), replay camera (2), dim (3), chat (3, against a real
-  `ad2v view --chat` with the fake provider), UX v2 (2).
+  `ad2v view --chat` with the fake provider), UX v2 (2), hostile file (2, P8: no script runs in
+  either viewer mode).
+- CI (P8, written, never run): `.github/workflows/ci.yml` (ubuntu on push/PR; all OS on manual
+  dispatch) and `release.yml` (disabled). Gates: `scripts/check_python_licenses.py`,
+  `scripts/determinism_check.py`, npm license gate, ruff, ESLint, tsc, Vitest, conformance kit.
 - ESLint, `tsc`, ruff and the license gate are all clean.
 - Coverage of new modules is ≥ 90%.
 
@@ -270,6 +323,11 @@ Principles:
   - 0060: judge roll-up for containers/components;
   - 0061: viewer UX v2 (labels, edge modes, portals, dashes, hidden replay steps);
   - 0062: nestgrid-v2 behind a flag (v1 stays the default).
+- **0063–0065 (P8):**
+  - 0063: the extractor plug-in API (api 1.0), interfaces, semver policy, conformance kit, and
+    what did not fit cleanly;
+  - 0064: discovery, opt-in, trust and isolation (timeouts, `--strict`);
+  - 0065: plug-in identity in the epoch rules (additive within v0.5), parse-cache key, GC.
 
 ## 6. Findings worth knowing
 
@@ -312,6 +370,12 @@ Principles:
   - The MCP Inspector can't be a dependency (its tree includes lightningcss, MPL), so it runs via
     `npx`.
 
+- **P8:** the refactor changed no normative output (only epoch ids / rules hashes, which now
+  carry plug-in identity); a P7 file gets one new `rules` epoch on its next extraction. The
+  `ad2v.chat` package had been missing from the wheel since P7 (fixed). A repository's own
+  `ad2v.yaml` could make ad2v read outside the repo (fixed). Blind retrieval: harness only; the
+  owner supplies the questions.
+
 ## 7. Open issues (from `issues.md`; numbers refer to it)
 
 - **Extractor recall:**
@@ -335,7 +399,10 @@ Principles:
   - #79: tests and migrations outrank app code on real repos.
   - Not implemented: `subscriptions/listen`; a web-host sandbox-proxy test; any remote deployment
     (out of scope, with a checklist in `docs/mcp.md`).
-- **Language support:** code extraction is **Python only**.
+- **Plug-ins / security (P8):** #89 core rules still in `python.yaml`; #90 no tree-level framework
+  hook; #91 the viewer does not check a file's schema before querying; #92 `braces` advisory in the
+  build chain; #93 actionlint / gitleaks not run yet.
+- **Language support:** code extraction is **Python only** (TypeScript is P9, as a plug-in).
 
 ## 8. How inputs are found (P6.1, P7)
 
@@ -363,12 +430,14 @@ No folder layout is required.
 
 ## 9. Where things are
 
-- Reports: `REPORT.md` (P7), `docs/reports/P1.md`–`P6.md`, `P6.1.md`, `P7.md`.
+- Reports: `REPORT.md` (P8), `docs/reports/P1.md`–`P6.md`, `P6.1.md`, `P7.md`, `P8.md`.
 - Screenshots: `docs/reports/P5-screens/`, `P6-screens/`, `P6.1-screens/`, `P7-screens/`.
 - Demo: `docs/reports/P5-demo.html`, rebuilt in P7 with the current viewer.
 - Tracking: `status.md`, `issues.md`, `pending.md`.
 - Docs: `docs/adr/`, `docs/spec/`, `docs/dependencies.md`, `docs/mcp.md`,
-  `docs/quickstart.md` (verified; `tests/test_quickstart.py` guards it).
+  `docs/quickstart.md` (verified; `tests/test_quickstart.py` guards it), `docs/plugins.md`,
+  `docs/security.md` + `SECURITY.md`, `docs/blind-eval.md`, `docs/dogfood.md`,
+  `docs/RELEASING.md` (not for now).
 - Fixtures: `fixtures/payments-recon/` (code, `specs/`, goldens, `expected-questions.yaml`),
   `fixtures/sdd-presets/{spec-kit,kiro,custom}` (+ `expected-questions.yaml`),
   `fixtures/retrieval-eval/fastapi-template.yaml` (questions only; the clone is not shipped). The viewer demo file
@@ -389,5 +458,6 @@ No folder layout is required.
 P7 answered the remaining questions: the viewer now has its own chat (`ad2v view --chat`),
 FastAPI settings prefixes resolve, and the quickstart is verified.
 
-Next is P8, the open-source launch (see pending.md "After P7" and REPORT.md §10). Do not start it
-without the developer's prompt.
+Next is P9, the TypeScript extractor as a plug-in, after the owner's dogfood results and the
+employer agreement (REPORT.md §11, pending.md "After P8"). Do not start it without the owner's
+prompt.

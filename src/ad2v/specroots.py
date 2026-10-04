@@ -72,17 +72,19 @@ def recognized(repo: Path, root: Path, exclude: tuple[str, ...], rules: list[dic
 
 def autodetect(repo: Path, exclude: tuple[str, ...], rules: list[dict[str, Any]] | None = None) -> list[Path]:
     out: list[Path] = []
+    inside = Path(repo).resolve()
     for d in AUTO_DIRS:
         p = repo / d
         if (
             p.is_dir()
+            and p.resolve().is_relative_to(inside)  # never follow a symlink out of the repo (P8)
             and any(True for _ in filewalk.walk(p, exclude, SPEC_SUFFIXES))
             and recognized(repo, p, exclude, rules or [])
         ):
             out.append(p)
     for f in ROOT_OPENAPI:
         p = repo / f
-        if p.is_file() and spec_files(p, exclude):
+        if p.is_file() and p.resolve().is_relative_to(inside) and spec_files(p, exclude):
             out.append(p)
     return out
 
@@ -102,12 +104,17 @@ def resolve(
         source = "cli"
     elif manifest_roots:
         roots = [(repo / r).resolve() for r in manifest_roots]
+        outside = [r for r, p in zip(manifest_roots, roots, strict=True) if not p.is_relative_to(repo)]
+        if outside:  # P8 (docs/security.md §7): a repository's own manifest never reads outside it
+            raise SpecRootError(f"ad2v.yaml spec_root must stay inside the repository: {', '.join(outside)}")
         missing = [r for r, p in zip(manifest_roots, roots, strict=True) if not p.exists()]
         if missing:
             raise SpecRootError(f"ad2v.yaml spec_root not found: {', '.join(missing)}")
         source = "manifest"
     elif autodetect_enabled:
-        roots, source = autodetect(repo, exclude, rules), "auto"
+        # a symlinked specs/ that points outside the repository is not a spec root (P8)
+        roots = [r for r in autodetect(repo, exclude, rules) if r.resolve().is_relative_to(repo)]
+        source = "auto"
     else:
         roots, source = [], "none"
     # de-duplicate, keep order; drop roots inside another root

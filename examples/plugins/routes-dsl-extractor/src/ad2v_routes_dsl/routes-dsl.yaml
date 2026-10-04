@@ -1,0 +1,2 @@
+# Rules of the example routes-DSL extractor. Their canonical hash enters the epoch identity.
+methods: [GET, POST, PUT, PATCH, DELETE]

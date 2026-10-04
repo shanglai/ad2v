@@ -15,6 +15,12 @@ how the spec items and the code pair up. Readers of that file:
 
 Like mermaid.js, ad2v is an open **format** plus reference implementations. License: Apache-2.0.
 
+Current version: **0.7.0.dev0** (a development pre-release; not published on PyPI). Code is read by
+**language extractors** and frameworks are recognized by **framework packs**, both plug-ins behind a
+stable public API (`ad2v.api`, api 1.0, entry-point groups `ad2v.extractors` / `ad2v.frameworks`).
+The built-in Python extractor and Python framework pack use the same API; third-party plug-ins are
+opt-in ([plug-in guide](docs/plugins.md)).
+
 ## Status of the series
 
 | phase | scope | status |
@@ -26,8 +32,8 @@ Like mermaid.js, ad2v is an open **format** plus reference implementations. Lice
 | P5 | three.js viewer: deterministic layout, LOD map, status styling, replay, epoch diff; `ad2v view` | done ([report](docs/reports/P5.md), [demo](docs/reports/P5-demo.html)) |
 | P6 | MCP server (stdlib, protocol 2026-07-28) + the map as an MCP App; deterministic retrieval | done ([report](docs/reports/P6.md), [setup](docs/mcp.md)) |
 | P6.1 | real-repo readiness: route recall (factories, `add_api_route`, Starlette, Flask), spec discovery, spec-kit / Kiro / custom presets, `ad2v specs` bootstrap, replay camera, opaque "dim the rest" | done ([report](docs/reports/P6.1.md)) |
-| **P7** | verified quickstart, settings prefixes, retrieval v2, the viewer's own chat agent (BYOM, `ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, format v0.5 | **done** ([report](REPORT.md), [quickstart](docs/quickstart.md)) |
-| P8 | open-source launch preparation | planned |
+| P7 | verified quickstart, settings prefixes, retrieval v2, the viewer's own chat agent (BYOM, `ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, format v0.5 | done ([report](docs/reports/P7.md), [quickstart](docs/quickstart.md)) |
+| **P8** | extractor plug-in API (`ad2v.api`, entry points, opt-in, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (not published), CI workflows, security review, sanitization, dogfood procedure | **done** ([report](REPORT.md), [plug-ins](docs/plugins.md), [security](docs/security.md)) |
 
 Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
 line numbers): the same inputs (code, specs, rules, manifest, test results) give the same normative
@@ -157,13 +163,21 @@ ad2v specs approve <proposal> [--to specs/sub] [--force-stale]
   `verified`, `implemented`, `specified`) with their reasons.
 - `prune` keeps the last N epochs (and pinned ones), garbage-collects and vacuums.
 - `dump --normative-only` is the determinism contract: sorted JSONL, UTF-8, LF on every OS.
-- `validate` checks the format version (0.4), foreign keys and node references, version keys, the
+- `validate` checks the format version (0.4 or 0.5), schema objects (no triggers, no foreign
+  tables or views), text sizes and JSON depth, foreign keys and node references, version keys, the
   epoch chain, glyph and status coverage, the IR JSON Schema, and that ids, link ids, Merkle hashes
   and roll-ups recompute.
 - `view` serves the built viewer on 127.0.0.1 (GET/HEAD only, strict CSP). The viewer is
   read-only and never calls an LLM. Actions that change state are shown as CLI commands to copy.
   It shows materialized epochs only. `extract` and `materialize` also write the deterministic
   layout (`nestgrid-v1`, format spec §12), which keeps boxes in place across epochs.
+- `extractors list` shows the installed extractor and framework-pack plug-ins (built-in, enabled,
+  disabled); `extractor check <name> --fixture <dir>` runs the conformance kit. `extract` and
+  `history` print each active plug-in with its version and rules hash; `--extractor <name>` enables
+  an installed third-party plug-in for one run (or list it in `ad2v.yaml` under
+  `extractors.enabled`), `--strict` makes a failing plug-in fatal.
+- `eval blind` scores a private retrieval question set (path in `AD2V_BLIND_EVAL`) and prints
+  aggregates only ([blind eval](docs/blind-eval.md)).
 - `preview-tokens` writes one self-contained HTML page: every glyph × every status, dark and light
   (see [`docs/reports/P2-tokens.html`](docs/reports/P2-tokens.html)).
 
@@ -177,7 +191,7 @@ repository code or tests.
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
 - [DDL](schema/ad2v-v0.5.sql), [IR JSON Schema](schema/ir-v0.5.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
-- [REPORT.md](REPORT.md) (P7), [quickstart](docs/quickstart.md), [MCP setup](docs/mcp.md), [P6.1 report](docs/reports/P6.1.md), [P6 report](docs/reports/P6.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
+- [REPORT.md](REPORT.md) (P8), [P7 report](docs/reports/P7.md), [plug-in guide](docs/plugins.md), [security](docs/security.md), [blind eval](docs/blind-eval.md), [dogfood procedure](docs/dogfood.md), [releasing (not for now)](docs/RELEASING.md), [quickstart](docs/quickstart.md), [MCP setup](docs/mcp.md), [P6.1 report](docs/reports/P6.1.md), [P6 report](docs/reports/P6.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
 ## Optional manifest (`ad2v.yaml`)
 
@@ -200,6 +214,8 @@ pairing:
   path_constants: {"settings.API_V1_STR": "/api/v1"}   # values for unresolvable route prefixes
   resolve_settings_defaults: false # true: read literal pydantic Settings defaults (warned)
 rules_overlay: rules-overlay.yaml  # deep-merged over the built-in rules (changes rules_hash)
+extractors:
+  enabled: []                      # third-party extractor / framework-pack plug-ins to run (opt-in)
 llm:                              # informative only: never in config_hash or an epoch id
   provider: vertex                # fake | vertex | openai_compatible
   project: my-gcp-project
@@ -224,8 +240,12 @@ is a container.
 ```
 
 ```bash
-.venv/Scripts/ruff check src tests
+.venv/Scripts/ruff check .
 ```
+
+CI (`.github/workflows/ci.yml`) runs the tests, determinism (LF vs CRLF+BOM, across systems), both
+license gates, the viewer checks and builds, and the plug-in conformance kit; while the repository
+is private, Windows and macOS run only on a manual dispatch.
 
 The viewer (Node ≥ 20) lives in `viewer/`:
 

@@ -124,3 +124,19 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 81 | low | `specs bootstrap` on operations.md (live) proposed 4 faithful requirements but left out the 02:00 UTC schedule. | accepted: review step; the human edits before approving |
 | 82 | low | nestgrid-v2 is less dense than v1 on the small fixture (0.43 vs 0.46) while much denser on dispatch. | open: decide the default in P8 |
 | 83 | medium | `ad2v prune --drop-llm-cache` never deleted anything once a referenced table lacked `result_id` (SQLite bound the name to the outer query). | **fixed** (ADR-0060): qualified subquery |
+
+## P8
+
+| # | severity | issue | state |
+|---|---|---|---|
+| 84 | medium | A repository's own `ad2v.yaml` could point `spec_root` / `rules_overlay` outside the repository (and an auto-detected `specs/` symlink could too), so ad2v could read local files into a map that is then shared. | **fixed**: contained (docs/security.md S1-S3) |
+| 85 | medium | `ad2v view` checked `Host` only on chat endpoints: a DNS-rebinding page could read the served map. | **fixed**: every request (S4) |
+| 86 | medium | Writers would fire triggers embedded in a hostile `.ad2v`; `validate` did not report foreign schema objects, huge strings or deep JSON (and crashed on deep JSON). | **fixed**: writers refuse, `trusted_schema = OFF`, validate checks (S5, S6) |
+| 87 | low | The `ad2v.chat` package was missing from the wheel since P7; setuptools warned that themes, rules and viewer assets would be dropped in a future version. | **fixed** (pyproject packages) |
+| 88 | low | Plug-ins are not sandboxed (in-process, user privileges); the file accessor and the kit's audit hooks are contracts and checks, not enforcement. | accepted (ADR-0064): opt-in, documented as trusted code |
+| 89 | low | `python.yaml` still holds the language-agnostic `severity:` and `retrieval:` sections; a second real extractor (P9) needs them in core rules. | open (ADR-0063 "what did not fit") |
+| 90 | low | Framework packs can add recognizer *data* to the Python extractor but not new syntax-tree algorithms (the hook sees the finished graph). | open: consider a tree-level hook in api 1.x |
+| 91 | low | The standalone viewer queries a hostile file's views without comparing the schema first; pathological views can hang the tab. | open (S13) |
+| 92 | low | `braces` advisory (GHSA-vfj7-8cjw-p6xm) in the build-only chain via `vite-plugin-singlefile`; no patched release. | open (S14) |
+| 93 | info | actionlint and gitleaks were not installed; workflows are checked statically by tests and history was scanned with regex patterns instead. | open: run both once on the public repository |
+

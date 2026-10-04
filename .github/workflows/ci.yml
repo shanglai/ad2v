@@ -1,0 +1,188 @@
+# CI: tests, determinism, license gates, viewer checks and builds, plug-in conformance kit.
+#
+# COST (P8): the repository is private for now, so every job spends the plan's included Actions
+# minutes, and Windows (x2) and macOS (x10) minutes count at a multiplier. Therefore:
+#   - push / pull_request run on ubuntu-latest only;
+#   - Windows and macOS run only on a manual `workflow_dispatch` with `all_os: true`.
+# Once the repository is public (standard runners are free there), enable all three on push by
+# replacing the two `matrix.os` expressions below with ["ubuntu-latest", "windows-latest",
+# "macos-latest"]. Estimated minutes per run: docs/reports/P8.md §10.
+#
+# Actions are pinned by full commit SHA (tag in the comment); permissions are read-only.
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      all_os:
+        description: "Also run on Windows and macOS (costs x2 / x10 minutes while private)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHONUTF8: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  viewer:
+    name: viewer (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.all_os && '["ubuntu-latest","windows-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+      - name: Install ad2v (the Vitest fixtures are built with it)
+        run: python -m pip install -e .
+      - name: npm ci
+        working-directory: viewer
+        run: npm ci
+      - name: Lint, typecheck, unit tests
+        working-directory: viewer
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+      - name: Builds (each runs the npm license gate)
+        working-directory: viewer
+        run: |
+          npm run build
+          npm run build:app
+      - name: Upload the builds (the Python jobs serve and package them)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: viewer-builds
+          path: |
+            viewer/dist/
+            viewer/app-dist/
+          retention-days: 3
+
+  python:
+    name: python ${{ matrix.python }} (${{ matrix.os }})
+    needs: viewer
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.all_os && '["ubuntu-latest","windows-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+        python: ["3.12"]
+        include:
+          - os: ubuntu-latest
+            python: "3.11" # the minimum in pyproject.toml
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: viewer-builds
+          path: viewer/
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Python license gate (runtime closure, then dev)
+        run: |
+          python scripts/check_python_licenses.py
+          python scripts/check_python_licenses.py --extras dev
+      - name: Ruff
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Tests (no cloud, no LLM calls; fake provider only)
+        run: python -m pytest -q
+      - name: Determinism (LF vs CRLF+BOM; hashes compared across OSes below)
+        run: python scripts/determinism_check.py --out "determinism-${{ matrix.os }}-py${{ matrix.python }}.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: determinism-${{ matrix.os }}-py${{ matrix.python }}
+          path: determinism-${{ matrix.os }}-py${{ matrix.python }}.json
+          retention-days: 3
+
+  determinism:
+    name: determinism across OS and Python versions
+    needs: python
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: determinism-*
+          merge-multiple: true
+          path: results/
+      - name: Every system produced the same normative dumps
+        run: python scripts/determinism_check.py --compare "results/*.json"
+
+  plugins:
+    name: plug-in conformance kit (examples, installed)
+    needs: viewer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: viewer-builds
+          path: viewer/
+      - name: Install ad2v and the two out-of-tree examples into a fresh venv
+        run: |
+          python -m venv /tmp/plugins
+          /tmp/plugins/bin/python -m pip install . examples/plugins/routes-dsl-extractor examples/plugins/bottle-framework-pack
+      - name: Discovered, disabled by default
+        run: /tmp/plugins/bin/ad2v extractors list --inspect
+      - name: Conformance kit
+        run: |
+          for p in python python-frameworks; do
+            /tmp/plugins/bin/ad2v extractor check "$p" --fixture fixtures/sdd-presets/kiro
+          done
+          /tmp/plugins/bin/ad2v extractor check routes-dsl --fixture examples/plugins/routes-dsl-extractor/fixture --json
+          /tmp/plugins/bin/ad2v extractor check bottle --fixture examples/plugins/bottle-framework-pack/fixture --json
+      - name: A real extract with the plug-ins enabled
+        run: |
+          /tmp/plugins/bin/ad2v extract --repo examples/plugins/routes-dsl-extractor/fixture --out /tmp/orders.ad2v
+          /tmp/plugins/bin/ad2v validate /tmp/orders.ad2v
+          /tmp/plugins/bin/ad2v extract --repo examples/plugins/bottle-framework-pack/fixture --out /tmp/bottle.ad2v --extractor bottle
+          /tmp/plugins/bin/ad2v inspect /tmp/bottle.ad2v --kind http_route

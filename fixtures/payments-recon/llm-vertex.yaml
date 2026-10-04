@@ -3,7 +3,7 @@
 # `llm.*` is informative: it never enters config_hash or an epoch id.
 llm:
   provider: vertex
-  project: mapper-cat-3
+  project: your-gcp-project  # set to your own Google Cloud project
   location: global              # gemini-3.8-flash answers on the global endpoint (checked with countTokens)
   model: gemini-3.8-flash       # latest GA Gemini Flash listed for the project on 2026-09-28
   output_language: en

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ad2v-routes-dsl"
+version = "0.1.0"
+description = "Example out-of-tree ad2v extractor plug-in for a toy routes DSL (*.routes files)"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+# ad2v itself is a peer requirement: install ad2v first (it is not published on PyPI yet, so it is
+# not declared here, which would make pip try to download it)
+dependencies = []
+
+[project.entry-points."ad2v.extractors"]
+routes-dsl = "ad2v_routes_dsl:RoutesDslExtractor"
+
+[tool.setuptools]
+packages = ["ad2v_routes_dsl"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+ad2v_routes_dsl = ["*.yaml"]

@@ -113,13 +113,17 @@ def gc(conn: sqlite3.Connection, drop_llm_cache: bool = False) -> dict[str, int]
     conn.execute("DELETE FROM config_versions WHERE config_hash NOT IN (SELECT config_hash FROM epochs)")
     versions_removed = conn.total_changes - before
     before = conn.total_changes
-    # a cache row survives if some remaining epoch has that file content under that rules hash
+    # a cache row survives if some remaining epoch has that file content under that rules hash:
+    # the epoch's rules hash (pre-P8 rows) or the effective rules hash of one of its plug-ins
+    # (P8, ADR-0065: `plugins[].effective_rules_hash` in the epoch rules)
     conn.execute(
         "DELETE FROM parse_cache WHERE NOT EXISTS ("
         " SELECT 1 FROM epoch_nodes en JOIN node_versions v ON v.vid = en.vid"
-        " JOIN epochs e ON e.seq = en.seq"
+        " JOIN epochs e ON e.seq = en.seq JOIN rules_versions rv ON rv.rules_hash = e.rules_hash"
         " WHERE v.kind = 'module' AND v.side = 'code' AND v.path = parse_cache.path"
-        " AND v.content_hash = parse_cache.content_hash AND e.rules_hash = parse_cache.rules_hash)"
+        " AND v.content_hash = parse_cache.content_hash AND (e.rules_hash = parse_cache.rules_hash"
+        " OR EXISTS (SELECT 1 FROM json_each(rv.rules_json, '$.plugins') p"
+        " WHERE json_extract(p.value, '$.effective_rules_hash') = parse_cache.rules_hash)))"
     )
     conn.execute(
         "DELETE FROM source_blobs WHERE content_hash NOT IN (SELECT v.content_hash FROM node_versions v"

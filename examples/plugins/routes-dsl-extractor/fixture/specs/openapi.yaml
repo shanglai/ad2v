@@ -1,0 +1,10 @@
+openapi: 3.0.3
+info: {title: orders, version: "1"}
+paths:
+  /v1/orders:
+    get: {operationId: listOrders, summary: List orders}
+    post: {operationId: createOrder, summary: Create an order}
+  /v1/orders/{id}:
+    get: {operationId: getOrder, summary: Get one order}
+  /v1/orders/{id}/cancel:
+    post: {operationId: cancelOrder, summary: Cancel an order}

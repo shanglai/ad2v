@@ -262,8 +262,11 @@ def _graph_payload(g):
 
 def test_cached_extraction_equals_uncached():
     cold = pipeline.build(FIXTURE, FIXTURE / "specs")
-    cache = {(p, h): lf for p, (h, lf) in cold.cache_entries.items()}
-    warm = pipeline.build(FIXTURE, FIXTURE / "specs", cache_loader=lambda _rules_hash: cache)
+    # P8: cache entries are grouped by (extractor cache version, effective rules hash)
+    ((key, entries),) = cold.cache_entries.items()
+    assert key[0] == "python@1.0.0:python-local-3"
+    cache = {(p, h): lf for p, (h, lf) in entries.items()}
+    warm = pipeline.build(FIXTURE, FIXTURE / "specs", cache_loader=lambda _rules_hash, _version: cache)
     assert warm.stats["cache_hits"] == warm.stats["files_code"] and warm.stats["cache_misses"] == 0
     assert _graph_payload(warm.graph) == _graph_payload(cold.graph)
     assert warm.epoch.epoch_id == cold.epoch.epoch_id
@@ -271,8 +274,9 @@ def test_cached_extraction_equals_uncached():
 
 def test_stale_cache_version_is_ignored():
     cold = pipeline.build(FIXTURE, FIXTURE / "specs")
-    cache = {(p, h): {**lf, "v": "python-local-0"} for p, (h, lf) in cold.cache_entries.items()}
-    warm = pipeline.build(FIXTURE, FIXTURE / "specs", cache_loader=lambda _rules_hash: cache)
+    ((_key, entries),) = cold.cache_entries.items()
+    cache = {(p, h): {**lf, "v": "python-local-0"} for p, (h, lf) in entries.items()}
+    warm = pipeline.build(FIXTURE, FIXTURE / "specs", cache_loader=lambda _rules_hash, _version: cache)
     assert warm.stats["cache_hits"] == 0
 
 

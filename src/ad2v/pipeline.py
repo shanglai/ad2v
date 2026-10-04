@@ -24,22 +24,20 @@ from ad2v import (
     layout,
     materialize,
     pairing,
+    plugins,
     severity,
     specroots,
     store,
     workflows,
 )
-from ad2v import rules as rules_mod
 from ad2v.extract import files as filewalk
-from ad2v.extract.code import schema_digest
 from ad2v.extract.code.base import CodeFacts, Layout
-from ad2v.extract.code.python import PythonExtractor
-from ad2v.extract.code.python_local import LOCAL_EXTRACTOR_VERSION
 from ad2v.extract.spec import extract_specs, spec_tree_hash
 from ad2v.manifest import Config
 from ad2v.manifest import load as load_manifest
 
-CacheLoader = Callable[[str], dict[tuple[str, str], Any]]
+# (effective rules hash, extractor cache version) -> {(path, content_hash): payload}
+CacheLoader = Callable[[str, str], dict[tuple[str, str], Any]]
 
 
 @dataclass
@@ -67,7 +65,8 @@ class Result:
     rules: dict[str, Any] = field(default_factory=dict)
     lineage: history.Lineage = field(default_factory=history.Lineage)
     link_state: list[dict[str, Any]] = field(default_factory=list)
-    cache_entries: dict[str, tuple[str, Any]] = field(default_factory=dict)
+    # (extractor cache version, effective rules hash) -> {path: (content_hash, payload)}
+    cache_entries: dict[tuple[str, str], dict[str, tuple[str, Any]]] = field(default_factory=dict)
     elapsed_s: float = 0.0
     stats: dict[str, Any] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
@@ -77,6 +76,9 @@ class Result:
     spec_roots: specroots.SpecRoots = field(
         default_factory=specroots.SpecRoots
     )  # P6.1: where specs came from
+    plugins: list[str] = field(default_factory=list)  # P8: active plug-ins, one line each
+    plugin_runs: list[plugins.PluginRun] = field(default_factory=list)
+    plugin_graphs: dict[str, ir.Graph] = field(default_factory=dict)  # per extractor (not persisted)
 
     @property
     def derived(self) -> store.Derived:
@@ -174,7 +176,13 @@ def build(
     repo_commit: str | None = None,
     seq: int = 1,
     spec_autodetect: bool = True,
+    extractors: tuple[str, ...] | list[str] = (),
+    strict: bool = False,
+    plugin_timeout_s: float | None = plugins.DEFAULT_TIMEOUT_S,
 ) -> Result:
+    """`extractors`: third-party plug-ins enabled for this run in addition to `ad2v.yaml`'s
+    `extractors.enabled` (ADR-0064). `strict`: a failing plug-in aborts the run instead of being
+    reported and skipped."""
     t0 = time.perf_counter()
     timings: dict[str, float] = {}
 
@@ -185,10 +193,11 @@ def build(
 
     repo = Path(repo).resolve()
     config = load_manifest(repo, manifest)
-    rules = rules_mod.load(rules_path, config.rules_overlay)
+    active = plugins.resolve(config, tuple(extractors), rules_path)
+    rules = active.epoch_rules
     system_name = config.system_name or name_hint or repo.name
-    extractor = PythonExtractor(config, rules)
-    rel = filewalk.walk(repo, config.exclude, extractor.suffixes)
+    patterns = active.all_patterns()
+    rel = filewalk.walk(repo, config.exclude, include=lambda p: plugins.matches(p, patterns))
     cli_specs = None if spec is None else [Path(spec)] if isinstance(spec, (str, Path)) else list(spec)
     sroots = specroots.resolve(
         repo, cli_specs, list(config.spec_roots), config.exclude, spec_autodetect, config.spec_markdown
@@ -197,25 +206,15 @@ def build(
         if root.is_dir() and root != repo and root.is_relative_to(repo):
             spec_rel = root.relative_to(repo).as_posix()
             rel = [p for p in rel if not p.startswith(spec_rel + "/")]
+    # every file an active plug-in claims is an epoch input (P7: SQL DDL for schema digests,
+    # now claimed by the built-in framework pack; P8: third-party extractors' files)
     files = filewalk.load(repo, rel)
-    # P7 (ADR-0059): SQL DDL feeds the datastore schema digests, so it is an epoch input
-    spec_prefixes = tuple(
-        r.relative_to(repo).as_posix() + "/"
-        for r in sroots.roots
-        if r.is_dir() and r != repo and r.is_relative_to(repo)
-    )
-    sql_rel = [
-        p
-        for p in filewalk.walk(repo, config.exclude, (".sql",))
-        if not (spec_prefixes and p.startswith(spec_prefixes))
-    ]
-    sql_files = filewalk.load(repo, sql_rel)
     specs = specroots.collect(sroots, config.exclude, config.spec_markdown)
     config.effective_spec_roots = tuple(sroots.labels)
     config.spec_presets = {p: ch.preset for p, ch in sroots.choices.items()}
     tests_given = bool(test_results)
     tr_paths = [Path(t) for t in test_results or []]
-    repo_tree = ids.tree_hash({f.path: f.content_hash for f in [*files, *sql_files]})
+    repo_tree = ids.tree_hash({f.path: f.content_hash for f in files})
     spec_tree = spec_tree_hash(specs)
     if tests_given:
         tests_hash = junit.files_hash(tr_paths, repo)
@@ -250,17 +249,27 @@ def build(
             rules=rules,
             unchanged=True,
             spec_roots=sroots,
+            plugins=plugins.describe(active),
         )
         res.elapsed_s = time.perf_counter() - t0
         return res
 
     graph = ir.Graph()
-    layout = Layout(graph, config, repo, system_name)
-    cache = cache_loader(rules["_hash"]) if cache_loader is not None else None
-    facts = extractor.extract(graph, layout, files, cache)
-    schema_digest.apply(graph, files, sql_files)
+    Layout(graph, config, repo, system_name)  # the system node comes first, whatever runs
+    ran = plugins.run(
+        active,
+        graph=graph,
+        repo=repo,
+        config=config,
+        system_name=system_name,
+        files=files,
+        cache_loader=cache_loader,
+        strict=strict,
+        timeout_s=plugin_timeout_s,
+    )
+    facts = ran.facts
     t = lap("code_extraction", t)
-    timings.update({f"code.{k}": v for k, v in extractor.timings.items()})
+    timings.update(ran.timings)
     if sroots.roots:
         extract_specs(
             graph, sroots.roots[0], config.exclude, root_name=system_name, files=specs, choices=sroots.choices
@@ -302,6 +311,8 @@ def build(
         "tests_fresh": tests_fresh,
         "unmatched_tests": tests.unmatched,
     }
+    if ran.failures:  # ADR-0064: a skipped plug-in is visible in the epoch, never silent
+        epoch.attrs["plugin_failures"] = ran.failures
     meta = {
         "repo_root_name": repo.name,
         "rules_version": str(rules["rules_version"]),
@@ -322,9 +333,12 @@ def build(
         rules,
         lineage,
         link_state,
-        dict(extractor.new_cache_entries),
+        ran.cache_entries,
     )
     res.timings = timings
+    res.plugins = plugins.describe(active)
+    res.plugin_runs = ran.runs
+    res.plugin_graphs = ran.graphs
     res.spec_roots = sroots
     res.sources = {f.content_hash: f.text for f in files} | {ids.content_hash(t): t for _, _, t in specs}
     if parent is not None:
@@ -336,8 +350,8 @@ def build(
         "loc_code": sum(
             (n.span_end_line or 0) for n in graph.nodes.values() if n.kind == "module" and n.side == "code"
         ),
-        "cache_hits": extractor.cache_hits,
-        "cache_misses": extractor.cache_misses,
+        "cache_hits": ran.stats["cache_hits"],
+        "cache_misses": ran.stats["cache_misses"],
     }
     return res
 
@@ -375,7 +389,8 @@ def write_epoch(conn: sqlite3.Connection, res: Result, parent: Parent | None) ->
         if not (pinned and pinned[0]):
             store.drop_derived(conn, parent.epoch.epoch_id)
     store.write_derived(conn, res.epoch.epoch_id, res.derived)
-    store.write_parse_cache(conn, res.cache_entries, res.rules["_hash"], LOCAL_EXTRACTOR_VERSION)
+    for (version, rules_hash), entries in sorted(res.cache_entries.items()):
+        store.write_parse_cache(conn, entries, rules_hash, version)
     store.write_sources(conn, res.sources)
     store.set_meta(conn, {**res.meta, "head_epoch": res.epoch.epoch_id})
 
@@ -393,6 +408,9 @@ def extract_to_file(
     name_hint: str | None = None,
     repo_commit: str | None = None,
     spec_autodetect: bool = True,
+    extractors: tuple[str, ...] | list[str] = (),
+    strict: bool = False,
+    plugin_timeout_s: float | None = plugins.DEFAULT_TIMEOUT_S,
 ) -> Result:
     """`--out` (into=False): fresh single-epoch file. `--into`: append an epoch if inputs changed."""
     out = Path(out)
@@ -406,8 +424,8 @@ def extract_to_file(
         loader: CacheLoader | None = None
         if use_cache:
 
-            def loader(rules_hash: str) -> dict[tuple[str, str], Any]:
-                return store.load_parse_cache(conn, rules_hash, LOCAL_EXTRACTOR_VERSION)
+            def loader(rules_hash: str, version: str) -> dict[tuple[str, str], Any]:
+                return store.load_parse_cache(conn, rules_hash, version)
 
         res = build(
             repo,
@@ -421,6 +439,9 @@ def extract_to_file(
             repo_commit=repo_commit,
             seq=int(seq_row[0]) + 1,
             spec_autodetect=spec_autodetect,
+            extractors=extractors,
+            strict=strict,
+            plugin_timeout_s=plugin_timeout_s,
         )
         res.timings["load_parent"] = t_parent
         if res.unchanged:

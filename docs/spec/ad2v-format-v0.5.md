@@ -28,6 +28,26 @@ repositories without `*.sql` files and every normative table keep their shape.
   `node_status_effective` reads it (§11.4).
 - `datastore` nodes may carry `attrs.schema_digest`, and `http_route` nodes
   `attrs.schema_models` (§3.9). `*.sql` files are epoch inputs (they enter `repo_tree_hash`).
+
+### Additions within v0.5 (P8, ADR-0065)
+
+No DDL change; readers of v0.5 need no change.
+
+- **Plug-in identity.** The stored epoch rules (`rules_versions.rules_json`) gain a key `plugins`:
+  one record per active extractor or framework pack (`kind`, `name`, `version`, `api_version`,
+  `rules_hash` of its own rules files, `attaches_to` for packs, `effective_rules_hash` for
+  extractors), sorted by kind and name. Because it is part of the rules, it is covered by
+  `rules_hash` and therefore by the epoch id; a changed, added or removed plug-in yields a new
+  epoch with `change_kind` `rules`. Third-party extractors' effective rules are stored under
+  `plugin_rules.<name>`. Epochs written before P8 lack the key; the first P8 extraction of an
+  unchanged tree therefore appends a new epoch (`rules`).
+- **Inputs.** `repo_tree_hash` covers every file claimed by an active plug-in's `file_patterns`
+  (the built-ins claim `*.py` and `*.sql`, exactly the P7 inputs).
+- **Parse cache key.** `parse_cache.extractor_version` is `<name>@<version>[:<cache version>]`
+  (`python@1.0.0:python-local-3`) and `parse_cache.rules_hash` is that extractor's
+  `effective_rules_hash` (§10.1).
+- `epochs.attrs.plugin_failures` (N, only when non-empty): third-party plug-ins that raised or
+  timed out and were skipped (`name`, `kind`, `version`, `error`).
 - `http_route` nodes may carry `attrs.prefix_sources` (§6.1, `pairing.path_constants` and
   `pairing.resolve_settings_defaults`).
 - Readers accept 0.4 and 0.5. A writer upgrades a 0.4 file in place, in one transaction
@@ -116,7 +136,7 @@ tables) keeps its v0.2 shape: readers that query the `nodes`, `edges`, `unresolv
 | `body_hash` | Functions and classes: `content_hash` of the span with the defined name masked in the `def`/`class` line. Used as the rename-invariant **fingerprint** of §6.6–6.7; other nodes use `content_hash`. |
 | `subtree_hash` | `sha256_hex(join("\n", [content_hash] + ["<child_id>:<child_subtree_hash>" for children sorted by id]))`, where children are nodes whose `parent_id` is this node. |
 | Tree hashes | `repo_tree_hash`, `spec_tree_hash`, `test_results_hash` = `sha256_hex(join("\n", ["<path>\t<content_hash(file)>" sorted by path]))` over the files read (test results: file paths relative to the repo if inside it, else the file name). |
-| `rules_hash` | `sha256_hex(canonical_json(merged rules))`: the built-in rules deep-merged with the manifest's `rules_overlay` (maps merge, lists and scalars replace). Comments and formatting do not count; content does. |
+| `rules_hash` | `sha256_hex(canonical_json(merged rules))`: the built-in Python extractor's rules, the enabled framework packs' fragments pack-merged into them (maps merge, lists are unioned), the manifest's `rules_overlay` deep-merged (maps merge, lists and scalars replace), plus the `plugins` identity records and any third-party `plugin_rules` (P8, ADR-0065). Comments and formatting do not count; content does. |
 | `config_hash` | `sha256_hex(canonical_json({"effective": {"orphan_policy": …}, "manifest": parsed ad2v.yaml or {}}))`. Effective settings whose default is not visible in the manifest are included, so changing a default changes the hash. |
 
 Every input that can change the output (code, specs, rules, manifest, test results) enters the
@@ -718,7 +738,8 @@ A conforming v0.4 file:
 
 `ad2v extract --into FILE` appends a new head epoch to `FILE` (creating it if needed). Per-file
 **local facts** (definitions, imports, spec references, byte ranges, name-masked body hashes) are
-cached in `parse_cache`, keyed by `(path, content_hash, rules_hash, extractor_version)` and stored as
+cached in `parse_cache`, keyed by `(path, content_hash, rules_hash, extractor_version)` (since P8:
+the extractor's effective rules hash and `<name>@<version>[:<cache version>]`, ADR-0065) and stored as
 zlib-compressed canonical JSON. A hit skips the local passes for that file; the file is still parsed,
 because the global passes (import resolution, call and resource resolution, ports, workflows,
 pairing) walk syntax trees and always recompute (ADR-0018). `--no-cache` ignores the cache. The

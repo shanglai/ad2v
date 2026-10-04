@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,8 +23,14 @@ def _excluded(rel: str, name: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatchcase(name, p) or fnmatch.fnmatchcase(rel, p) for p in patterns)
 
 
-def walk(root: Path, patterns: tuple[str, ...], suffixes: tuple[str, ...] | None = None) -> list[str]:
-    """Sorted root-relative posix paths of regular files. Never follows symlinks."""
+def walk(
+    root: Path,
+    patterns: tuple[str, ...],
+    suffixes: tuple[str, ...] | None = None,
+    include: Callable[[str], bool] | None = None,
+) -> list[str]:
+    """Sorted root-relative posix paths of regular files. Never follows symlinks. `include`
+    (P8) keeps only the relative paths it accepts (the active plug-ins' file patterns)."""
     root = Path(root).resolve()
     out: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
@@ -38,6 +45,8 @@ def walk(root: Path, patterns: tuple[str, ...], suffixes: tuple[str, ...] | None
         for f in sorted(filenames):
             rel = f"{rel_dir}/{f}" if rel_dir else f
             if suffixes is not None and not f.endswith(suffixes):
+                continue
+            if include is not None and not include(rel):
                 continue
             full = Path(dirpath) / f
             if full.is_symlink() or not full.is_file() or _excluded(rel, f, patterns):

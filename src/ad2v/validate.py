@@ -139,16 +139,79 @@ def validate(path: Path, epoch: str | None = None) -> list[str]:
         integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":
             problems.append(f"sqlite integrity_check: {integrity}")
-        problems.extend(_check_file(conn, meta))
-        schema = json.loads(ir_schema_path().read_text(encoding="utf-8"))
-        validator = jsonschema.Draft202012Validator(schema)
-        epochs = (
-            [store.resolve_epoch(conn, epoch)] if epoch else [r["epoch_id"] for r in store.epoch_rows(conn)]
+        # P8 (docs/security.md §1): hostile files
+        # (v0.4 files have older view definitions; their views are not compared)
+        problems.extend(
+            f"schema: {x}" for x in store.foreign_schema_objects(conn, version == ir.FORMAT_VERSION)
         )
-        for e in epochs:
-            problems.extend(f"[{e}] {p}" for p in _check_epoch(conn, e, validator))
+        problems.extend(_check_sizes(conn))
+        if problems:
+            return problems  # do not parse content of a file whose structure is already suspect
+        try:
+            problems.extend(_check_file(conn, meta))
+            schema = json.loads(ir_schema_path().read_text(encoding="utf-8"))
+            validator = jsonschema.Draft202012Validator(schema)
+            epochs = (
+                [store.resolve_epoch(conn, epoch)]
+                if epoch
+                else [r["epoch_id"] for r in store.epoch_rows(conn)]
+            )
+            for e in epochs:
+                problems.extend(f"[{e}] {p}" for p in _check_epoch(conn, e, validator))
+        except RecursionError:
+            problems.append(f"JSON nested too deeply (more than {MAX_JSON_DEPTH} levels)")
     finally:
         conn.close()
+    return problems
+
+
+MAX_TEXT = 1 << 20  # characters in one text value (source_blobs excepted)
+MAX_JSON_DEPTH = 64
+SIZE_EXEMPT = {"source_blobs", "parse_cache", "llm_results"}
+
+
+def _json_depth(raw: str) -> int:
+    """Nesting depth of a JSON text without parsing it (brackets outside strings)."""
+    depth = best = 0
+    in_str = esc = False
+    for ch in raw:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "[{":
+            depth += 1
+            best = max(best, depth)
+        elif ch in "]}":
+            depth -= 1
+    return best
+
+
+def _check_sizes(conn: sqlite3.Connection) -> list[str]:
+    """Huge strings and deeply nested JSON (DoS of readers), per table and column."""
+    problems: list[str] = []
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+    for t in tables:
+        if t.startswith("sqlite_") or t in SIZE_EXEMPT:
+            continue
+        for col in [r[1] for r in conn.execute(f"PRAGMA table_info({t})") if (r[2] or "").upper() == "TEXT"]:
+            longest = conn.execute(f"SELECT MAX(LENGTH({col})) FROM {t}").fetchone()[0] or 0
+            if longest > MAX_TEXT:
+                problems.append(f"{t}.{col}: a value of {longest} characters (limit {MAX_TEXT})")
+            if col.endswith("_json"):
+                for (raw,) in conn.execute(
+                    f"SELECT {col} FROM {t} WHERE LENGTH({col}) > {2 * MAX_JSON_DEPTH}"
+                ):
+                    if not isinstance(raw, str) or raw.count("[") + raw.count("{") <= MAX_JSON_DEPTH:
+                        continue
+                    if _json_depth(raw) > MAX_JSON_DEPTH:
+                        problems.append(f"{t}.{col}: JSON nested deeper than {MAX_JSON_DEPTH} levels")
+                        break
     return problems
 
 

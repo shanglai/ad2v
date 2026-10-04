@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from ad2v import store
+from ad2v import ir, store
 
 SUFFIX = ".ad2v"
 MAX_FILES = 500  # `ad2v_files` lists at most this many; deeper trees are paginated by the tool
@@ -125,6 +125,15 @@ class FileSet:
         if c is None:
             c = store.open_readonly(path)
             c.execute("PRAGMA query_only = ON")
+            # P8 (docs/security.md §1): a file with triggers or altered views is not served
+            ver = c.execute("SELECT value FROM meta WHERE key = 'format_version'").fetchone()
+            bad = store.foreign_schema_objects(c, bool(ver) and ver[0] == ir.FORMAT_VERSION)
+            if bad:
+                c.close()
+                raise FileAccessError(
+                    f"{self.label(path)} contains schema objects ad2v does not create ({bad[0]});"
+                    " run `ad2v validate` on it"
+                )
             cache[path] = c
         return c
 

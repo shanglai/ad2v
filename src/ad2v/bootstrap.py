@@ -304,6 +304,8 @@ def approve(
         raise BootstrapError(f"{src.name}: ids already in the spec tree: {', '.join(info['id_clashes'])}")
     dest_dir = Path(to) if to else spec_root
     dest_dir = dest_dir if dest_dir.is_absolute() else (repo / dest_dir)
+    if not dest_dir.resolve().is_relative_to(repo):  # P8 (docs/security.md §7)
+        raise BootstrapError(f"--to must be inside the repository: {to}")
     dest = dest_dir / src.name
     if dest.exists():
         raise BootstrapError(f"refusing to overwrite {_rel(repo, dest)}")

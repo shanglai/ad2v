@@ -100,10 +100,10 @@ def test_vertex_request_labels_schema_and_parsing():
     }
     tok = TokenSource(run=lambda cmd: "tok-123\n")
     v = VertexProvider(
-        "mapper-cat-3", "global", "gemini-x", tokens=tok, opener=_opener([body], seen), sleep=sleeps.append
+        "example-project", "global", "gemini-x", tokens=tok, opener=_opener([body], seen), sleep=sleeps.append
     )
     assert v.url("generateContent").startswith(
-        "https://aiplatform.googleapis.com/v1/projects/mapper-cat-3/locations/global/"
+        "https://aiplatform.googleapis.com/v1/projects/example-project/locations/global/"
     )
     assert VertexProvider("p", "us-central1", "m").host == "us-central1-aiplatform.googleapis.com"
     r = v.generate("extract-prose", "sys", ["a", "b"], judge.SCHEMA, {})

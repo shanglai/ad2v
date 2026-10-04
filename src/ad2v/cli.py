@@ -9,8 +9,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from ad2v import __version__, admin, diff, dump, gitsource, ir, layout, materialize, pipeline, store
+from ad2v import __version__, admin, diff, dump, gitsource, ir, layout, materialize, pipeline, plugins, store
 from ad2v.cli_llm import register as register_llm
+from ad2v.cli_plugins import register as register_plugins
 from ad2v.cli_specs import register as register_specs
 from ad2v.junit import JUnitError
 from ad2v.llm.api import LLMRunError
@@ -18,6 +19,7 @@ from ad2v.llm.config import LLMConfigError
 from ad2v.llm.providers import ProviderError
 from ad2v.llm.suggest import ManifestEditError
 from ad2v.manifest import ManifestError
+from ad2v.mcp.blind import register as register_eval
 from ad2v.rules import RulesError
 from ad2v.validate import validate
 
@@ -139,8 +141,12 @@ def cmd_extract(a: argparse.Namespace) -> int:
         into=bool(a.into),
         use_cache=not a.no_cache,
         spec_autodetect=not a.no_spec_autodetect,
+        extractors=a.extractor or (),
+        strict=a.strict,
+        plugin_timeout_s=a.plugin_timeout,
     )
     _out(res.spec_roots.describe() + "\n")
+    _out(_plugin_lines(res))
     if res.unchanged:
         _out(f"no changes: inputs identical to head epoch {res.epoch.parent_epoch_id}; nothing written\n")
         return 0
@@ -148,10 +154,28 @@ def cmd_extract(a: argparse.Namespace) -> int:
     return 0
 
 
+def _plugin_lines(res: pipeline.Result) -> str:
+    """Active plug-ins with version and rules hash; failures of skipped ones (ADR-0064)."""
+    out = "".join(f"plug-in: {line}\n" for line in res.plugins)
+    for r in res.plugin_runs:
+        if not r.ok:
+            out += f"plug-in FAILED and was skipped: {r.kind} {r.name} {r.version}: {r.error}\n"
+        for w in r.warnings:
+            out += f"plug-in {r.name}: warning: {w}\n"
+    return out
+
+
 def cmd_history(a: argparse.Namespace) -> int:
     lines: list[str] = []
+    shown: list[bool] = []
 
     def report(commit: str, res: pipeline.Result) -> None:
+        if not shown:
+            _out("".join(f"plug-in: {line}\n" for line in res.plugins))
+            shown.append(True)
+        for r in res.plugin_runs:
+            if not r.ok:
+                _out(f"{commit[:10]}  plug-in FAILED and was skipped: {r.name} {r.version}: {r.error}\n")
         if res.unchanged:
             line = f"{commit[:10]}  no changes (skipped)  [{res.spec_roots.describe()}]"
         else:
@@ -176,6 +200,9 @@ def cmd_history(a: argparse.Namespace) -> int:
         manifest_rel=a.manifest,
         use_cache=not a.no_cache,
         on_epoch=report,
+        extractors=a.extractor or (),
+        strict=a.strict,
+        plugin_timeout_s=a.plugin_timeout,
     )
     _out(f"{len(lines)} commit(s) processed into {a.into}\n")
     return 0
@@ -553,6 +580,7 @@ def parser() -> argparse.ArgumentParser:
         "--test-results", action="append", metavar="JUNIT_XML", help="JUnit XML results (repeatable)"
     )
     e.add_argument("--no-cache", action="store_true", help="ignore the file's parse cache")
+    _plugin_args(e)
     e.set_defaults(func=cmd_extract)
 
     h = sub.add_parser("history", help="extract a git commit range, one epoch per commit")
@@ -571,6 +599,7 @@ def parser() -> argparse.ArgumentParser:
         help="JUnit XML path relative to the repo root, used when present in a commit",
     )
     h.add_argument("--no-cache", action="store_true")
+    _plugin_args(h)
     h.set_defaults(func=cmd_history)
 
     d = sub.add_parser("dump", help="write the canonical JSONL dump")
@@ -692,7 +721,29 @@ def parser() -> argparse.ArgumentParser:
     v.set_defaults(func=cmd_validate)
     register_llm(sub, epoch_help)
     register_specs(sub)
+    register_plugins(sub)
+    register_eval(sub)
     return p
+
+
+def _plugin_args(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument(
+        "--extractor",
+        action="append",
+        metavar="NAME",
+        help="enable an installed third-party extractor or framework pack for this run (repeatable;"
+        " see `ad2v extractors list`). Plug-ins are trusted code that runs in-process",
+    )
+    sp.add_argument(
+        "--strict", action="store_true", help="a failing plug-in aborts the run (default: report and skip it)"
+    )
+    sp.add_argument(
+        "--plugin-timeout",
+        type=float,
+        default=plugins.DEFAULT_TIMEOUT_S,
+        metavar="SECONDS",
+        help=f"per third-party plug-in time limit (default {plugins.DEFAULT_TIMEOUT_S:g})",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -709,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         LLMConfigError,
         ProviderError,
         ManifestEditError,
+        plugins.PluginError,
         KeyError,
         ValueError,
     ) as e:

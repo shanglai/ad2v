@@ -117,6 +117,28 @@ are development tools, not redistributed.
 |---|---|---|
 | setuptools (≥ 77) | MIT | no dependencies |
 
+## Tools run outside the tree (P8)
+
+These tools are used to check or package ad2v but are **never** dependencies: they are not in
+`pyproject.toml` or `package.json`. They run in a throwaway virtual environment (pipx was not
+installed on the P8 machine; pipx is equivalent), via `npx`, or as a standalone binary, and are
+deleted afterwards. AGPL tools (e.g. trufflehog) are not used.
+
+| tool | version used | license | how it runs | used for |
+|---|---|---|---|---|
+| build | 1.6.1 | MIT | throwaway venv / CI job | sdist + wheel (M3, `release.yml`) |
+| twine | 7.0.0 | Apache-2.0 | throwaway venv / CI job | `twine check` (M3) |
+| pip-audit | 2.10.1 | Apache-2.0 | throwaway venv | Python advisories (M5) |
+| npm audit | npm 11.17.0 | Artistic-2.0 (npm) | built into npm | npm advisories (M5) |
+| @modelcontextprotocol/inspector | 2.8.0 | Apache-2.0 / MIT | `npx` | MCP conformance (P6) |
+| actionlint | — | MIT | standalone binary | **not available in P8**; `tests/test_ci_workflows.py` checks the workflows statically instead |
+| gitleaks | — | MIT | standalone binary | **not available in P8**; history scanned with `git log -p` / `git grep` patterns instead (M6) |
+
+The CI workflows install `build` and `twine` inside the job, never into the project.
+
+P8 adds **no dependencies** (Python or npm). New stdlib-only scripts: `scripts/check_python_licenses.py`
+(the Python license gate) and `scripts/determinism_check.py`.
+
 ## Rejected
 
 | package | license | reason |

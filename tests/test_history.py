@@ -253,10 +253,15 @@ def test_prune_and_gc(scenario, tmp_path):
                 f"(SELECT version_key FROM {members})"
             ).fetchone()[0]
             assert n == 0, versions
+        # P8 (ADR-0065): cache rows are keyed by the extractor's effective rules hash, which the
+        # epoch rules record per plug-in
         orphan_cache = conn.execute(
             "SELECT COUNT(*) FROM parse_cache WHERE NOT EXISTS (SELECT 1 FROM nodes n JOIN epochs e ON"
-            " e.epoch_id = n.epoch_id WHERE n.kind = 'module' AND n.path = parse_cache.path"
-            " AND n.content_hash = parse_cache.content_hash AND e.rules_hash = parse_cache.rules_hash)"
+            " e.epoch_id = n.epoch_id JOIN rules_versions rv ON rv.rules_hash = e.rules_hash"
+            " WHERE n.kind = 'module' AND n.path = parse_cache.path"
+            " AND n.content_hash = parse_cache.content_hash AND EXISTS (SELECT 1 FROM"
+            " json_each(rv.rules_json, '$.plugins') p"
+            " WHERE json_extract(p.value, '$.effective_rules_hash') = parse_cache.rules_hash))"
         ).fetchone()[0]
         assert orphan_cache == 0
         # history across the pruned gap still diffs (lineage composes only along existing epochs)

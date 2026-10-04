@@ -1,0 +1,4 @@
+# The orders service, declared in the toy routes DSL (example for the ad2v plug-in API)
+GET     /v1/orders              list_orders     # ad2v: REQ-001
+POST    /v1/orders              create_order    # ad2v: REQ-002
+GET     /v1/orders/{id}         get_order

@@ -69,6 +69,9 @@ class Config:
     spec_presets: dict[str, str] = field(default_factory=dict)  # Markdown file -> preset (P6.1)
     spec_markdown: list[dict[str, Any]] = field(default_factory=list)  # ad2v.yaml `spec_markdown:` rules
     llm_data: dict[str, Any] = field(default_factory=dict)  # the `llm:` section (informative, P4)
+    # P8 (ADR-0064): third-party plug-ins this repo opts into. Not in config_hash: the active
+    # plug-ins' identities enter the epoch through the rules (ADR-0065)
+    extractors_enabled: tuple[str, ...] = ()
 
     @property
     def config_json(self) -> dict[str, Any]:
@@ -149,7 +152,17 @@ def _pairs(raw: Any, key: str) -> tuple[tuple[str, str], ...]:
 def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
     """Parse manifest data. With base_dir None, file references (rules_overlay) are not checked."""
     cfg = Config()
-    cfg.manifest_data = {k: v for k, v in data.items() if k != "llm"}  # llm.* never enters config_hash
+    # llm.* never enters config_hash; extractors.* enters the epoch through the rules (ADR-0065)
+    cfg.manifest_data = {k: v for k, v in data.items() if k not in ("llm", "extractors")}
+    ext = data.get("extractors") or {}
+    if not isinstance(ext, dict):
+        raise ManifestError("extractors must be a mapping (extractors: {enabled: [name, ...]})")
+    enabled = ext.get("enabled") or []
+    if isinstance(enabled, str):
+        enabled = [enabled]
+    if not isinstance(enabled, list) or not all(isinstance(x, str) and x for x in enabled):
+        raise ManifestError("extractors.enabled must be a list of plug-in names")
+    cfg.extractors_enabled = tuple(sorted(set(enabled)))
     llm = data.get("llm") or {}
     if not isinstance(llm, dict):
         raise ManifestError("llm must be a mapping")
@@ -221,6 +234,10 @@ def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
     cfg.pairing_rejected = _pairs(pairing.get("rejected"), "pairing.rejected")
     if data.get("rules_overlay") and base_dir is not None:
         cfg.rules_overlay = (base_dir / str(data["rules_overlay"])).resolve()
+        if not cfg.rules_overlay.is_relative_to(Path(base_dir).resolve()):  # P8 (security.md §7)
+            raise ManifestError(
+                f"rules_overlay must stay inside the manifest's directory: {data['rules_overlay']}"
+            )
         if not cfg.rules_overlay.is_file():
             raise ManifestError(f"rules_overlay not found: {data['rules_overlay']}")
     return cfg

@@ -1,0 +1,26 @@
+# TEMPLATE for a blind retrieval question set (P8, docs/blind-eval.md).
+#
+# THE TWO QUESTIONS BELOW ARE DUMMY EXAMPLES ON THE PUBLIC payments-recon FIXTURE. THEY ARE NOT
+# PART OF ANY BLIND SET. A real blind set is written by someone who has not seen the retrieval
+# code's tuning, is stored OUTSIDE this repository, and is pointed to with AD2V_BLIND_EVAL.
+#
+# Try the template:
+#   ad2v extract --repo fixtures/payments-recon --out fixtures/retrieval-eval/payments-recon.ad2v
+#   AD2V_BLIND_EVAL=fixtures/retrieval-eval/blind-template.yaml ad2v eval blind
+ad2v_blind_eval: 1
+
+# label -> .ad2v file (relative to this file, or absolute). Labels and paths are never printed.
+maps:
+  example: payments-recon.ad2v
+
+# id: unique string. map: a label above. type: free text (where, risk, requirement, flow, endpoint,
+# status, …); per-type aggregates are shown only for types with >= 5 questions.
+# gold: qualified names of the components that answer the question (`kind:qname` when a name is
+# ambiguous); a question scores against the head epoch of its map.
+# tool (optional): {name: status, status: drift} or {name: diff, from: parent, to: head} when the
+# question names a status or a diff, as in fixtures/payments-recon/expected-questions.yaml.
+questions:
+  - {id: example-1, map: example, type: where, q: "where is the matching of transactions implemented?",
+     gold: ["api/recon_api/matching.py"]}
+  - {id: example-2, map: example, type: endpoint, q: "which endpoint starts a reconciliation run?",
+     gold: ["http:api:POST /v1/reconciliations"]}

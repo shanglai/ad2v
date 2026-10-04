@@ -15,6 +15,7 @@ coverage.xml
 
 # Virtual environments
 .venv/
+.venv-*/
 venv/
 env/
 
@@ -26,6 +27,9 @@ env/
 
 # Benchmarks (cloned third-party repos)
 bench/
+
+# P8 M2: a blind retrieval question set must never be committed (docs/blind-eval.md)
+fixtures/retrieval-eval/blind/
 
 # OS
 .DS_Store

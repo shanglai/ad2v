@@ -1,0 +1,3 @@
+system: orders
+extractors:
+  enabled: [routes-dsl]

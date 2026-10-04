@@ -132,6 +132,9 @@ def run_history(
     use_cache: bool = True,
     on_epoch: Callable[[str, pipeline.Result], None] | None = None,
     spec_autodetect: bool = True,
+    extractors: tuple[str, ...] | list[str] = (),
+    strict: bool = False,
+    plugin_timeout_s: float | None = None,
 ) -> list[tuple[str, pipeline.Result]]:
     repo = Path(repo).resolve()
     out = []
@@ -166,6 +169,9 @@ def run_history(
                 name_hint=repo.name,
                 repo_commit=commit,
                 spec_autodetect=spec_autodetect,
+                extractors=extractors,
+                strict=strict,
+                **({} if plugin_timeout_s is None else {"plugin_timeout_s": plugin_timeout_s}),
             )
             out.append((commit, res))
             if on_epoch is not None:

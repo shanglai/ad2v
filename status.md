@@ -1,9 +1,26 @@
 # Status
 
+## P8 (done): release readiness without release, plus the extractor plug-in API
+
+Single final commit at the end. P8 report: REPORT.md (copy docs/reports/P8.md); P7 report: docs/reports/P7.md. Context: docs/claude-context.md.
+Tests: pytest 382 (380 passed, 2 skipped), Vitest 49, Playwright 24 (23 + 1 on-demand skip), test:mcp passed. Cost P8 $0 (total $0.977).
+Nothing is published (no PyPI/TestPyPI, tags, releases, Pages, visibility change). No cloud spend, no
+LLM calls (fake provider only). Before-dumps of every fixture captured before any code change.
+
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | Extractor plug-in API (ad2v.api), entry points, opt-in, identity in epoch, Python extractor + framework pack as plug-ins, conformance kit, out-of-tree examples | done: ad2v/api.py (api 1.0), plugins.py (discovery, opt-in, identity, isolated runs, timeouts, --strict), built-ins python 1.0.0 + python-frameworks 1.0.0 (rules split, pack merge = P7 python.yaml hash 40e0c803), plugin identity in epoch rules (additive v0.5), parse cache key name@version, GC fix; ad2v extractors list / extractor check; ad2v.testing.conformance (7 checks); examples/plugins routes-dsl + bottle pass the kit in a temp venv and extract; 9 dump scenarios identical (epoch id / rules hash masked); ADR-0063..0065, docs/plugins.md; tests/test_plugins.py 34; 2 tests adapted (cache shape, GC invariant) |
+| M2 | Blind retrieval eval harness | done: src/ad2v/mcp/blind.py + `ad2v eval blind` (AD2V_BLIND_EVAL file or dir; aggregates only: counts, sha256, MRR/recall@5/nDCG@5 + bootstrap 95% CI seed 987654 x2000; types < 5 suppressed; sanitized errors); template with 2 dummy questions; docs/blind-eval.md; .gitignore fixtures/retrieval-eval/blind/; tests/test_blind_eval.py 6 (marker-leak test incl. error paths); no blind content written or read |
+| M3 | Packaging (wheel, clean venv, twine check), release.yml disabled | done: version 0.7.0.dev0 (pyproject, __init__, viewer); fixed: ad2v.chat missing from the wheel since P7, setuptools 'package would be ignored' for themes/rules/assets; wheel 107 files incl. viewer, app.html, themes, prompts, both rules files, no fixtures/bench/.ad2v/node_modules; pip install . and wheel in clean venvs (deps all MIT/PSF, no certifi); quickstart guard vs installed wheel 10 passed + 1 cloud skip; twine check PASSED (build 1.6.1, twine 7.0.0 in a throwaway venv; pipx not installed); .github/workflows/release.yml (dispatch only, typed confirm, if: false, env pypi, SHA-pinned); docs/RELEASING.md (not for now) |
+| M4 | CI workflows | done (written, never run): .github/workflows/ci.yml (viewer: lint/tsc/vitest/build+build:app with npm license gate; python 3.12 + 3.11: Python license gate, ruff, pytest, determinism LF vs CRLF+BOM; cross-OS determinism compare; plug-in conformance kit on installed examples) - ubuntu on push/PR, Windows/macOS only via workflow_dispatch all_os; SHA-pinned actions, contents: read; scripts/check_python_licenses.py, scripts/determinism_check.py; tests/test_ci_workflows.py (static: pins, permissions, OS gating, release cannot publish) + test_license_gate.py; actionlint not installed (static checks instead); py3.11 compileall OK; estimate ~18 billed min per push, ~156 weighted min per all-OS dispatch |
+| M5 | Security review | done: docs/security.md (8 surfaces, 16 findings: 11 fixed, 5 open low/medium-by-design), SECURITY.md (private for now); fixes: spec_root / rules_overlay / autodetect-symlink containment, approve --to containment, Host check on every view request (DNS rebinding), CSP object-src/base-uri/form-action/frame-ancestors + Referrer-Policy, writers refuse triggers/altered views, trusted_schema=OFF, validate reports foreign objects/huge strings/deep JSON, MCP refuses foreign schema, kit side_effects check; tests: tests/hostile.py (5 variants), tests/test_security.py 12 (1 symlink skip on Windows), e2e/hostile.spec.ts 2/2 (no script runs in either viewer mode); pip-audit 0 vulns; npm audit 0 runtime, 3 high build-only (braces, no fix) |
+| M6 | Sanitization inventory | done: tracked + untracked-unignored files fixed with placeholders (<repo-root>, <github-owner>, <your-gcp-project>; test uses example-project; owner name in public-facing docs -> 'the owner'): local abs paths w/ username 3 lines/2 files, GitHub owner 1/1, GCP project id 12/7, owner first name in new public docs 5/3; generic placeholders (C:\Users\you) and a sql.js false positive kept; embedded demo data and recordings clean; 64 tracked images not scanned. History (15 commits, report only): abs paths w/ username 7 added lines/3 commits, GitHub owner 1/1, GCP project 17/4, commit metadata personal-domain email 15/15 authors + 14/15 committers. Secrets: gitleaks not installed; regex scan (11 patterns) over history + tree: 0 secrets (3 false-positive groups). No STOP needed |
+| M7 | Dogfood procedure | done: docs/dogfood.md (setup, spec format checks incl. Gherkin / ad2v Markdown / spec-kit / Kiro / custom, external manifest with spec_root / path_constants / orphan_policy, extract + test results + history HEAD~N..HEAD + view with timings, 8 capture items, cleanup, blank results table per repo, findings template in words, no-LLM note); scripts/dogfood_counts.py (numbers only); .gitignore .venv-*/ |
+
 ## P7 (done): verified quickstart, settings prefixes, retrieval v2, chat agent, LLM refinements, UX v2
 
 Single final commit at the end. P6.1 report: docs/reports/P6.1.md. Context: docs/claude-context.md.
-Cloud: only mapper-cat-3, ADC, labels project=ad2v; no real LLM call before M8 approval; cap $2.00.
+Cloud: only <your-gcp-project>, ADC, labels project=ad2v; no real LLM call before M8 approval; cap $2.00.
 
 | Milestone | Scope | State |
 |---|---|---|
@@ -76,7 +93,7 @@ Single final commit at the end. Root REPORT.md (P3) removed; it is at docs/repor
 | M6 | Narrations (containment eager, call_depth on demand, refinement context) | done |
 | M7 | Prose extraction (REQ-X range, .ad2v-extracted excluded, cycle test) | done |
 | M8 | Offline eval harness (`ad2v llm eval`) + recordings in tests/llm_recordings | done (202 tests) |
-| M9 | Live Vertex run on the fixture (approved): gemini-3.8-flash, global, mapper-cat-3; 125 billed generateContent calls, $0.592; eval accuracy 0.818, kappa 0.699, stability 11/11; dispatch plan only | done |
+| M9 | Live Vertex run on the fixture (approved): gemini-3.8-flash, global, <your-gcp-project>; 125 billed generateContent calls, $0.592; eval accuracy 0.818, kappa 0.699, stability 11/11; dispatch plan only | done |
 
 ## P3 (done, commit ecb6972): multi-epoch storage, incremental extraction, epoch diff, stale, lineage
 

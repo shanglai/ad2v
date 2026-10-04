@@ -138,12 +138,62 @@ class NotAnAd2vFile(ValueError):
 # ---------------------------------------------------------------------------------------------
 
 
+def _harden(conn: sqlite3.Connection) -> None:
+    """P8 (docs/security.md §1): views and triggers in a file may not call functions with side
+    effects. Older SQLite builds without the pragma ignore it."""
+    conn.execute("PRAGMA trusted_schema = OFF")
+
+
 def connect(path: Path) -> sqlite3.Connection:
     """Read-write connection (creates the file). Used by the writer and by tests."""
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    _harden(conn)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+_EXPECTED: dict[str, tuple[str, str]] | None = None
+
+
+def _norm_sql(sql: str | None) -> str:
+    return " ".join((sql or "").replace("\n", " ").split()).lower()
+
+
+def expected_schema() -> dict[str, tuple[str, str]]:
+    """name -> (type, normalized SQL) of every object the v0.5 DDL (+ layout_grids) creates."""
+    global _EXPECTED
+    if _EXPECTED is None:
+        from ad2v import layout
+
+        mem = sqlite3.connect(":memory:")
+        try:
+            mem.executescript(ddl_path().read_text(encoding="utf-8"))
+            mem.executescript(layout.DDL)
+            _EXPECTED = {
+                name: (typ, _norm_sql(sql))
+                for typ, name, sql in mem.execute("SELECT type, name, sql FROM sqlite_master")
+                if not name.startswith("sqlite_")
+            }
+        finally:
+            mem.close()
+    return _EXPECTED
+
+
+def foreign_schema_objects(conn: sqlite3.Connection, compare_views: bool = True) -> list[str]:
+    """Triggers, unknown tables/views/indexes, and (v0.5) built-in views whose SQL was changed."""
+    exp = expected_schema()
+    out = []
+    for typ, name, sql in conn.execute("SELECT type, name, sql FROM sqlite_master ORDER BY type, name"):
+        if name.startswith("sqlite_"):
+            continue
+        if typ == "trigger":
+            out.append(f"trigger {name}")
+        elif name not in exp:
+            out.append(f"unknown {typ} {name}")
+        elif compare_views and typ == "view" and exp[name] != (typ, _norm_sql(sql)):
+            out.append(f"view {name} differs from the format's definition")
+    return out
 
 
 def open_readonly(path: Path) -> sqlite3.Connection:
@@ -154,6 +204,7 @@ def open_readonly(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
+        _harden(conn)
         conn.execute("SELECT value FROM meta WHERE key = 'format_version'").fetchone()
     except sqlite3.DatabaseError as e:
         conn.close()
@@ -182,6 +233,15 @@ def open_rw(path: Path) -> sqlite3.Connection:
         raise NotAnAd2vFile(
             f"{path} has format {version[0] if version else '?'}; appending needs {ir.FORMAT_VERSION}"
             " (re-extract with --out to start a new file)"
+        )
+    # P8 (docs/security.md §1): a writer never touches a file with triggers or altered views,
+    # which would run attacker-chosen SQL on our inserts
+    bad = [x for x in foreign_schema_objects(conn) if x.startswith(("trigger", "view"))]
+    if bad:
+        conn.close()
+        raise NotAnAd2vFile(
+            f"{path} contains schema objects ad2v does not create ({', '.join(bad[:3])}); refusing to write."
+            " Run `ad2v validate` on it, or re-extract with --out"
         )
     from ad2v import layout  # v0.4 files written before P5 lack the additive layout_grids table
 

@@ -1,0 +1,65 @@
+# ad2v built-in Python framework pack (`python-frameworks`, ADR-0063/0064): the framework
+# recognizers the built-in Python extractor applies. A framework pack contributes rules fragments
+# that are merged into its extractor's rules (mappings merge, lists are unioned in pack order).
+#
+# Frameworks: FastAPI, Flask, Starlette (ports.http); MCP tool registration (ports.mcp); Click,
+# Typer (ports.cli); Pub/Sub subscribers (ports.events); Celery, APScheduler, `schedule`
+# (ports.entry_points); pydantic Settings bases (ports.http.settings_bases). SQLAlchemy, SQL DDL
+# and Pydantic schema digests are the pack's post-extract hook (ad2v.extract.code.schema_digest).
+ports:
+  http:
+    app_constructors: [fastapi.FastAPI, fastapi.APIRouter, flask.Flask, flask.Blueprint,
+                       starlette.routing.Router, starlette.applications.Starlette]
+    method_decorators: [get, post, put, patch, delete, head, options, trace]
+    route_decorators: [route, api_route]
+    include_methods: [include_router, register_blueprint]
+    prefix_kwargs: [prefix, url_prefix]
+    # P7 (ADR-0053): classes whose literal field defaults the opt-in resolver may read
+    # (pairing.resolve_settings_defaults: true)
+    settings_bases: [pydantic_settings.BaseSettings, pydantic.BaseSettings, pydantic.BaseModel, pydantic.v1.BaseSettings]
+    # P6.1 (ADR-0046): routes registered imperatively. path / endpoint = [positional index, keyword].
+    add_route_methods:
+      - {method: add_api_route, path: [0, path], endpoint: [1, endpoint], methods_kw: methods, default_methods: [GET]}
+      - {method: add_url_rule, path: [0, rule], endpoint: [2, view_func], methods_kw: methods, default_methods: [GET]}
+      - {method: add_route, path: [0, path], endpoint: [1, route], methods_kw: methods, default_methods: [GET]}
+    # Starlette-style route lists: Constructor(routes=[Route(path, endpoint, methods=…), Mount(prefix, routes=[…])])
+    route_list_constructors: [starlette.applications.Starlette, starlette.routing.Router, fastapi.FastAPI, fastapi.APIRouter]
+    route_constructors: [starlette.routing.Route, fastapi.routing.APIRoute]
+    mount_constructors: [starlette.routing.Mount]
+    # sub-application mounts: app.mount("/api/v1", app=api) mounts api's routes under the prefix
+    mount_methods:
+      - {method: mount, path: [0, path], app: [1, app]}
+  mcp:
+    server_constructors: [mcp.server.fastmcp.FastMCP, fastmcp.FastMCP, mcp.server.FastMCP]
+    tool_decorators: [tool]
+  cli:
+    typer_constructors: [typer.Typer]
+    typer_decorators: [command]
+    click_decorators: [click.command, click.group]
+    click_group_decorators: [command, group]
+  events:
+    - {constructor: google.cloud.pubsub_v1.SubscriberClient, method: subscribe, callback_kwarg: callback, callback_arg: 1, source_arg: 0}
+    - {constructor: google.cloud.pubsub.SubscriberClient, method: subscribe, callback_kwarg: callback, callback_arg: 1, source_arg: 0}
+  # Entry points that are not HTTP/MCP/CLI frameworks (P3, ADR-0021). They map to existing port
+  # kinds with attrs.trigger: main blocks and Click -> cli_command; tasks and schedules -> event_consumer.
+  entry_points:
+    main_block: true                 # `if __name__ == "__main__":` -> cli_command, trigger main
+    celery:
+      app_constructors: [celery.Celery]
+      task_decorators: [celery.shared_task, celery.task]      # @shared_task -> trigger celery_task
+      app_task_methods: [task]                                # @app.task    -> trigger celery_task
+      beat_schedule_names: [beat_schedule, CELERYBEAT_SCHEDULE]  # {"x": {"task": "pkg.mod.fn"}} -> celery_beat
+    apscheduler:
+      scheduler_constructors:
+        - apscheduler.schedulers.background.BackgroundScheduler
+        - apscheduler.schedulers.blocking.BlockingScheduler
+        - apscheduler.schedulers.asyncio.AsyncIOScheduler
+        - apscheduler.schedulers.gevent.GeventScheduler
+        - apscheduler.schedulers.tornado.TornadoScheduler
+        - apscheduler.AsyncScheduler
+        - apscheduler.Scheduler
+      add_job_methods: [add_job, add_schedule]                # sched.add_job(fn, ...)  -> apscheduler
+      decorator_methods: [scheduled_job]                      # @sched.scheduled_job(...) -> apscheduler
+    schedule:
+      every_callables: [schedule.every]                       # schedule.every(5).minutes.do(fn) -> schedule
+      do_methods: [do]

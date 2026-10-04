@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ad2v-bottle-pack"
+version = "0.1.0"
+description = "Example out-of-tree ad2v framework pack: Bottle routes for the built-in Python extractor"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+# ad2v is a peer requirement (not on PyPI yet, so not declared)
+dependencies = []
+
+[project.entry-points."ad2v.frameworks"]
+bottle = "ad2v_bottle_pack:BottlePack"
+
+[tool.setuptools]
+packages = ["ad2v_bottle_pack"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+ad2v_bottle_pack = ["*.yaml"]

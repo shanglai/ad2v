@@ -1,0 +1,90 @@
+# Release to PyPI with trusted publishing (OIDC, no API token).
+#
+#   *** DISABLED UNTIL THE OWNER DECIDES TO PUBLISH. NOTHING IS PUBLISHED IN P8. ***
+#
+# It cannot run by accident:
+#   - the only trigger is a manual `workflow_dispatch` (no tag or push trigger);
+#   - the run must type the exact version and the confirmation phrase below;
+#   - the `publish` job is guarded by `if: false` (remove that line when enabling);
+#   - it targets the `pypi` environment, which must be created with required reviewers
+#     (manual approval) and a trusted-publisher entry on PyPI first.
+# One-time setup and the go-live checklist: docs/RELEASING.md ("not for now").
+# Actions are pinned by full commit SHA (tag in the comment).
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish; must equal pyproject.toml (e.g. 0.7.0)"
+        required: true
+      confirm:
+        description: 'Type "publish to PyPI" to confirm'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Check inputs
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CONFIRM: ${{ inputs.confirm }}
+        run: |
+          test "$INPUT_CONFIRM" = "publish to PyPI"
+          python - <<'PY'
+          import os, tomllib
+          v = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          assert v == os.environ["INPUT_VERSION"], (v, os.environ["INPUT_VERSION"])
+          assert "dev" not in v, "refusing to publish a .dev version"
+          PY
+      - name: Build the viewer and the MCP App (shipped inside the wheel)
+        working-directory: viewer
+        run: |
+          npm ci
+          npm run build
+          npm run build:app
+      - name: Build sdist and wheel (build and twine run outside the dependency tree)
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: false # DISABLED: remove only when the owner decides to publish (docs/RELEASING.md)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ad2v/
+    permissions:
+      id-token: write # trusted publishing (OIDC); no other permission
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
