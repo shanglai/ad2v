@@ -78,6 +78,9 @@ After P6: **166 packages** (MIT 131, Apache-2.0 18, ISC 7, BSD-2-Clause 6, BSD-3
 BlueOak-1.0.0 1). The MCP App build (`build:app`) is also checked for a 2 MB budget and for any
 embedded wasm: it is 988 KB, with no wasm.
 
+P6.1 adds **no dependencies** (Python or npm); the license gate is unchanged and green. The App
+build is 993 KB.
+
 **MCP Inspector** (`@modelcontextprotocol/inspector` 2.8.0, Apache-2.0/MIT) is used for protocol
 conformance **through `npx`, outside the project tree**. Its dependencies include Vite 8 and
 therefore `lightningcss` (MPL-2.0), which the gate would reject in our tree. It is a development
@@ -125,11 +128,11 @@ are development tools, not redistributed.
 ## Fixture-only names
 
 `fixtures/payments-recon` *mentions* fastapi, sqlalchemy, httpx, tenacity, litellm, mcp, typer and
-google-cloud-pubsub. That code is only parsed, never installed or run, so these packages are **not**
+google-cloud-pubsub. `fixtures/sdd-presets` imports only the standard library. That code is only parsed, never installed or run, so these packages are **not**
 dependencies.
 
 ## Benchmarks
 
-The performance measurements (P1–P3, P5, P6) used shallow clones of third-party repositories in `bench/`
+The performance measurements (P1–P3, P5, P6, P6.1) used shallow clones of third-party repositories in `bench/`
 (gitignored): dispatch (Apache-2.0) and full-stack-fastapi-template (MIT). They were deleted after
 the measurements. Nothing from them is redistributed.

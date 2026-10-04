@@ -20,6 +20,7 @@ export interface Billboard {
   offsetPx: [number, number]; // from the anchor, px (x right, y up)
   scale?: number; // on-screen size multiplier
   opacity?: number;
+  dim?: number; // P6.1: blend toward the background by this factor (opaque "dim the rest")
 }
 
 export class Atlas {
@@ -134,9 +135,11 @@ attribute vec2 offsetPx;
 attribute vec2 sizePx;
 attribute vec4 uvRect;
 attribute float opacity;
+attribute float dim;
 uniform vec2 viewport;
 varying vec2 vUv;
 varying float vOpacity;
+varying float vDim;
 void main() {
   vec4 p = projectionMatrix * modelViewMatrix * vec4(anchor, 1.0);
   vec2 px = (position.xy - vec2(0.5, 0.0)) * sizePx + offsetPx;   // bottom-centre anchored
@@ -145,15 +148,18 @@ void main() {
   gl_Position = p;
   vUv = uvRect.xy + position.xy * uvRect.zw;
   vOpacity = opacity;
+  vDim = dim;
 }`;
 const frag = /* glsl */ `
 uniform sampler2D atlas;
+uniform vec3 background;
 varying vec2 vUv;
 varying float vOpacity;
+varying float vDim;
 void main() {
   vec4 c = texture2D(atlas, vUv);
   if (c.a < 0.02) discard;
-  gl_FragColor = vec4(c.rgb, c.a * vOpacity);
+  gl_FragColor = vec4(mix(c.rgb, background, vDim), c.a * vOpacity);
 }`;
 
 export class BillboardSet {
@@ -167,7 +173,11 @@ export class BillboardSet {
       transparent: true,
       depthTest: false,
       depthWrite: false,
-      uniforms: { viewport: { value: new THREE.Vector2(1, 1) }, atlas: { value: atlas.texture } },
+      uniforms: {
+        viewport: { value: new THREE.Vector2(1, 1) },
+        atlas: { value: atlas.texture },
+        background: { value: new THREE.Color(0, 0, 0) },
+      },
     });
     this.mesh = new THREE.Mesh(new THREE.InstancedBufferGeometry(), this.material);
     this.mesh.frustumCulled = false;
@@ -178,7 +188,7 @@ export class BillboardSet {
     const quad = new THREE.InstancedBufferGeometry();
     quad.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], 3));
     quad.setIndex([0, 1, 2, 0, 2, 3]);
-    const anchor: number[] = [], off: number[] = [], size: number[] = [], uv: number[] = [], op: number[] = [];
+    const anchor: number[] = [], off: number[] = [], size: number[] = [], uv: number[] = [], op: number[] = [], dim: number[] = [];
     for (const b of items) {
       const r = this.atlas.get(b.key);
       if (!r) continue;
@@ -189,15 +199,21 @@ export class BillboardSet {
       // flipY: canvas rows go down, texture v goes up
       uv.push(r.u / ATLAS, 1 - (r.v + r.h) / ATLAS, r.w / ATLAS, r.h / ATLAS);
       op.push(b.opacity ?? 1);
+      dim.push(b.dim ?? 0);
     }
     quad.setAttribute("anchor", new THREE.InstancedBufferAttribute(new Float32Array(anchor), 3));
     quad.setAttribute("offsetPx", new THREE.InstancedBufferAttribute(new Float32Array(off), 2));
     quad.setAttribute("sizePx", new THREE.InstancedBufferAttribute(new Float32Array(size), 2));
     quad.setAttribute("uvRect", new THREE.InstancedBufferAttribute(new Float32Array(uv), 4));
     quad.setAttribute("opacity", new THREE.InstancedBufferAttribute(new Float32Array(op), 1));
+    quad.setAttribute("dim", new THREE.InstancedBufferAttribute(new Float32Array(dim), 1));
     quad.instanceCount = anchor.length / 3;
     this.mesh.geometry.dispose();
     this.mesh.geometry = quad;
+  }
+
+  setBackground(color: string): void {
+    (this.material.uniforms.background!.value as THREE.Color).set(color);
   }
 
   update(viewportW: number, viewportH: number): void {

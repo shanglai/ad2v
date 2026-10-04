@@ -42,7 +42,7 @@
       "fill": "#F0F2F5"
     },
     "none": {
-      "stroke": "#7D8799",
+      "stroke": "#6E788A",
       "fill": "#F2F4F7"
     }
   },
@@ -79,5 +79,16 @@
   "link": {
     "normative": "#0B47B8",
     "suggestion": "#B0226E"
+  },
+  "body": {
+    "neutral": "#E8EBF1",
+    "tint": 0.08,
+    "open_recede": 0.55
+  },
+  "dim": {
+    "factor": 0.7
+  },
+  "replay": {
+    "highlight": "#1D4ED8"
   }
 }

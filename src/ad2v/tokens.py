@@ -98,3 +98,40 @@ def luminance(hex_color: str) -> float:
 def contrast(a: str, b: str) -> float:
     la, lb = sorted((luminance(a), luminance(b)), reverse=True)
     return (la + 0.05) / (lb + 0.05)
+
+
+# --- P6.1 bodies and "dim the rest" (ADR-0051): the viewer mixes in linear light --------------
+
+
+def _hex_to_linear(hex_color: str) -> list[float]:
+    h = hex_color.lstrip("#")
+    return [_channel(int(h[i : i + 2], 16) / 255) for i in (0, 2, 4)]
+
+
+def _linear_to_hex(c: list[float]) -> str:
+    out = []
+    for x in c:
+        x = min(1.0, max(0.0, x))
+        s = 12.92 * x if x <= 0.0031308 else 1.055 * x ** (1 / 2.4) - 0.055
+        out.append(round(s * 255))
+    return "#{:02X}{:02X}{:02X}".format(*out)
+
+
+def mix(a: str, b: str, t: float) -> str:
+    """`a` blended toward `b` by `t`, in linear light (three.js Color.lerp in its working space)."""
+    la, lb = _hex_to_linear(a), _hex_to_linear(b)
+    return _linear_to_hex([x + (y - x) * t for x, y in zip(la, lb, strict=True)])
+
+
+def body_color(theme: dict[str, Any], status: str, open_: bool) -> str:
+    """The glyph body the viewer draws (viewer/src/render/style.ts bodyColor)."""
+    bg = theme["background"]
+    if STATUS_STYLES[status].fill == "hollow":
+        col = bg
+    else:
+        col = mix(theme["body"]["neutral"], status_color(theme, status)["stroke"], theme["body"]["tint"])
+    return mix(col, bg, theme["body"]["open_recede"]) if open_ else col
+
+
+def dimmed(theme: dict[str, Any], color: str) -> str:
+    return mix(color, theme["background"], theme["dim"]["factor"])

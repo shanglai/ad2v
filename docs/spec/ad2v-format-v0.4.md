@@ -254,7 +254,19 @@ when they have at least one risk flag. Set `behavior.emit_all: true` to emit all
 
 ### 3.6 Explicit spec references
 
-A spec ID matches `[A-Z][A-Z0-9]*-X?[0-9]+`; the `-X` range is reserved for LLM-proposed items (§11.8). Explicit references come from:
+A spec ID matches `(?:[a-z0-9][a-z0-9-]*:)?[A-Z][A-Z0-9]*-X?[0-9]+(?:\.[0-9]+)?` (P6.1,
+ADR-0048):
+
+- an optional **namespace** (`001-payments:FR-001`): spec-kit ids are namespaced by their feature
+  folder, so two features can both define `FR-001`;
+- an optional **sub-id** (`ORDEREXPORT-1.2`): a Kiro acceptance criterion, a child of
+  `ORDEREXPORT-1`;
+- the `-X` range is reserved for LLM-proposed items (§11.8).
+
+A reference without a namespace resolves to the single namespace that defines it. If several do,
+the edge carries `attrs.ambiguous` and the link is `needs_review` with evidence
+`ambiguous_spec_ref` (candidates listed). The default test-name prefixes are `REQ`, `CMP`, `FR`.
+Explicit references come from:
 
 1. a comment `# ad2v: ID[, ID…]` inside a function/class span, or directly above a definition or its
    decorators (contiguous comment block); a comment elsewhere attaches to the module;

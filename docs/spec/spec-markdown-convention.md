@@ -67,3 +67,54 @@ test names such as `test_req_012_*`.
 - **OpenAPI 3.x** (any `.yaml`/`.yml`/`.json` whose top-level `openapi` starts with `3`): each
   operation becomes a `spec_endpoint` with qualified name `METHOD /path`. The optional operation
   extension `x-ad2v-refs: [ID, …]` adds references.
+
+## 6. SDD presets (P6.1, ADR-0048)
+
+The ad2v convention above is one of four Markdown **presets**. A file is read with exactly one.
+
+| preset | selected when | components | requirements | ids |
+|---|---|---|---|---|
+| `ad2v` | `## Component: … {#CMP-n}` or an EARS `REQ-n` line | `## Component:` | `- **REQ-n** …` | as written |
+| `spec-kit` | `spec.md` with a Functional Requirements heading and `**FR-` lines (github/spec-kit v1.1.0 template) | the feature folder | `**FR-001**: System MUST …`, `**SC-001**` (success criteria) | `<feature>:FR-001` |
+| `kiro` | `.kiro/specs/<feature>/requirements.md` | the feature | `### Requirement N[: Title]` with `**User Story:**`; numbered acceptance criteria (EARS) as children | `<PREFIX>-N`, `<PREFIX>-N.M` |
+| `custom` | a `spec_markdown` rule with `preset: custom` | `component` regex (optional; group `name`) | `requirement` regex (required; groups `id` and `text`) | as captured |
+
+Selection: the first `spec_markdown` rule in `ad2v.yaml` whose glob matches wins; otherwise
+auto-detection in the order of the table, Kiro and spec-kit first.
+
+```yaml
+spec_markdown:
+  - glob: "docs/requirements/*.md"
+    preset: custom
+    requirement: '^- \[(?P<id>BIL-[0-9]+)\] (?P<text>.+)$'
+  - glob: ".kiro/specs/payments/requirements.md"
+    preset: kiro
+    id_prefix: PAY            # instead of PAYMENTS
+```
+
+- **spec-kit**: user stories become `scenario` nodes. Their `**Given**`/`**When**`/`**Then**`
+  clauses become steps. `[NEEDS CLARIFICATION: …]` sets `attrs.needs_clarification`.
+- **Kiro**: the prefix is the feature folder slug, upper-case alphanumerics of up to 12
+  characters (`order-export` → `ORDEREXPORT`, `001-auth` → `K001AUTH`). If two features share a
+  prefix, the second (in path order) gets `2`, then `3`. Each criterion's EARS pattern is
+  parsed (`attrs.ears`: `event`, `state`, `optional`, `unwanted`, `ubiquitous`).
+- **custom**: lines that look like ids but do not match are listed in the doc node's
+  `attrs.skipped_ids`.
+- Tests cite namespaced ids by name (`test_fr_001_*`). Words before the prefix narrow the
+  namespace: `test_refunds_fr_001_*` → `002-refunds:FR-001`. An ambiguous reference is
+  `needs_review`.
+- Not parsed: Kiro `design.md`/`tasks.md`, spec-kit `plan.md`/`tasks.md`, tables (pending.md).
+
+## 7. Where specs are found (ADR-0047)
+
+`--spec` (repeatable) beats `spec_root` in `ad2v.yaml` (a string or a list), which beats
+auto-detection: the first of `specs/`, `spec/`, `docs/specs/`, `.kiro/specs/` that holds a
+recognized file, plus a root `openapi.{yaml,yml,json}`. `--no-spec-autodetect` turns that off.
+Code under a spec root is never extracted as code.
+
+## 8. No convention at all: bootstrap from prose (ADR-0049)
+
+`ad2v specs bootstrap --from docs/ --plan` lists prose files with no recognized structure and
+estimates an LLM pass. `--yes --max-cost-usd N` writes proposals in this convention, with `-X`
+ids, to `<spec root>/.ad2v-extracted/`. `ad2v specs review` compares them with existing specs.
+`ad2v specs approve <file>` moves one into the spec tree; nothing is normative before that.

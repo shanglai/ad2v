@@ -142,15 +142,12 @@ def pair_links(
         if kind == "annotated_as" and nodes[src].side == "code" and nodes[dst].side == "spec":
             ref = edge.attrs.get("ref", nodes[dst].qualified_name)
             sources = nodes[src].attrs.get("spec_ref_sources", {}).get(ref, [])
-            links.add(
-                ir.Link(
-                    dst,
-                    src,
-                    "implemented",
-                    "annotation",
-                    [{"kind": "annotation", "ref": ref, "sources": sources}],
-                )
-            )
+            ev: list[dict[str, Any]] = [{"kind": "annotation", "ref": ref, "sources": sources}]
+            status = "implemented"
+            if edge.attrs.get("ambiguous"):  # a bare id that several namespaces define (ADR-0048)
+                status = "needs_review"
+                ev.append({"kind": "ambiguous_spec_ref", "ref": ref, "candidates": edge.attrs["ambiguous"]})
+            links.add(ir.Link(dst, src, status, "annotation", ev))
 
     # 2. route_match -------------------------------------------------------------------------
     pm, ci = config.path_prefix_map, config.case_insensitive
@@ -267,6 +264,40 @@ def pair_links(
             link.evidence.append({"kind": "tests_failed", "tests": failed})
         if passed and link.status == "implemented":
             link.status = "verified"
+
+    # routes whose path could not be resolved statically (P6.1, ADR-0046) --------------------
+    # An unpaired spec endpoint is offered every unresolved route with the same method whose
+    # known tail ends its path (or, with no tail, whose known prefix starts it): needs_review,
+    # never a false `missing`.
+    unresolved = [nid for nid in by_kind["http_route"] if nodes[nid].attrs.get("path_unresolved")]
+    if unresolved:
+        paired_now = {lk.spec_node_id for lk in links.all() if lk.spec_node_id}
+        for ep in by_kind["spec_endpoint"]:
+            if ep in paired_now:
+                continue
+            a = nodes[ep].attrs
+            key, _ = normalize_path(a["path"], a.get("base_path", ""), pm, ci)
+            for rt in sorted(unresolved):
+                ra = nodes[rt].attrs
+                if ra["method"] != a["method"]:
+                    continue
+                tail = ra.get("path_tail") or ""
+                if tail:
+                    tkey = normalize_path(tail, "", None, ci)[0]
+                    hit = tkey != "/" and key.endswith(tkey)
+                else:
+                    pkey = normalize_path(ra["path"], "", None, ci)[0]
+                    hit = pkey != "/" and key.startswith(pkey)
+                if hit:
+                    links.add(
+                        ir.Link(
+                            ep,
+                            rt,
+                            "needs_review",
+                            "route_match",
+                            [{"kind": "unresolved_route_path", "route_path": ra["path"], "known_tail": tail}],
+                        )
+                    )
 
     # unpaired spec items ----------------------------------------------------------------------
     paired_spec = {lk.spec_node_id for lk in links.all() if lk.spec_node_id}

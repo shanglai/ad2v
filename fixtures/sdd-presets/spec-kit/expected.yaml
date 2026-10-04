@@ -1,0 +1,18 @@
+# P6.1 golden: spec-kit preset (github/spec-kit templates pinned in ADR-0048). No flags: specs/ is auto-detected.
+spec_roots: [specs]
+presets: {001-payments/spec.md: spec-kit, 002-refunds/spec.md: spec-kit}
+counts: {spec_doc: 2, spec_component: 2, requirement: 6, scenario: 3, scenario_step: 9}
+requirements:   # [qualified name, status, category]
+  - ["001-payments:FR-001", needs_review, functional]        # bare `# ad2v: FR-001` matches two features
+  - ["001-payments:FR-002", implemented, functional]         # exact `# ad2v: 001-payments:FR-002`
+  - ["001-payments:FR-003", specified, functional]           # [NEEDS CLARIFICATION] -> attrs.needs_clarification
+  - ["001-payments:SC-001", specified, success_criterion]
+  - ["002-refunds:FR-001", needs_review, functional]
+  - ["002-refunds:FR-002", implemented, functional]          # test name test_refunds_fr_002_… (namespace hint)
+links:   # [spec, code, status, evidence kinds]
+  - ["001-payments:FR-001", app/payments.py::charge, needs_review, [annotation, ambiguous_spec_ref]]
+  - ["002-refunds:FR-001", app/payments.py::charge, needs_review, [annotation, ambiguous_spec_ref]]
+  - ["001-payments:FR-002", app/payments.py::record_attempt, implemented, [annotation]]
+  - ["002-refunds:FR-002", tests/test_refunds.py::test_refunds_fr_002_records_the_agent, implemented, [annotation]]
+scenarios:
+  "001-payments/spec.md::User Story 1::Scenario 1": [Given an open order, When the shopper pays with a valid card, Then the order is marked paid]

@@ -27,7 +27,7 @@
       "output": {
         "matches": [
           {
-            "candidate": "C1",
+            "candidate": "C2",
             "verdict": "match",
             "confidence": 0.86,
             "rationale": "The api container serves the reconciliation HTTP routes and the MCP tool described by the component.",
@@ -42,7 +42,7 @@
       "output": {
         "matches": [
           {
-            "candidate": "C2",
+            "candidate": "C1",
             "verdict": "match",
             "confidence": 0.8,
             "rationale": "CMP-001 describes the HTTP and MCP API, which is what this container serves.",

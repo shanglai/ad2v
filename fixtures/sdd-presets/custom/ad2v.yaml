@@ -1,0 +1,7 @@
+spec_root: requirements
+spec_markdown:
+  - glob: "requirements/*.md"
+    preset: custom
+    component: '^## (?P<name>.+?)\s*$'
+    requirement: '^REQ: (?P<id>[A-Za-z]+-[0-9]+) - (?P<text>.+?)\s*$'
+    ears: true

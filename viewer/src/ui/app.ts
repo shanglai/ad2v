@@ -546,6 +546,7 @@ export class App {
     const instant = this.scene.reducedMotion;
     switch (it.intent) {
       case "focus":
+        this.scene.setEmphasis(ids); // P6.1: dim the rest (ADR-0051)
         if (ids.length === 1) this.enter(ids[0]!);
         else if (ids.length) { this.scene.fit(ids, instant); this.select(ids[0]!, true); }
         break;
@@ -555,7 +556,8 @@ export class App {
         break;
       case "path":
         this.scene.setReplay({ nodes: [], prev: [], path: ids });
-        this.scene.fit(ids, instant);
+        this.scene.setEmphasis(ids);
+        this.scene.frameStep(ids, instant);
         this.card(this.listCard("Path", ids, true));
         break;
       case "replay":
@@ -603,7 +605,7 @@ export class App {
     const pan = 60;
     switch (e.key) {
       case "/": e.preventDefault(); this.searchBox.focus(); break;
-      case "Home": this.scene.setFocus(null); this.scene.home(); break;
+      case "Home": this.scene.setFocus(null); this.scene.setEmphasis(null); this.scene.home(); break;
       case "Escape": case "Backspace": {
         const f = this.scene.getFocus() ?? sel;
         const p = f ? this.cur.tree.parent(f) : null;
@@ -848,6 +850,7 @@ export class App {
     this.replay = null;
     this.replayBar.classList.add("hidden");
     this.scene?.setReplay(null);
+    this.scene?.setEmphasis(null);
   }
 
   private togglePlay(): void {
@@ -884,7 +887,8 @@ export class App {
     if (!r) return;
     const cur = r.current, prev = r.previous;
     this.scene.setReplay({ nodes: cur.nodeIds, prev: prev?.nodeIds ?? [] });
-    this.scene.follow(this.cur.tree.representative(cur.nodeIds[0] ?? "", this.scene.visibleLods()) ?? cur.nodeIds[0] ?? "");
+    this.scene.setEmphasis(cur.nodeIds); // the rest is dimmed, opaquely (ADR-0051)
+    this.scene.frameStep(cur.nodeIds); // P6.1: on screen and readable at every step and level
     const slider = h("input", { type: "range", id: "detail", min: 0, max: r.levels.length - 1, value: r.levelIdx, "aria-label": "detail level",
       oninput: (e) => { r.setLevel(Number((e.target as HTMLInputElement).value)); this.renderReplay(true); } });
     const speed = h("select", { "aria-label": "speed", onchange: (e) => { this.speed = Number((e.target as HTMLSelectElement).value); if (this.timer !== null) { this.togglePlay(); this.togglePlay(); } } },
@@ -897,6 +901,8 @@ export class App {
       h("span", { id: "replay-pos" }, `step ${r.index + 1}/${r.coarse.length} · fine ${r.playhead}`),
       h("label", {}, "detail ", slider, ` level ${r.level}`),
       speed,
+      h("button", { id: "dim", title: "dim everything but the step (opaque blend toward the background)", "aria-pressed": String(this.scene.dimEnabled),
+        onclick: () => { this.scene.setDim(!this.scene.dimEnabled); this.renderReplay(false); } }, "Dim"),
       h("button", { title: "stop replay", onclick: () => this.stopReplay() }, "✕"));
     if (announce) {
       const nar = r.narration();

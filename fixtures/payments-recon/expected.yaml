@@ -6,10 +6,10 @@ counts:
   system: 1
   container: 2
   component: 3
-  module: 17            # P4: + worker/recon_worker/archive.py (suggestion decoy)
+  module: 18            # P4: + worker/recon_worker/archive.py (suggestion decoy); P6.1: + api/recon_api/factory.py
   class: 1
-  function: 29          # P4: + classify_run (REQ-009), purge_approved_runs (decoy)
-  http_route: 6
+  function: 31          # P4: + classify_run (REQ-009), purge_approved_runs (decoy); P6.1: + export_run, create_app
+  http_route: 7         # P6.1: + GET /v1/reconciliations/{run_id}/export (add_api_route in create_app)
   mcp_tool: 1
   cli_command: 3         # 2 Typer commands + the `if __name__ == "__main__"` block (P3, ADR-0021)
   event_consumer: 1
@@ -29,7 +29,7 @@ counts:
   requirement: 10       # P4: + REQ-009, REQ-010 (planted semantic drift / partial)
   scenario: 4           # 3 scenarios + Background
   scenario_step: 11
-  spec_endpoint: 5
+  spec_endpoint: 6      # P6.1: + GET /reconciliations/{run_id}/export
 
 containers:
   container:api: {replicas: 2, container_kind: service}
@@ -73,6 +73,8 @@ ports:
     "http:api:POST /v1/reconciliations": api/recon_api/routes.py::start_run
     "http:api:GET /v1/reconciliations/{id}": api/recon_api/routes.py::get_run
     "http:api:GET /v1/reconciliations/{run_id}/unmatched": api/recon_api/routes.py::list_unmatched
+    # P6.1: registered in create_app() with add_api_route, router mounted at RUNS_PREFIX (an f-string constant)
+    "http:api:GET /v1/reconciliations/{run_id}/export": api/recon_api/factory.py::export_run
     "http:api:GET /internal/debug/stats": api/recon_api/main.py::debug_stats
     "http:api:GET /v1/health": api/recon_api/main.py::health
     "http:worker:GET /v1/health": worker/recon_worker/health.py::health
@@ -112,7 +114,7 @@ dangling_refs:
   - {src: api/recon_api/db.py::record_run, ref: REQ-099}
 
 workflows:
-  code: 11      # one per entry port
+  code: 12      # one per entry port
   spec: 3       # one per scenario (Background is prepended, not its own workflow)
   traces:       # workflow entry qname -> ordered qnames that must appear (subsequence)
     "http:api:POST /v1/reconciliations":
@@ -152,6 +154,7 @@ statuses:
     - [spec_endpoint, "GET /reconciliations/{run_id}", implemented]       # {id} vs {run_id}
     - [spec_endpoint, "GET /reconciliations/{run_id}/unmatched", drift]   # required query as_of missing
     - [spec_endpoint, "POST /reconciliations/{run_id}/approve", missing]
+    - [spec_endpoint, "GET /reconciliations/{run_id}/export", implemented]   # P6.1: was missing before route recall
     - [spec_endpoint, "GET /health", needs_review]                         # two candidate routes
     - [spec_component, CMP-001, specified]
     - [spec_component, CMP-002, implemented]    # pairing.components -> worker
@@ -182,7 +185,7 @@ link_evidence:   # [spec qname, code qname, evidence kind]
   - [REQ-001, api/recon_api/routes.py::start_run, tests_passed]
 
 rollups:   # counts of effective statuses over all descendants
-  container:api: {drift: 1, implemented: 9, needs_review: 2, none: 24, orphan: 3, verified: 8}
+  container:api: {drift: 1, implemented: 10, needs_review: 2, none: 27, orphan: 3, verified: 8}
   container:worker: {implemented: 19, needs_review: 1}
 
 severity_top3:   # overlay raises unbounded_retry base 4 -> 6: 6 x 1.5 = 9

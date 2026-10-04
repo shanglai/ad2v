@@ -49,6 +49,15 @@ paths:
       responses:
         "200":
           description: Unmatched transactions.
+  /reconciliations/{run_id}/export:
+    get:
+      operationId: exportReconciliation
+      summary: Export the rows of a reconciliation run.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: The run's rows.
   /reconciliations/{run_id}/approve:
     post:
       operationId: approveReconciliation

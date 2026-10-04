@@ -59,7 +59,10 @@ def test_orphan_policy_is_part_of_config_hash(tmp_path):
     write_tree(tmp_path / "b", {"ad2v.yaml": "pairing: {orphan_policy: off}\n"})
     a, b = load(tmp_path / "a"), load(tmp_path / "b")
     assert a.config_hash != b.config_hash
-    assert load(tmp_path / "missing").config_json == {"effective": {"orphan_policy": "auto"}, "manifest": {}}
+    assert load(tmp_path / "missing").config_json == {
+        "effective": {"orphan_policy": "auto", "spec_roots": []},
+        "manifest": {},
+    }  # P6.1: the effective spec roots are part of the config (ADR-0047)
     write_tree(tmp_path / "bad", {"ad2v.yaml": "pairing: {orphan_policy: sometimes}\n"})
     with pytest.raises(ManifestError):
         load(tmp_path / "bad")

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from ad2v import ids, ir
 from ad2v.extract import files as filewalk
-from ad2v.extract.spec import gherkin, markdown, openapi
+from ad2v.extract.spec import gherkin, openapi
 
 SPEC_SUFFIXES = (".feature", ".md", ".markdown", ".yaml", ".yml", ".json")
 
@@ -22,7 +23,8 @@ def spec_files(spec_root: Path, exclude: tuple[str, ...]) -> list[tuple[str, str
         text = ids.read_normalized(root / rel)
         if rel.endswith(".feature"):
             out.append((rel, "gherkin", text))
-        elif rel.endswith((".md", ".markdown")):
+        elif rel.endswith((".md", ".markdown")) or (spec_root.is_file() and rel.endswith(".txt")):
+            # a .txt file is read as Markdown only when named explicitly (`ad2v specs bootstrap`)
             out.append((rel, "markdown", text))
         elif openapi.is_openapi(text):
             out.append((rel, "openapi", text))
@@ -39,6 +41,7 @@ def extract_specs(
     exclude: tuple[str, ...],
     root_name: str = "spec",
     files: list[tuple[str, str, str]] | None = None,
+    choices: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Extract every spec file under `spec_root`. Returns {path: content_hash} of files read.
 
@@ -55,7 +58,9 @@ def extract_specs(
         if fmt == "gherkin":
             gherkin.extract(graph, rel, text)
         elif fmt == "markdown":
-            markdown.extract(graph, rel, text)
+            from ad2v.extract.spec import presets
+
+            presets.extract(graph, rel, text, (choices or {}).get(rel))
         else:
             openapi.extract(graph, rel, text)
         read[rel] = ids.content_hash(text)

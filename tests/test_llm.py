@@ -269,7 +269,7 @@ def test_run_writes_everything_and_isolation(ran):
             t: conn.execute(f"SELECT COUNT(*) FROM {t} WHERE epoch_id = ?", (e,)).fetchone()[0]
             for t in ("link_judgments", "link_suggestions", "summaries", "narrations", "spec_extractions")
         }
-        assert counts["link_judgments"] == 11 and all(counts.values())
+        assert counts["link_judgments"] == 12 and all(counts.values())
         run = conn.execute("SELECT * FROM llm_runs").fetchone()
         assert run["provider"] == "fake" and run["calls"] == report["totals"]["calls"] and not run["aborted"]
         norm = dict(
@@ -313,12 +313,12 @@ def test_cache_hits_are_free_and_no_cache_makes_new_results(ran, tmp_path):
     out = tmp_path / "copy.ad2v"
     shutil.copyfile(ran[0], out)
     again = api.run(out, fake_cfg(), ["judge"], 1.0)
-    assert again["totals"]["calls"] == 0 and again["totals"]["hits"] == 11
+    assert again["totals"]["calls"] == 0 and again["totals"]["hits"] == 12
     fresh = api.run(out, fake_cfg(), ["judge"], 1.0, use_cache=False)
-    assert fresh["totals"]["calls"] == 11
+    assert fresh["totals"]["calls"] == 12
     conn = store.open_readonly(out)
     try:
-        assert conn.execute("SELECT COUNT(*) FROM llm_results WHERE task = 'judge'").fetchone()[0] == 22
+        assert conn.execute("SELECT COUNT(*) FROM llm_results WHERE task = 'judge'").fetchone()[0] == 24
         r = evaluate.evaluate(conn, evaluate.load_expected(EXPECTED))
     finally:
         conn.close()
@@ -856,7 +856,7 @@ def test_cli_plan_eval_list_show(ran, capsys):
     assert main(["llm", "plan", f, "--provider", "fake", "--replay-dir", str(RECORDINGS)]) == 0
     assert "estimate:" in capsys.readouterr().out
     assert main(["llm", "plan", f, "--provider", "fake", "--format", "json", "--tasks", "judge"]) == 0
-    assert json.loads(capsys.readouterr().out)["tasks"]["judge"]["jobs"] == 11
+    assert json.loads(capsys.readouterr().out)["tasks"]["judge"]["jobs"] == 12
     assert main(["llm", "eval", f, "--expected", str(EXPECTED)]) == 0
     out = capsys.readouterr().out
     assert "accuracy 0.9091" in out and "REQ-003 -> api/recon_api/matching.py::amounts_match" in out
@@ -891,7 +891,7 @@ def test_extract_rebuilds_informative_rows_from_cache(repo, tmp_path):
         ).fetchone()[0]
     finally:
         conn.close()
-    assert n == 11  # every judgment carried to the new head at no cost
+    assert n == 12  # every judgment carried to the new head at no cost
 
 
 def test_prune_keeps_llm_cache_unless_asked(repo, tmp_path):
@@ -911,11 +911,11 @@ def test_prune_keeps_llm_cache_unless_asked(repo, tmp_path):
     conn = store.open_readonly(out)
     n1 = conn.execute("SELECT COUNT(*) FROM llm_results").fetchone()[0]
     conn.close()
-    assert n1 == n0 == 22  # a prune keeps the costly cache by default
+    assert n1 == n0 == 24  # a prune keeps the costly cache by default
     stats = admin.prune_file(out, 1, False, drop_llm_cache=True)
     assert stats["llm_rows_removed"] >= 11  # the superseded results (and their run links) go
     conn = store.open_readonly(out)
-    assert conn.execute("SELECT COUNT(*) FROM llm_results").fetchone()[0] == 11
+    assert conn.execute("SELECT COUNT(*) FROM llm_results").fetchone()[0] == 12
     conn.close()
     assert validate(out) == []
 
@@ -961,5 +961,5 @@ def test_plan_all_epochs_counts_repeated_jobs_once(repo, tmp_path):
     m.write_text(m.read_text(encoding="utf-8") + "\n# edit\n", encoding="utf-8")
     extract(repo, out, into=True)
     r = api.plan(out, fake_cfg(), ["judge"], "all")
-    assert r["epochs_planned"] == 2 and r["tasks"]["judge"]["jobs"] == 22
-    assert r["tasks"]["judge"]["misses"] == 11 and r["tasks"]["judge"]["hits"] == 11
+    assert r["epochs_planned"] == 2 and r["tasks"]["judge"]["jobs"] == 24
+    assert r["tasks"]["judge"]["misses"] == 12 and r["tasks"]["judge"]["hits"] == 12

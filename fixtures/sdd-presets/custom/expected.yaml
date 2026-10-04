@@ -1,0 +1,10 @@
+# P6.1 golden: custom preset (regexes in ad2v.yaml: `REQ: <id> - <text>` lines under `## <component>`).
+spec_roots: [requirements]
+presets: {billing.md: custom}
+counts: {spec_doc: 1, spec_component: 2, requirement: 3}
+requirements:   # [qualified name, status, ears]
+  - [BILL-1, implemented, event]
+  - [BILL-2, implemented, ubiquitous]
+  - [BILL-3, specified, unwanted]
+skipped_ids: [bill-4]   # not a spec id (lower case): recorded on the document, never parsed
+parents: {BILL-1: "billing.md::Invoices", BILL-3: "billing.md::Reminders"}

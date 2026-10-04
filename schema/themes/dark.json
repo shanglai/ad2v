@@ -7,7 +7,7 @@
   "grid": "#1B2433",
   "text": "#E6ECF5",
   "text_muted": "#A3AFC2",
-  "edge": "#6E7D94",
+  "edge": "#97A5BA",
   "status": {
     "specified": {
       "stroke": "#6F93D8",
@@ -42,7 +42,7 @@
       "fill": "#161C26"
     },
     "none": {
-      "stroke": "#6B7689",
+      "stroke": "#8792A6",
       "fill": "#111722"
     }
   },
@@ -79,5 +79,16 @@
   "link": {
     "normative": "#8CD2FF",
     "suggestion": "#FF8FC8"
+  },
+  "body": {
+    "neutral": "#1D2533",
+    "tint": 0.08,
+    "open_recede": 0.55
+  },
+  "dim": {
+    "factor": 0.7
+  },
+  "replay": {
+    "highlight": "#C9E8FF"
   }
 }

@@ -12,7 +12,7 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 4 | medium | `io_in_loop` **recall is unmeasured**. The precision sample is small (10/10 after fix #3; Wilson 95% lower bound ≈ 0.72). | open; needs a labeled corpus (pending.md) |
 | 5 | medium | Clients stored on instance attributes (`self.client = httpx.Client()` in `__init__`, used in other methods) are not tracked, so IO through them is missed (recall gap). | open (pending.md) |
 | 6 | medium | Calls on untyped parameters (`def f(session): session.execute(...)`) are unresolved. Parameters annotated with a classified library type are handled. | open (pending.md) |
-| 7 | medium | App-factory patterns (`def create_app(): app = FastAPI(); @app.get(...)`) produce no routes, because decorators are evaluated in module scope. | open (pending.md) |
+| 7 | medium | App-factory patterns (`def create_app(): app = FastAPI(); @app.get(...)`) produce no routes, because decorators are evaluated in module scope. | **resolved in P6.1** (ADR-0046): factory-local apps/routers, `add_api_route`/`add_url_rule`/`add_route`, Starlette `Route`/`Mount` |
 | 8 | low | f-string URLs name resources by their literal prefix only (`https://public-keys.auth.elb.` on dispatch). The name is deterministic, but partial. | open; mark `name_source: literal_prefix` in P2 |
 | 9 | low | Behavior ordinals are per function. Inserting a new loop *before* an existing loop in the same function renumbers the later loops (their ids change). | **fixed in P2**: content-anchored ids (ADR-0011) |
 | 10 | low | Duplicate definitions of the same qualified name (`if X: def f ... else: def f ...`): the first one wins, and the second body is not walked. | open |
@@ -32,7 +32,7 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 19 | low | `.ad2v` size grew ~35-40% (dispatch 11.4 → 16.1 MB) from `links`, `node_status`, `status_rollup` and `workflow_step_nodes`. `workflow_step_nodes` dominates on dispatch (~10.5k steps). | **addressed in P3**: single-epoch dispatch is 15.0 MB; each further epoch adds ~0.3 MB (ADR-0017) |
 | 20 | low | The light theme's warning badge initially failed the text-contrast requirement (3.46:1). An earlier edit silently did not apply; the new contrast test caught it. | **fixed** (`#9A5800`, 5.57:1) |
 | 21 | low | JUnit XML parsed with `xml.etree` (as required, stdlib only). Hostile XML (entity expansion) is mitigated by the bundled expat's limits, not by `defusedxml`. Test-result files are the user's own CI output. | accepted; revisit if results are ever fetched from untrusted sources |
-| 22 | low | Route pairing uses `(METHOD, normalized path)` only. Routes mounted through app factories or `add_api_route` are invisible (P1 issue 7), so their spec endpoints show `missing`. | open (P1 issue 7) |
+| 22 | low | Route pairing uses `(METHOD, normalized path)` only. Routes mounted through app factories or `add_api_route` are invisible (P1 issue 7), so their spec endpoints show `missing`. | **resolved in P6.1** (ADR-0046): the fixture export endpoint is `implemented`; routes with an unfoldable prefix pair as `needs_review` |
 | 23 | low | A failing linked test leaves a link `implemented` (not `drift`), per ADR-0015. A reviewer might expect red. The evidence `tests_failed` is recorded; the viewer can badge it. | by design |
 | 24 | low | The shell tool mangled backslash escapes and some quotes in heredocs, and one edit silently failed (#20). Edits were moved to scratch scripts. Tooling only. | n/a |
 
@@ -101,3 +101,14 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 68 | low | Weight tuning improved the tuning set but lowered held-out MRR (0.94 → 0.84 locate-only) on 8 questions: noise-level overfitting. | accepted and reported (ADR-0043); needs a larger question set (pending.md) |
 | 69 | low | `diff` intent in the MCP App loads both whole epochs (the classifier needs every node). | accepted (ADR-0041); fine up to dispatch size (~5 MB per epoch) |
 
+## P6.1
+
+| # | Severity | Issue | Status |
+|---|---|---|---|
+| 70 | medium | On full-stack-fastapi-template all 23 routes are `path_unresolved`: the prefix is `settings.API_V1_STR`, a pydantic `BaseSettings` default that the environment can override. | by design (ADR-0046): tails are correct and pair as `needs_review`; an opt-in Settings-default resolver is in pending.md |
+| 71 | low | A replay step whose node is not visible at the current LOD (an `env:` port inside a closed container) highlights its deepest visible ancestor, so with Dim on that whole ancestor stays undimmed. | open: the ring (ADR-0050) marks a port once it is visible; consider opening the container |
+| 72 | medium | The published demo (built in P5) drew dark-theme body colors in the light theme, so dark-grey bodies sat under dark-grey edges (related to the user's question about the P5 demo). Body colors were hard-coded per theme name and never tested. | **fixed** (ADR-0051): `body.*` tokens, `bodyColor()`, contrast tests in both themes; demo rebuilt |
+| 73 | low | Dispatch first render is 1.17–1.22 s, against 0.86 s in P5 on the same machine. | open: under the 3 s target; cause not isolated |
+| 74 | low | The first replay run after loading dispatch has a p5 frame rate of 30 fps (median 59.9), whether Dim is on or off; the second run holds 59.5. | open: warm-up (atlas growth, first rebuilds); not caused by dimming |
+| 75 | low | spec-kit success criteria (`SC-001`) are parsed as requirements (`category: success_criterion`) so tests can cite them; spec-kit treats them as outcomes. | accepted (ADR-0048) |
+| 76 | low | A router that is never statically included keeps its decorator path as if exact: dispatch's 4 `/slack/*` routes are attached at runtime by a plugin loop (`install_plugin_events(api_router)`), so their real prefix is missing and they are not flagged. | open: mark routes of never-included routers `path_unresolved` (pending.md) |

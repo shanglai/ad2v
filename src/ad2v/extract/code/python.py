@@ -69,6 +69,7 @@ class ResKey:
 class Const:
     literal: str | None = None
     env: str | None = None
+    exact: bool = True  # False: `literal` is only the known prefix (an f-string with a non-constant part)
 
 
 @dataclass(frozen=True)
@@ -191,6 +192,7 @@ class Ctx:
     parent_scope: dict[str, Value] | None = None
     stack: list[Candidate] = field(default_factory=list)
     collector: list[str] | None = None
+    nodes: dict[str, TSNode] = field(default_factory=dict)  # local name -> list/tuple literal node
 
 
 def _text(n: TSNode | None) -> str:
@@ -336,6 +338,12 @@ class PythonExtractor:
         self.http_route_decos = set(http.get("route_decorators", []))
         self.http_include = set(http.get("include_methods", []))
         self.http_prefix_kw = list(http.get("prefix_kwargs", ["prefix"]))
+        # P6.1: imperative registration and route lists (rules-driven, covered by rules_hash)
+        self.http_add_routes = {r["method"]: r for r in http.get("add_route_methods", [])}
+        self.http_route_lists = set(http.get("route_list_constructors", []))
+        self.http_route_ctors = set(http.get("route_constructors", []))
+        self.http_mount_ctors = set(http.get("mount_constructors", []))
+        self.http_mount_methods = {r["method"]: r for r in http.get("mount_methods", [])}
         mcp = ports.get("mcp", {})
         self.mcp_ctors = set(mcp.get("server_constructors", []))
         self.mcp_decos = set(mcp.get("tool_decorators", ["tool"]))
@@ -366,6 +374,7 @@ class PythonExtractor:
         self.modules: dict[str, ModuleInfo] = {}
         self.index: dict[str, list[str]] = {}
         self.funcs: dict[str, FuncInfo] = {}
+        self.origin_objs: dict[tuple[str, str], Obj] = {}  # router/app identity -> object (its own prefix)
         self.classes: dict[str, ClassInfo] = {}  # class qname -> info
         self.fn_direct: dict[str, set[str]] = {}
         self.fn_callees: dict[str, set[str]] = {}
@@ -683,6 +692,7 @@ class PythonExtractor:
                 v = self.eval(payload, ctx)
                 if isinstance(v, Obj) and v.origin is None:
                     v.origin = (m.path, name)
+                    self.origin_objs[v.origin] = v
         finally:
             m.evaluating.discard(name)
         m.values[name] = v
@@ -782,8 +792,11 @@ class PythonExtractor:
             base = self.eval(n.child_by_field_name("object"), ctx)
             return self.attr(base, _text(n.child_by_field_name("attribute")))
         if t in ("string", "concatenated_string"):
+            s, exact = self._fold_str(n, ctx)
+            if exact:
+                return Const(literal=s)
             s = _string_value(n)
-            return Const(literal=s) if s is not None else None
+            return Const(literal=s, exact=False) if s is not None else None
         if t == "subscript":
             base = self.eval(n.child_by_field_name("value"), ctx)
             sub = n.child_by_field_name("subscript")
@@ -793,9 +806,60 @@ class PythonExtractor:
             return None
         if t == "call":
             return self._eval_call(n, ctx)
+        if t == "binary_operator":  # "a" + B: string concatenation (P6.1)
+            s, exact = self._fold_str(n, ctx)
+            if s is not None:
+                return Const(literal=s, exact=exact)
+            return None
         if t == "as_pattern":
             return self.eval(n.named_children[0] if n.named_children else None, ctx)
         return None
+
+    def _fold_str(self, n: TSNode | None, ctx: Ctx, depth: int = 0) -> tuple[str | None, bool]:
+        """Constant-fold a string expression (P6.1): (value, exact). Literals, f-strings whose parts
+        are constants, `+` concatenation, and names bound to such values (module constants, simple
+        locals). Not exact: the value is the known prefix up to the first non-constant part."""
+        if n is None or depth > 8:
+            return None, False
+        n = _unwrap(n)
+        t = n.type
+        if t == "string":
+            out: list[str] = []
+            for c in n.named_children:
+                if c.type == "string_content":
+                    out.append(_text(c))
+                elif c.type == "interpolation":
+                    kids = c.named_children
+                    if not kids or any(k.type in ("format_specifier", "type_conversion") for k in kids):
+                        return "".join(out), False
+                    v, ok = self._fold_str(kids[0], ctx, depth + 1)
+                    if not ok:
+                        return "".join(out) + (v or ""), False
+                    out.append(v or "")
+            return "".join(out), True
+        if t == "concatenated_string" or (
+            t == "binary_operator" and _text(n.child_by_field_name("operator") or n) == "+"
+        ):
+            parts = (
+                n.named_children
+                if t == "concatenated_string"
+                else [
+                    n.child_by_field_name("left"),
+                    n.child_by_field_name("right"),
+                ]
+            )
+            acc = ""
+            for p in parts:
+                v, ok = self._fold_str(p, ctx, depth + 1)
+                if not ok:
+                    return acc + (v or ""), False
+                acc += v or ""
+            return acc, True
+        if t in ("identifier", "attribute"):
+            v = self.eval(n, ctx)
+            if isinstance(v, Const) and v.literal is not None and v.env is None:
+                return v.literal, v.exact
+        return None, False
 
     def _eval_call(self, n: TSNode, ctx: Ctx) -> Value:
         callee = self.eval(n.child_by_field_name("function"), ctx)
@@ -813,9 +877,11 @@ class PythonExtractor:
             meta: dict[str, Any] = {}
             for k in self.http_prefix_kw:
                 if k in kw:
-                    s = _string_value(_unwrap(kw[k]))
-                    if s is not None:
-                        meta["prefix"] = s
+                    s, exact = self._fold_str(kw[k], ctx)
+                    if s is not None or not exact:
+                        meta["prefix"] = s or ""
+                        if not exact:
+                            meta["prefix_exact"] = False
             return Obj(callee.fq, None, meta)
         if isinstance(callee, Obj):
             return Obj(callee.ctor, callee.res, dict(callee.meta))
@@ -984,12 +1050,22 @@ class PythonExtractor:
         # test names (config-dependent, so applied here rather than cached)
         prefixes = "|".join(re.escape(p.lower()) for p in self.config.test_ref_prefixes)
         if prefixes:
-            pat = re.compile(rf"(?:^|_)({prefixes})_([0-9]+)(?=_|$)", re.IGNORECASE)
+            # `test_req_001_x` -> REQ-001; `test_payments_fr_001_x` -> FR-001 with the namespace hint
+            # `payments` (spec-kit features, ADR-0048)
+            pat = re.compile(rf"(?:^|_)(?:([a-z0-9_]+?)_)?({prefixes})_([0-9]+)(?=_|$)", re.IGNORECASE)
             for fi in m.functions:
                 if fi.node.attrs.get("is_test"):
-                    refs = [f"{p.upper()}-{d}" for p, d in pat.findall(fi.node.name)]
+                    found = pat.findall(fi.node.name)
+                    refs = [f"{p.upper()}-{d}" for _, p, d in found]
                     if refs:
                         self._add_refs(fi.node.id, refs, "test_name")
+                        hints = {
+                            f"{p.upper()}-{d}": h
+                            for ns, p, d in found
+                            if (h := re.sub(r"^test_?", "", ns.lower())) and h != "test"
+                        }
+                        if hints:
+                            fi.node.attrs.setdefault("spec_ref_hints", {}).update(hints)
 
     def _add_refs(
         self, nid: str, refs: list[str], source: str, fingerprints: dict[str, str] | None = None
@@ -1197,7 +1273,7 @@ class PythonExtractor:
                     self._beat_schedule(_unwrap(right), ctx)
             is_module_scope = ctx.func is None and ctx.class_qname is None  # module_value() owns these
             if left is not None and left.type == "identifier" and right is not None and not is_module_scope:
-                ctx.local[_text(left)] = self.eval(right, ctx)
+                self._bind_local(ctx, _text(left), right)
             return
         for c in n.named_children:
             self._walk(c, ctx)
@@ -1232,7 +1308,7 @@ class PythonExtractor:
                 target = value.child_by_field_name("alias")
                 ident = target.named_children[0] if target is not None and target.named_children else None
                 if ident is not None and ident.type == "identifier":
-                    ctx.local[_text(ident)] = self.eval(expr, ctx)
+                    self._bind_local(ctx, _text(ident), expr)
         body = n.child_by_field_name("body")
         if body is not None:
             self._walk(body, ctx)
@@ -1277,6 +1353,18 @@ class PythonExtractor:
             if ci is not None:
                 return ci.methods.get("__init__", ci.node.id)
         return None
+
+    def _bind_local(self, ctx: Ctx, name: str, value: TSNode) -> None:
+        """A local assignment. App/router objects built inside a function (factories) get an
+        identity, so include_router / register_blueprint chains can mount them (P6.1)."""
+        v = self.eval(value, ctx)
+        if isinstance(v, Obj) and v.origin is None and v.ctor in self.http_ctors:
+            v.origin = (ctx.module.path, f"{ctx.scope_qname}:{name}")
+            self.origin_objs[v.origin] = v
+        ctx.local[name] = v
+        u = _unwrap(value)
+        if u.type in ("list", "tuple"):
+            ctx.nodes[name] = u
 
     def _handle_call(self, call: TSNode, ctx: Ctx) -> None:
         fn_node = call.child_by_field_name("function")
@@ -1364,6 +1452,8 @@ class PythonExtractor:
         ctx: Ctx,
     ) -> bool:
         fq = callee.fq
+        if fq in self.http_route_lists and "routes" in kw:
+            self._route_list(kw["routes"], "", True, ctx, fq.split(".")[0])
         if fq in self.fan_callables:
             over = any(
                 r.type in ("list_splat", "dictionary_splat") or _unwrap(r).type in COMPREHENSIONS for r in raw
@@ -1420,11 +1510,36 @@ class PythonExtractor:
         if method in self.http_include and pos and obj.ctor in self.http_ctors:
             inner = self.eval(pos[0], ctx)
             if isinstance(inner, Obj) and inner.origin is not None:
-                prefix = ""
+                prefix, exact = "", True
                 for k in self.http_prefix_kw:
                     if k in kw:
-                        prefix = _string_value(_unwrap(kw[k])) or ""
-                self.mounts.setdefault(inner.origin, []).append((obj.origin, prefix))
+                        s, exact = self._fold_str(kw[k], ctx)
+                        prefix = s or ""
+                self.mounts.setdefault(inner.origin, []).append((obj.origin, prefix, exact))
+        if method in self.http_mount_methods and obj.ctor in self.http_ctors:
+            # Starlette sub-application mount: app.mount("/api/v1", app=api) (P6.1)
+            r = self.http_mount_methods[method]
+            path_node = (
+                kw.get(r["path"][1])
+                if r["path"][1] in kw
+                else (pos[r["path"][0]] if len(pos) > r["path"][0] else None)
+            )
+            app_node = (
+                kw.get(r["app"][1])
+                if r["app"][1] in kw
+                else (pos[r["app"][0]] if len(pos) > r["app"][0] else None)
+            )
+            inner = self.eval(app_node, ctx) if app_node is not None else None
+            if (
+                isinstance(inner, Obj)
+                and inner.origin is not None
+                and inner.ctor in self.http_ctors
+                and path_node is not None
+            ):
+                prefix, exact = self._fold_str(path_node, ctx)
+                self.mounts.setdefault(inner.origin, []).append((obj.origin, prefix or "", exact))
+        if method in self.http_add_routes and obj.ctor in self.http_ctors:
+            self._imperative_route(obj, self.http_add_routes[method], pos, kw, ctx)
         if obj.ctor in self.aps_ctors and method in self.aps_add:
             fn_ref = kw.get("func") or (pos[0] if pos else None)
             if fn_ref is not None:
@@ -1466,7 +1581,16 @@ class PythonExtractor:
     # =========================================================================================
 
     def _ports_from_decorators(self, fi: FuncInfo) -> None:
-        mctx = Ctx(fi.module.node.id, fi.module.path, fi.module, fi.parent_func, fi.class_qname, {})
+        # a nested route function (inside an app factory) resolves `app` in its parent's scope
+        mctx = Ctx(
+            fi.module.node.id,
+            fi.module.path,
+            fi.module,
+            fi.parent_func,
+            fi.class_qname,
+            {},
+            parent_scope=fi.parent_func.scope if fi.parent_func else None,
+        )
         for d in fi.decorators:
             expr = d.named_children[0] if d.named_children else None
             if expr is None:
@@ -1481,12 +1605,10 @@ class PythonExtractor:
                 if obj.ctor in self.http_ctors and (
                     meth in self.http_methods or meth in self.http_route_decos
                 ):
-                    path = first
-                    for k in ("path", "rule"):
-                        if path is None and k in kw:
-                            path = _string_value(_unwrap(kw[k]))
-                    if path is None:
+                    path_node = pos[0] if pos else kw.get("path") or kw.get("rule")
+                    if path_node is None:
                         continue
+                    path, path_exact = self._fold_str(path_node, mctx)
                     if meth in self.http_methods:
                         methods = [meth.upper()]
                     else:
@@ -1503,7 +1625,8 @@ class PythonExtractor:
                         {
                             "fi": fi,
                             "obj": obj,
-                            "path": path,
+                            "path": path or "",
+                            "path_exact": path_exact,
                             "methods": methods,
                             "framework": obj.ctor.split(".")[0],
                         }
@@ -1714,32 +1837,155 @@ class PythonExtractor:
         self.graph.add_edge(port.id, hid, "calls")
         self.ports.add((port.id, hid))
 
+    @staticmethod
+    def _extend(tail: str | None, piece: str, exact: bool) -> str | None:
+        """The known tail after the last unresolved piece; None while everything is exact."""
+        if not exact:
+            return ""
+        return None if tail is None else join_route(tail, piece)
+
     def _prefixes(
         self, origin: tuple[str, str] | None, seen: frozenset[tuple[str, str]] = frozenset()
-    ) -> list[str]:
-        """All mount prefixes for a router object (include_router / register_blueprint chains)."""
+    ) -> list[tuple[str, str | None]]:
+        """All mount prefixes for a router object (include_router / register_blueprint / mount
+        chains): (full prefix, known tail after the last unresolved piece, or None if exact)."""
         if origin is None or origin in seen or origin not in self.mounts:
-            return [""]
+            return [("", None)]
         out = []
-        for parent, prefix in sorted(self.mounts[origin], key=lambda x: (x[0] or ("", ""), x[1])):
-            for pp in self._prefixes(parent, seen | {origin}):
-                out.append(join_route(pp, prefix) if pp or prefix else "")
-        return sorted(set(out))
+        for parent, prefix, exact in sorted(
+            self.mounts[origin], key=lambda x: (x[0] or ("", ""), x[1], x[2])
+        ):
+            # the parent router's own prefix applies too:
+            # APIRouter(prefix="/a").include_router(r, prefix="/b")
+            pobj = self.origin_objs.get(parent) if parent is not None else None
+            pown = pobj.meta.get("prefix", "") if pobj is not None else ""
+            pown_exact = pobj.meta.get("prefix_exact", True) if pobj is not None else True
+            for pp, ptail in self._prefixes(parent, seen | {origin}):
+                full = join_route(pp, pown, prefix) if pp or pown or prefix else ""
+                tail = self._extend(self._extend(ptail, pown, pown_exact), prefix, exact)
+                out.append((full, tail))
+        return sorted(set(out), key=lambda x: (x[0], x[1] is None, x[1] or ""))
+
+    def _route_target(self, node: TSNode | None, ctx: Ctx) -> FuncInfo | None:
+        target = self._callable_target(self.eval(node, ctx)) if node is not None else None
+        return self.funcs.get(target) if target is not None else None
+
+    @staticmethod
+    def _methods(node: TSNode | None, default: list[str]) -> list[str]:
+        u = _unwrap(node) if node is not None else None
+        if u is not None and u.type in ("list", "tuple", "set"):
+            got = sorted({(_string_value(x) or "").upper() for x in u.named_children if _string_value(x)})
+            return got or list(default)
+        return list(default)
+
+    def _imperative_route(
+        self, obj: Obj, rule: dict[str, Any], pos: list[TSNode], kw: dict[str, TSNode], ctx: Ctx
+    ) -> None:
+        """`app.add_api_route(path, endpoint, methods=[…])`, Flask `add_url_rule`, Starlette
+        `add_route`: the argument positions and keywords come from the rules."""
+
+        def arg(spec: list[Any]) -> TSNode | None:
+            idx, name = spec
+            return kw.get(name) if name in kw else (pos[idx] if len(pos) > idx else None)
+
+        path_node, ep_node = arg(rule["path"]), arg(rule["endpoint"])
+        fi = self._route_target(ep_node, ctx)
+        if path_node is None or fi is None:
+            return
+        path, exact = self._fold_str(path_node, ctx)
+        self.route_decls.append(
+            {
+                "fi": fi,
+                "obj": obj,
+                "path": path or "",
+                "path_exact": exact,
+                "methods": self._methods(
+                    kw.get(rule.get("methods_kw", "methods")), rule.get("default_methods", ["GET"])
+                ),
+                "framework": obj.ctor.split(".")[0],
+                "registration": rule["method"],
+            }
+        )
+
+    def _route_list(
+        self, node: TSNode, prefix: str, exact: bool, ctx: Ctx, framework: str, depth: int = 0
+    ) -> None:
+        """Starlette-style `routes=[Route(path, endpoint, methods=…), Mount(prefix, routes=[…])]`."""
+        if depth > 6:
+            return
+        n = _unwrap(node)
+        if n.type == "identifier":
+            name = _text(n)
+            found = ctx.nodes.get(name)
+            if found is None:
+                raw = ctx.module.raw_bindings.get(name)
+                found = raw[1] if raw is not None and raw[0] == "expr" else None
+            if found is None:
+                return
+            n = _unwrap(found)
+        if n.type not in ("list", "tuple"):
+            return
+        for el in n.named_children:
+            el = _unwrap(el)
+            if el.type != "call":
+                continue
+            cv = self.eval(el.child_by_field_name("function"), ctx)
+            if not isinstance(cv, ExtSym):
+                continue
+            p, k, _ = _call_args(el)
+            if cv.fq in self.http_route_ctors:
+                fi = self._route_target(k.get("endpoint") or (p[1] if len(p) > 1 else None), ctx)
+                path_node = k.get("path") or (p[0] if p else None)
+                if fi is None or path_node is None:
+                    continue
+                path, ok = self._fold_str(path_node, ctx)
+                self.route_decls.append(
+                    {
+                        "fi": fi,
+                        "obj": None,
+                        "path": join_route(prefix, path or ""),
+                        "path_exact": exact and ok,
+                        "methods": self._methods(k.get("methods"), ["GET"]),
+                        "framework": framework,
+                        "registration": "route_list",
+                    }
+                )
+            elif cv.fq in self.http_mount_ctors:
+                mp_node = k.get("path") or (p[0] if p else None)
+                sub = k.get("routes") or (p[1] if len(p) > 1 else None)
+                if sub is None:
+                    continue
+                mp, ok = self._fold_str(mp_node, ctx) if mp_node is not None else ("", True)
+                self._route_list(sub, join_route(prefix, mp or ""), exact and ok, ctx, framework, depth + 1)
 
     def _finalize_ports(self, facts: CodeFacts) -> None:
         for decl in self.route_decls:
             fi: FuncInfo = decl["fi"]
-            obj: Obj = decl["obj"]
-            own = obj.meta.get("prefix", "")
-            for mount in self._prefixes(obj.origin):
+            obj: Obj | None = decl["obj"]
+            own = obj.meta.get("prefix", "") if obj is not None else ""
+            own_exact = obj.meta.get("prefix_exact", True) if obj is not None else True
+            mounts = self._prefixes(obj.origin) if obj is not None else [("", None)]
+            for mount, mount_tail in mounts:
                 full = join_route(mount, own, decl["path"])
+                tail = self._extend(
+                    self._extend(mount_tail, own, own_exact), decl["path"], decl.get("path_exact", True)
+                )
+                exact = tail is None
                 for method in decl["methods"]:
+                    attrs: dict[str, Any] = {"method": method, "path": full, "framework": decl["framework"]}
+                    if "registration" in decl:
+                        attrs["registration"] = decl["registration"]
+                    if not exact:
+                        # P6.1: emitted anyway, with the literal parts kept; pairing offers it as a
+                        # needs_review candidate, never a false `missing` (ADR-0046)
+                        attrs["path_unresolved"] = True
+                        attrs["path_tail"] = tail
                     self._make_port(
                         fi,
                         "http_route",
                         f"http:{fi.module.container}:{method} {full}",
                         f"{method} {full}",
-                        {"method": method, "path": full, "framework": decl["framework"]},
+                        attrs,
                     )
         for ep in self.event_ports:
             h = self.graph.nodes[ep["handler"]]

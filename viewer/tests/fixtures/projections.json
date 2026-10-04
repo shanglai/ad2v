@@ -1,5 +1,5 @@
 {
- "epoch": "e_9ba768008b53a12ec6ee",
+ "epoch": "e_9bf4d72f3701c9bac3d3",
  "workflows": [
   {
    "workflowId": "w_12d7b033dfe3ba0cc3a9",
@@ -3911,6 +3911,251 @@
    "levels": [
     1,
     2
+   ]
+  },
+  {
+   "workflowId": "w_ce64c57447a698cec31f",
+   "name": "GET /v1/reconciliations/{run_id}/export",
+   "byDepth": {
+    "0": [
+     {
+      "nodeIds": [
+       "n_f5c61bf725e41dc9d03c"
+      ],
+      "touched": [
+       "n_99613c64fefcd5a3e982",
+       "n_e07fc783558f5aeed3bb",
+       "n_06685926b17714e130ca",
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       0,
+       3
+      ]
+     }
+    ],
+    "1": [
+     {
+      "nodeIds": [
+       "n_8ee753c0f3c8415b29b3"
+      ],
+      "touched": [
+       "n_99613c64fefcd5a3e982",
+       "n_e07fc783558f5aeed3bb",
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       0,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ],
+    "2": [
+     {
+      "nodeIds": [
+       "n_99613c64fefcd5a3e982"
+      ],
+      "touched": [
+       "n_99613c64fefcd5a3e982"
+      ],
+      "span": [
+       0,
+       0
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_52e25e2794321b76ddc5"
+      ],
+      "touched": [
+       "n_e07fc783558f5aeed3bb",
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       1,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ],
+    "3": [
+     {
+      "nodeIds": [
+       "n_99613c64fefcd5a3e982"
+      ],
+      "touched": [
+       "n_99613c64fefcd5a3e982"
+      ],
+      "span": [
+       0,
+       0
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_8c8e3064c1eb1c76699c"
+      ],
+      "touched": [
+       "n_e07fc783558f5aeed3bb"
+      ],
+      "span": [
+       1,
+       1
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_cec29cbba51c6e041970"
+      ],
+      "touched": [
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       2,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ],
+    "4": [
+     {
+      "nodeIds": [
+       "n_99613c64fefcd5a3e982"
+      ],
+      "touched": [
+       "n_99613c64fefcd5a3e982"
+      ],
+      "span": [
+       0,
+       0
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_e07fc783558f5aeed3bb"
+      ],
+      "touched": [
+       "n_e07fc783558f5aeed3bb"
+      ],
+      "span": [
+       1,
+       1
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_06685926b17714e130ca"
+      ],
+      "touched": [
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       2,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ],
+    "5": [
+     {
+      "nodeIds": [
+       "n_99613c64fefcd5a3e982"
+      ],
+      "touched": [
+       "n_99613c64fefcd5a3e982"
+      ],
+      "span": [
+       0,
+       0
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_e07fc783558f5aeed3bb"
+      ],
+      "touched": [
+       "n_e07fc783558f5aeed3bb"
+      ],
+      "span": [
+       1,
+       1
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_06685926b17714e130ca"
+      ],
+      "touched": [
+       "n_06685926b17714e130ca"
+      ],
+      "span": [
+       2,
+       2
+      ]
+     },
+     {
+      "nodeIds": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "touched": [
+       "n_f6176b3ba6deb9bb6d68"
+      ],
+      "span": [
+       3,
+       3
+      ]
+     }
+    ]
+   },
+   "levels": [
+    1,
+    2,
+    3
    ]
   },
   {

@@ -1,5 +1,19 @@
 # Status
 
+## P6.1 (done): real-repo readiness
+
+Single final commit at the end. P6 report is at docs/reports/P6.md. Context: docs/claude-context.md.
+
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | Route recall: add_api_route, factories, include_router chains, Starlette Route/Mount, Flask add_url_rule/blueprints; path_unresolved -> needs_review | done: fixture export endpoint missing -> implemented; dispatch 286/290 paths corrected (parent prefix + app.mount); template 23 routes flagged path_unresolved (settings.API_V1_STR); 245 pytest |
+| M2 | Spec discovery: --spec > ad2v.yaml spec_root > auto-detect; --no-spec-autodetect; roots in config_hash | done: src/ad2v/specroots.py; printed by extract/history; 5 tests (project/ + project/specs/ auto-detected) |
+| M3 | SDD Markdown presets: ad2v, spec-kit, kiro, custom; namespaced / synthesized ids; ambiguous refs -> needs_review | done: extract/spec/presets.py; fixtures/sdd-presets/{spec-kit,kiro,custom} + goldens; 9 tests incl. CRLF+BOM determinism; docs pending (M7) |
+| M4 | `ad2v specs bootstrap/review/approve` (fake provider) | done: bootstrap.py + cli_specs.py; index.json, staleness, -X offsets; 3 tests; transcript recorded; 262 pytest |
+| M5 | Replay camera framing (+ App replay/path) | done: MapScene.frameStep (fit / zoom-to-label-LOD capped by parent / pan) + ring for steps below label size; e2e 13 steps x 2 themes all >= 90% inside and >= 40 px |
+| M6 | Dim the rest (opaque blend), light-theme floor/edge contrast, perf check | done: tokens dim.factor 0.7, body.*, replay.highlight; Dim toggle (replay bar); edges/outlines >= 3:1 on bodies and open floors (vitest + pytest); e2e dim 3 tests; dispatch 59.9 fps median, first render 1.2 s |
+| M7 | Docs, quickstart draft, claude-context | done: ADR-0046..0051, README, format spec §3.6 ids, convention §6-8, quickstart draft, dependencies (no new deps), issues 7/22 closed + 70-76, pending, claude-context; demo rebuilt; REPORT.md + docs/reports/P6.1.md |
+
 ## P6 (done): MCP server (stdlib) + MCP App
 
 Single final commit at the end. P5 report is at docs/reports/P5.md. P6 report: `REPORT.md` (copy in `docs/reports/P6.md`). ADRs 0039–0045.

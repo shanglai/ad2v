@@ -151,9 +151,13 @@ def render(
     return "\n".join(out).rstrip() + "\n", rq, cp
 
 
-def run(view: EpochView, ex: Executor, spec_root: Path | None = None) -> list[tuple[Any, ...]]:
+def run(
+    view: EpochView, ex: Executor, spec_root: Path | None = None, first_req: int = 1, first_cmp: int = 1
+) -> list[tuple[Any, ...]]:
+    """`first_req` / `first_cmp`: where the reserved -X numbering starts (P6.1 bootstrap continues
+    after the -X ids already approved into the spec tree, so proposals never collide)."""
     rows = []
-    rq, cp = 1, 1
+    rq, cp = first_req, first_cmp
     known = {n.qualified_name for n in view.graph.nodes.values() if n.side == "spec"}
     for doc in docs(view):
         j = job(view, doc)

@@ -45,6 +45,13 @@ EARS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+def detect(rel: str, text: str) -> str | None:
+    """The Markdown preset that recognizes this file, or None (prose only). P6.1 M3 adds presets."""
+    if any(COMPONENT_RE.match(line) or REQ_RE.match(line) for line in text.split("\n")):
+        return "ad2v"
+    return None
+
+
 def parse_ears(text: str) -> dict[str, Any]:
     for name, pat in EARS:
         m = pat.match(text.strip())

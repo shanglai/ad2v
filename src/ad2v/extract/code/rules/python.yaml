@@ -183,11 +183,23 @@ behaviors:
 ports:
   http:
     app_constructors: [fastapi.FastAPI, fastapi.APIRouter, flask.Flask, flask.Blueprint,
-                       starlette.routing.Router]
+                       starlette.routing.Router, starlette.applications.Starlette]
     method_decorators: [get, post, put, patch, delete, head, options, trace]
-    route_decorators: [route, api_route, add_api_route]
+    route_decorators: [route, api_route]
     include_methods: [include_router, register_blueprint]
     prefix_kwargs: [prefix, url_prefix]
+    # P6.1 (ADR-0046): routes registered imperatively. path / endpoint = [positional index, keyword].
+    add_route_methods:
+      - {method: add_api_route, path: [0, path], endpoint: [1, endpoint], methods_kw: methods, default_methods: [GET]}
+      - {method: add_url_rule, path: [0, rule], endpoint: [2, view_func], methods_kw: methods, default_methods: [GET]}
+      - {method: add_route, path: [0, path], endpoint: [1, route], methods_kw: methods, default_methods: [GET]}
+    # Starlette-style route lists: Constructor(routes=[Route(path, endpoint, methods=…), Mount(prefix, routes=[…])])
+    route_list_constructors: [starlette.applications.Starlette, starlette.routing.Router, fastapi.FastAPI, fastapi.APIRouter]
+    route_constructors: [starlette.routing.Route, fastapi.routing.APIRoute]
+    mount_constructors: [starlette.routing.Mount]
+    # sub-application mounts: app.mount("/api/v1", app=api) mounts api's routes under the prefix
+    mount_methods:
+      - {method: mount, path: [0, path], app: [1, app]}
   mcp:
     server_constructors: [mcp.server.fastmcp.FastMCP, fastmcp.FastMCP, mcp.server.FastMCP]
     tool_decorators: [tool]

@@ -113,3 +113,33 @@ def test_overlay_badges_and_diff_tokens(theme_name):
     for key in ("normative", "suggestion"):
         assert tokens.contrast(t["link"][key], t["background"]) >= NON_TEXT_MIN, (theme_name, key)
     assert 0.2 <= t["diff"]["ghost_opacity"] <= 0.6
+
+
+@pytest.mark.parametrize("theme_name", tokens.THEMES)
+def test_edges_and_outlines_read_on_open_floors_p61(theme_name):
+    """P6.1 (ADR-0051): the open-container floor is a bg-lerped body; edges and every status stroke
+    stay >= 3:1 on it, and on their own closed body (the light-theme "none" outline failed in P5)."""
+    t = tokens.load_theme(theme_name)
+    floors = [tokens.body_color(t, s, True) for s in ir.NODE_STATUSES]
+    for f in floors:
+        assert tokens.contrast(t["edge"], f) >= NON_TEXT_MIN, (theme_name, "edge", f)
+    for s in ir.NODE_STATUSES:
+        stroke = tokens.status_color(t, s)["stroke"]
+        assert tokens.contrast(stroke, tokens.body_color(t, s, False)) >= NON_TEXT_MIN, (theme_name, s)
+        for f in floors:
+            assert tokens.contrast(stroke, f) >= NON_TEXT_MIN, (theme_name, s, f)
+
+
+@pytest.mark.parametrize("theme_name", tokens.THEMES)
+def test_dim_the_rest_is_opaque_and_the_step_still_reads_p61(theme_name):
+    t = tokens.load_theme(theme_name)
+    assert t["dim"]["factor"] == 0.7
+    hi = t["replay"]["highlight"]
+    for s in ir.NODE_STATUSES:
+        for c in (tokens.body_color(t, s, False), tokens.body_color(t, s, True)):
+            assert tokens.contrast(hi, c) >= NON_TEXT_MIN  # the step's own body and its container
+            assert tokens.contrast(hi, tokens.dimmed(t, c)) >= NON_TEXT_MIN
+        assert tokens.contrast(hi, tokens.dimmed(t, tokens.status_color(t, s)["stroke"])) >= NON_TEXT_MIN
+    assert tokens.contrast(hi, tokens.dimmed(t, t["edge"])) >= NON_TEXT_MIN
+    assert tokens.mix("#000000", "#FFFFFF", 0.0) == "#000000"
+    assert tokens.mix("#000000", "#FFFFFF", 1.0) == "#FFFFFF"

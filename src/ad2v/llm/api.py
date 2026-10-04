@@ -46,7 +46,7 @@ def _dispatch(view: EpochView, ex: Executor, task: str, opts: dict[str, Any]) ->
     elif task == "narrate":
         narrate.run(view, ex, opts.get("mode", "containment"), opts.get("workflow"))
     elif task == "extract-prose":
-        prose.run(view, ex, opts.get("spec_root"))
+        prose.run(view, ex, opts.get("spec_root"), opts.get("first_req", 1), opts.get("first_cmp", 1))
 
 
 def plan(

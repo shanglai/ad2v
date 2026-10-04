@@ -48,7 +48,7 @@ class Config:
     behavior_emit_all: bool = False
     workflow_max_depth: int = 12
     workflow_max_steps: int = 5000
-    test_ref_prefixes: tuple[str, ...] = ("REQ", "CMP")
+    test_ref_prefixes: tuple[str, ...] = ("REQ", "CMP", "FR")  # FR: spec-kit (P6.1)
     manifest_path: str | None = None
     # pairing (format spec §6.1)
     pairing_components: dict[str, str] = field(default_factory=dict)  # spec id -> container/component
@@ -59,12 +59,22 @@ class Config:
     pairing_links: tuple[tuple[str, str], ...] = ()  # human-confirmed (spec, code qname): manifest_link
     pairing_rejected: tuple[tuple[str, str], ...] = ()  # human-rejected suggestions: never suggested again
     manifest_data: dict[str, Any] = field(default_factory=dict)  # without `llm` (never normative)
+    spec_roots: tuple[str, ...] = ()  # ad2v.yaml `spec_root:` (repo-relative), P6.1
+    effective_spec_roots: tuple[str, ...] = ()  # what discovery used (set by pipeline.build)
+    spec_presets: dict[str, str] = field(default_factory=dict)  # Markdown file -> preset (P6.1)
+    spec_markdown: list[dict[str, Any]] = field(default_factory=list)  # ad2v.yaml `spec_markdown:` rules
     llm_data: dict[str, Any] = field(default_factory=dict)  # the `llm:` section (informative, P4)
 
     @property
     def config_json(self) -> dict[str, Any]:
         """What config_hash covers: the parsed manifest plus the effective defaults that matter."""
-        return {"effective": {"orphan_policy": self.orphan_policy}, "manifest": self.manifest_data}
+        eff: dict[str, Any] = {
+            "orphan_policy": self.orphan_policy,
+            "spec_roots": list(self.effective_spec_roots),
+        }
+        if self.spec_presets:
+            eff["spec_presets"] = dict(sorted(self.spec_presets.items()))
+        return {"effective": eff, "manifest": self.manifest_data}
 
     @property
     def config_hash(self) -> str:
@@ -155,6 +165,19 @@ def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
                 replicas=int(c.get("replicas", 1)),
             )
         )
+    roots = data.get("spec_root")
+    if roots is not None:
+        if isinstance(roots, str):
+            roots = [roots]
+        if not isinstance(roots, list) or not all(isinstance(r, str) and r for r in roots):
+            raise ManifestError("spec_root must be a path or a list of paths (relative to the repo)")
+        cfg.spec_roots = tuple(_norm_rel(r) for r in roots)
+    rules = data.get("spec_markdown") or []
+    if not isinstance(rules, list) or not all(
+        isinstance(r, dict) and r.get("glob") and r.get("preset") for r in rules
+    ):
+        raise ManifestError("spec_markdown must be a list of {glob, preset, id_prefix?, …} rules")
+    cfg.spec_markdown = [dict(r) for r in rules]
     if "exclude" in data:
         cfg.exclude = DEFAULT_EXCLUDES + tuple(str(x) for x in data["exclude"] or [])
     behavior = data.get("behavior") or {}

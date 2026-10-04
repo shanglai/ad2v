@@ -28,8 +28,7 @@ Items consciously left out so far, grouped by the phase that should pick them up
   only a 10-loop precision sample).
 - Track `self.<attr>` bindings set in `__init__` across methods (issue 5).
 - Infer untyped parameter types from call sites (issue 6).
-- App factories: evaluate decorators in function scope (issue 7).
-- More port frameworks: Django URLconf, Starlette `Route`, FastAPI `add_api_route`, low-level MCP SDK
+- More port frameworks: Django URLconf, low-level MCP SDK
   `@server.call_tool()`, Dramatiq/RQ tasks, Kafka consumer loops, AWS Lambda handlers, project-specific
   scheduler decorators (dispatch's `@scheduler.add(every(...))`) via rules overlays.
 - Calls through plugin registries / instances (issue 31).
@@ -76,6 +75,27 @@ Items consciously left out so far, grouped by the phase that should pick them up
 
 - MCP server (stdlib, protocol 2026-07-28, dual-era), 13 agent tools, 20 app tools, the map as an
   MCP App, `RemoteSliceSource`, deterministic retrieval with an eval.
+
+## Done in P6.1 (moved from this list)
+
+- App factories, `add_api_route`/`add_url_rule`/`add_route`, Starlette `Route`/`Mount`, include
+  chains with prefixes (issues 7, 22); spec-root discovery; spec-kit/Kiro/custom presets;
+  `ad2v specs bootstrap/review/approve`; replay camera; opaque "dim the rest".
+
+## After P6.1: real-repo readiness
+
+- Opt-in resolver for pydantic `BaseSettings` defaults (`settings.API_V1_STR`), labeled as a
+  default that the environment can override (issue 70).
+- Kiro `design.md` and `tasks.md`; spec-kit `plan.md`, `tasks.md` and `contracts/`; tasks could
+  link to requirements as `implements` edges.
+- Requirements written as Markdown tables (id | text | priority).
+- Routes on a router that is never statically included: flag `path_unresolved` (issue 76).
+- Sub-ids in test names (`test_orderexport_1_2`) for Kiro criteria.
+- Open the container of a replay step that is not visible at the current LOD (issue 71).
+- Isolate the first-render regression on dispatch (issue 73) and the replay warm-up p5 dip
+  (issue 74).
+- `ad2v specs bootstrap` against a real model, with the cost shown in the plan (P6.1 used the fake
+  provider only).
 
 ## After P6: MCP and retrieval
 

@@ -24,7 +24,8 @@ Like mermaid.js, ad2v is an open **format** plus reference implementations. Lice
 | P3 | content-addressed multi-epoch storage, parse cache, git history, epoch diff, lineage, `stale`, entry-point recognizers, orphan policy, format v0.3 | done ([report](docs/reports/P3.md)) |
 | P4 | bring-your-own-model LLM layer (informative only): semantic judge, link suggestions, summaries, narrations, prose-spec extraction, evaluation; format v0.4 | done ([report](docs/reports/P4.md)) |
 | P5 | three.js viewer: deterministic layout, LOD map, status styling, replay, epoch diff; `ad2v view` | done ([report](docs/reports/P5.md), [demo](docs/reports/P5-demo.html)) |
-| **P6** | MCP server (stdlib, protocol 2026-07-28) + the map as an MCP App; deterministic retrieval | **done** ([report](REPORT.md), [setup](docs/mcp.md)) |
+| P6 | MCP server (stdlib, protocol 2026-07-28) + the map as an MCP App; deterministic retrieval | done ([report](docs/reports/P6.md), [setup](docs/mcp.md)) |
+| **P6.1** | real-repo readiness: route recall (factories, `add_api_route`, Starlette, Flask), spec discovery, spec-kit / Kiro / custom presets, `ad2v specs` bootstrap, replay camera, opaque "dim the rest" | **done** ([report](REPORT.md), [quickstart draft](docs/quickstart-draft.md)) |
 | P7 | the viewer's own chat agent (BYOM), LLM refinements, viewer UX v2 | planned |
 
 Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
@@ -91,9 +92,9 @@ python -m ad2v mcp --root path/to/maps
 ## CLI
 
 ```text
-ad2v extract  --repo <path> [--spec <path>] [--manifest ad2v.yaml] [--test-results junit.xml ...]
+ad2v extract  --repo <path> [--spec <path> ...] [--no-spec-autodetect] [--manifest ad2v.yaml] [--test-results junit.xml ...]
               (--out project.ad2v | --into project.ad2v) [--no-cache]
-ad2v history  --repo <path> --commits <rev-range> --into project.ad2v [--spec <rel>] [--manifest <rel>]
+ad2v history  --repo <path> --commits <rev-range> --into project.ad2v [--spec <rel> ...] [--manifest <rel>]
               [--test-results <rel> ...] [--no-cache]
 ad2v diff     project.ad2v [--from <epoch>] [--to <epoch>] [--format table|json|md]
 ad2v log      project.ad2v [--format table|json]
@@ -110,6 +111,11 @@ ad2v validate project.ad2v [--epoch <epoch>]
 ad2v preview-tokens --out tokens.html
 ```
 
+Without `--spec`, specs are found from `spec_root` in ad2v.yaml, else auto-detected (`specs/`,
+`spec/`, `docs/specs/`, `.kiro/specs/`, a root `openapi.yaml`); `extract` prints what it used.
+Markdown specs may follow the ad2v convention, spec-kit, Kiro, or your own regexes
+([convention §6–7](docs/spec/spec-markdown-convention.md)).
+
 An `<epoch>` is an epoch id, `head`, `parent`, a pin label, or a commit SHA prefix (≥ 7 chars).
 
 LLM layer (bring your own model; `fake` for offline use, `vertex`, or any OpenAI-compatible server):
@@ -122,6 +128,9 @@ ad2v llm run   project.ad2v --max-cost-usd 0.50 --yes [--manifest ad2v.yaml] [--
 ad2v llm eval  project.ad2v --expected expected-judgments.yaml
 ad2v llm show-prose project.ad2v
 ad2v suggestions list|accept|reject project.ad2v [<id> --manifest ad2v.yaml]
+ad2v specs bootstrap --from docs/ [--plan | --yes --max-cost-usd 0.50] [--manifest ad2v.yaml]
+ad2v specs review                      # proposals: source, model, overlap, staleness, id clashes
+ad2v specs approve <proposal> [--to specs/sub] [--force-stale]
 ```
 
 - `plan` lists the calls still needed after cache hits, with token and USD estimates; `run` refuses

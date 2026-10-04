@@ -4,17 +4,20 @@
 import * as THREE from "three";
 import type { Box, EdgeRow, StatusInfo } from "../data/types";
 import { aggregateEdges, DEFAULT_GROUPS, type AggEdge, type EdgeGroup } from "../model/edges";
-import { Lod } from "../model/lod";
+import { Lod, THRESHOLDS } from "../model/lod";
 import type { SceneTree } from "../model/tree";
 import type { DiffEntry } from "../model/text";
-import { OVERLAY_BADGES, statusColors, statusStyle, token, type LineStyle, type Theme } from "../theme";
+import { OVERLAY_BADGES, statusColors, token, type LineStyle, type Theme } from "../theme";
 import { Atlas, badgeKey, BillboardSet, type Billboard } from "./billboards";
 import { RibbonSet, type Polyline } from "./ribbons";
-import { outlineFor } from "./style";
+import { bodyColor, dimmed, outlineFor } from "./style";
 import { BASE_SHAPES, geometry, outline, type BaseShape } from "./shapes";
 
 const ISO = new THREE.Vector3(1, 1, 1).normalize();
 const VIEW_H = 60; // world units visible vertically at zoom 1
+const STEP_MIN_PX = THRESHOLDS[1]!; // a replay step is framed at least at the label LOD (40 px)
+const STEP_RING_PX = 44; // a step that cannot reach STEP_MIN_PX without losing its siblings gets a ring this tall
+const STEP_MIN_INSIDE = 0.9; // re-fit when more than 10% of a step is off-screen (ADR-0050)
 const FOOTPRINT = 0.82; // iso foreshortening of a ground-plane extent
 const EDGE_STYLE: Record<EdgeGroup, LineStyle> = {
   calls: "solid",
@@ -82,6 +85,9 @@ export class MapScene {
   private lods = new Map<string, Lod>();
   private visKey = "";
   private selection: string | null = null;
+  private emph: string[] | null = null; // P6.1: the step / path / focus nodes; the rest is dimmed
+  private dimOn = true;
+  private dimSet: Set<string> | null = null; // visible nodes drawn dimmed, computed once per rebuild
   private focus: string | null = null;
   private replay: ReplayView | null = null;
   private dirty = true;
@@ -188,6 +194,45 @@ export class MapScene {
     this.dirty = true;
   }
 
+  /** P6.1 "dim the rest" (ADR-0051): emphasize these nodes (a replay step, a path, a focus); null = none. */
+  setEmphasis(ids: string[] | null): void {
+    this.emph = ids && ids.length ? [...ids] : null;
+    this.visKey = "";
+    this.dirty = true;
+  }
+
+  setDim(on: boolean): void {
+    this.dimOn = on;
+    this.visKey = "";
+    this.dirty = true;
+  }
+
+  get dimEnabled(): boolean {
+    return this.dimOn;
+  }
+
+  /** Whether a visible node is drawn dimmed now (for tests and the a11y summary). */
+  isDimmed(id: string): boolean {
+    return this.dimSet !== null && this.dimSet.has(id);
+  }
+
+  private keepFn(): ((id: string) => boolean) | null {
+    const m = this.model;
+    if (!m || !this.emph || !this.dimOn) return null;
+    const core = new Set<string>();
+    for (const id of this.emph) {
+      if (!m.tree.nodes.has(id)) continue;
+      core.add(id);
+      const r = this.rep(id);
+      if (r !== null) core.add(r);
+    }
+    if (!core.size) return null;
+    const anc = new Set<string>();
+    for (const id of core) for (const a of m.tree.ancestors(id)) anc.add(a);
+    // the step itself, what is inside it, and the containers it sits in stay at full color
+    return (id) => core.has(id) || anc.has(id) || m.tree.ancestors(id).some((a) => core.has(a));
+  }
+
   getFocus(): string | null {
     return this.focus;
   }
@@ -216,13 +261,13 @@ export class MapScene {
   }
 
   /** Frame the union of several nodes' boxes (P6 `fit` intent). */
-  fit(ids: string[], instant = false): void {
+  fit(ids: string[], instant = false, fill?: number): void {
     const boxes = ids.map((i) => this.model?.tree.nodes.get(i)?.box).filter((b): b is Box => b !== undefined);
     if (!boxes.length) return;
     const x0 = Math.min(...boxes.map((b) => b.x)), x1 = Math.max(...boxes.map((b) => b.x + b.w));
     const y0 = Math.min(...boxes.map((b) => b.y)), y1 = Math.max(...boxes.map((b) => b.y + b.h));
     const z0 = Math.min(...boxes.map((b) => b.z)), z1 = Math.max(...boxes.map((b) => b.z + b.d));
-    this.frameBox({ x: x0, y: y0, z: z0, w: x1 - x0, h: y1 - y0, d: z1 - z0 }, instant, boxes.length === 1 ? 0.55 : 0.8);
+    this.frameBox({ x: x0, y: y0, z: z0, w: x1 - x0, h: y1 - y0, d: z1 - z0 }, instant, fill ?? (boxes.length === 1 ? 0.55 : 0.8));
   }
 
   flyTo(id: string, instant = false): void {
@@ -236,6 +281,112 @@ export class MapScene {
     if (!n) return;
     const c = this.worldCenter(n.box).project(this.camera);
     if (Math.abs(c.x) > 0.8 || Math.abs(c.y) > 0.8) this.frameBox(n.box, false, -1);
+  }
+
+  /** A ground ring around a step node too small to read: its projection is >= STEP_RING_PX tall. */
+  private ringFor(id: string, topOf?: Map<string, number>): THREE.Vector3[] | null {
+    const n = this.model?.tree.nodes.get(id);
+    if (!n) return null;
+    const b = n.box;
+    const el = this.renderer.domElement;
+    const H = el.clientHeight || 1;
+    const c = new THREE.Vector3(b.x + b.w / 2, (topOf?.get(id) ?? b.z + b.d) + 0.04, b.y + b.h / 2);
+    const proj = (v: THREE.Vector3): number => ((1 - v.clone().project(this.camera).y) / 2) * H;
+    const own = Math.abs(proj(new THREE.Vector3(b.x, c.y, b.y + b.h)) - proj(new THREE.Vector3(b.x + b.w, c.y, b.y)));
+    if (own >= STEP_MIN_PX) return null;
+    // the projected height of a unit ground circle, measured, gives the radius for STEP_RING_PX
+    const ys = Array.from({ length: 16 }, (_, i) => {
+      const k = (i / 16) * Math.PI * 2;
+      return proj(c.clone().add(new THREE.Vector3(Math.cos(k), 0, Math.sin(k))));
+    });
+    const unit = Math.max(...ys) - Math.min(...ys); // the projected height of a unit ground circle
+    const r = STEP_RING_PX / Math.max(unit, 1e-6);
+    return Array.from({ length: 32 }, (_, i) => {
+      const a = (i / 32) * Math.PI * 2;
+      return new THREE.Vector3(c.x + Math.cos(a) * r, c.y, c.z + Math.sin(a) * r);
+    });
+  }
+
+  /** Screen box (canvas px) of the visible representatives of `ids`: all 8 corners of each box.
+   *  With `highlight`, a step drawn with a ring counts the ring (what the user actually sees). */
+  screenBox(ids: string[], highlight = false): { x0: number; y0: number; x1: number; y1: number; inside: number } | null {
+    const m = this.model;
+    if (!m) return null;
+    const reps = [...new Set(ids.map(this.rep).filter((x): x is string => x !== null))];
+    if (!reps.length) return null;
+    const el = this.renderer.domElement;
+    const W = el.clientWidth || 1, H = el.clientHeight || 1;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const add = (v: THREE.Vector3): void => {
+      const p = v.clone().project(this.camera);
+      const sx = ((p.x + 1) / 2) * W, sy = ((1 - p.y) / 2) * H;
+      x0 = Math.min(x0, sx); y0 = Math.min(y0, sy); x1 = Math.max(x1, sx); y1 = Math.max(y1, sy);
+    };
+    for (const id of reps) {
+      const b = m.tree.nodes.get(id)!.box;
+      for (const x of [b.x, b.x + b.w]) for (const y of [b.z, b.z + b.d]) for (const z of [b.y, b.y + b.h]) add(new THREE.Vector3(x, y, z));
+      if (highlight) for (const v of this.ringFor(id) ?? []) add(v);
+    }
+    const area = Math.max(1e-6, (x1 - x0) * (y1 - y0));
+    const ix = Math.max(0, Math.min(x1, W) - Math.max(x0, 0)), iy = Math.max(0, Math.min(y1, H) - Math.max(y0, 0));
+    return { x0, y0, x1, y1, inside: Math.min(1, (ix * iy) / area) };
+  }
+
+  /**
+   * P6.1 replay camera (ADR-0050). Frame a replay step (or a path) so it is on screen and readable:
+   * - larger than 80% of the viewport, or more than 10% off-screen: fit it (zooming out if needed);
+   * - smaller than the 40 px label LOD on its smaller side: zoom in until it reaches it, but never
+   *   so far that the step's parent container stops fitting (its siblings matter); a step that still
+   *   stays below label size is drawn with a readable ring (ringFor);
+   * - otherwise: pan only, and only when it leaves the inner 80% (as `follow`).
+   */
+  frameStep(ids: string[], instant = false): void {
+    const m = this.model;
+    const b = this.screenBox(ids);
+    if (!m || !b) return;
+    const el = this.renderer.domElement;
+    const W = el.clientWidth || 1, H = el.clientHeight || 1;
+    const w = b.x1 - b.x0, h = b.y1 - b.y0;
+    const reps = [...new Set(ids.map(this.rep).filter((x): x is string => x !== null))];
+    if (w > 0.8 * W || h > 0.8 * H || b.inside < STEP_MIN_INSIDE) {
+      this.fit(reps, instant || this.reducedMotion, 0.7);
+      return;
+    }
+    const small = Math.min(w, h);
+    if (small < STEP_MIN_PX) {
+      let f = STEP_MIN_PX / Math.max(small, 1);
+      f = Math.min(f, (0.8 * W) / Math.max(w, 1), (0.8 * H) / Math.max(h, 1));
+      const parents = [...new Set(reps.map((r) => m.tree.parent(r)).filter((p): p is string => p !== null))];
+      const pb = parents.length ? this.screenBox(parents) : null;
+      if (pb) f = Math.min(f, W / Math.max(pb.x1 - pb.x0, 1), H / Math.max(pb.y1 - pb.y0, 1));
+      if (f > 1.01) {
+        const to = this.groundUnder((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+        this.flyTo3(to, Math.min(400, this.camera.zoom * f), instant || this.reducedMotion);
+        return;
+      }
+    }
+    const cx = (b.x0 + b.x1) / 2 / W, cy = (b.y0 + b.y1) / 2 / H;
+    if (cx < 0.1 || cx > 0.9 || cy < 0.1 || cy > 0.9) {
+      this.flyTo3(this.groundUnder((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2), this.camera.zoom, instant || this.reducedMotion);
+    }
+  }
+
+  /** The camera target that puts the canvas point (sx, sy) at the center, at the current height. */
+  private groundUnder(sx: number, sy: number): THREE.Vector3 {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const p = this.groundAt(r.left + sx, r.top + sy);
+    const c = this.groundAt(r.left + r.width / 2, r.top + r.height / 2);
+    return this.target.clone().add(p.sub(c));
+  }
+
+  private flyTo3(to: THREE.Vector3, zoom: number, instant: boolean): void {
+    if (instant) {
+      this.target.copy(to);
+      this.camera.zoom = zoom;
+      this.updateCamera();
+      return;
+    }
+    this.flight = { from: this.target.clone(), to, z0: this.camera.zoom, z1: zoom, t0: performance.now(), ms: 450 };
   }
 
   screenOf(id: string): { x: number; y: number } | null {
@@ -462,8 +613,9 @@ export class MapScene {
     }
     const mat = new THREE.Matrix4();
     const col = new THREE.Color();
-    const bg = new THREE.Color(th.background);
-    const neutral = new THREE.Color(this.themeName === "dark" ? "#2B3547" : "#D9DFE8");
+    const keep = this.keepFn();
+    this.dimSet = keep === null ? null : new Set([...this.lods.keys()].filter((id) => !keep(id)));
+    const dim = (id: string): boolean => this.isDimmed(id);
     const lines: Polyline[] = [];
     const glow: Polyline[] = [];
     const bills: Billboard[] = [];
@@ -495,12 +647,9 @@ export class MapScene {
         im.setMatrixAt(i, mat);
         const st = m.status.get(id);
         const status = st?.status ?? "none";
-        const style = statusStyle(status);
-        const sc = statusColors(th, status);
         // a neutral body with a light status tint: the outline carries the status (visual tokens §1)
-        if (style.fill === "hollow") col.copy(bg);
-        else col.copy(neutral).lerp(new THREE.Color(sc.stroke), 0.16);
-        if (open) col.lerp(bg, 0.45); // an open slab recedes so its children read first
+        col.copy(bodyColor(th, status, open));
+        if (dim(id)) col.copy(dimmed(th, col));
         im.setColorAt(i, col);
       });
       im.count = ids.length;
@@ -520,8 +669,9 @@ export class MapScene {
         ([px, pz]) => new THREE.Vector3(b.x + b.w / 2 + px * b.w, y, b.y + b.h / 2 + pz * b.h),
       );
       const r = outlineFor(th, this.themeName, status, lod >= Lod.Detail);
-      lines.push({ points: pts, closed: true, color: new THREE.Color(r.color), widthPx: r.widthPx, style: r.line });
-      if (r.emphasis) {
+      const dm = dim(id);
+      lines.push({ points: pts, closed: true, color: dm ? dimmed(th, r.color) : new THREE.Color(r.color), widthPx: r.widthPx, style: r.line });
+      if (r.emphasis && !dm) {
         glow.push({ points: pts, closed: true, color: glowColor, widthPx: r.emphasis.widthPx, style: "solid", alpha: r.emphasis.alpha });
       }
       if (id === this.selection) {
@@ -552,11 +702,12 @@ export class MapScene {
         if (mod?.external) badges.push(badgeKey("☁", th.text_muted, th.background));
         if (mod && mod.replicas > 1) badges.push(badgeKey(`×${mod.replicas}`, th.surface, th.text));
       }
-      badges.forEach((k, i) => bills.push({ key: k, at: anchor, offsetPx: [-10 + i * 30, 6], scale: 1 }));
+      const bd = dm ? th.dim.factor : 0;
+      badges.forEach((k, i) => bills.push({ key: k, at: anchor, offsetPx: [-10 + i * 30, 6], scale: 1, dim: bd }));
       if (lod === Lod.Silhouette && n.children.length) {
         const r = m.rollups.get(id);
         const key = r ? rollupKey(r, th) : null;
-        if (key) bills.push({ key, at: anchor, offsetPx: [0, -14], scale: 1 });
+        if (key) bills.push({ key, at: anchor, offsetPx: [0, -14], scale: 1, dim: bd });
       }
     }
     this.outlines.set(lines);
@@ -595,7 +746,7 @@ export class MapScene {
       if (rect[2] < 0 || rect[0] > W || rect[3] < 0 || rect[1] > H) continue;
       if (taken.some((t) => rect[0] < t[2] && t[0] < rect[2] && rect[1] < t[3] && t[1] < rect[3])) continue;
       taken.push(rect);
-      out.push({ key: `label:${text}`, at, offsetPx: [0, 18], scale: 1 });
+      out.push({ key: `label:${text}`, at, offsetPx: [0, 18], scale: 1, dim: this.isDimmed(id) ? this.theme.dim.factor : 0 });
     }
     return out;
   }
@@ -639,6 +790,8 @@ export class MapScene {
     const agg: AggEdge[] = aggregateEdges(m.edges, this.rep, this.edgeGroups);
     const lines: Polyline[] = [];
     const edgeColor = new THREE.Color(th.edge);
+    const edgeDim = dimmed(th, th.edge);
+    const colorOf = (s: string, d: string): THREE.Color => (this.isDimmed(s) || this.isDimmed(d) ? edgeDim : edgeColor);
     for (const p of this.portals) p.el.remove();
     this.portals = [];
     const focusBox = this.focus !== null ? m.tree.nodes.get(this.focus)?.box : undefined;
@@ -650,12 +803,12 @@ export class MapScene {
         // a portal: the edge ends at a labeled stub on the focused container's wall
         const inner = inA ? a : b, outer = inA ? b : a, dest = inA ? e.dst : e.src;
         const wall = wallPoint(focusBox, inner, outer);
-        lines.push({ points: this.arc(inner, wall, 0.6), closed: false, color: edgeColor, widthPx: width, style: EDGE_STYLE[e.group], alpha: 0.9 });
+        lines.push({ points: this.arc(inner, wall, 0.6), closed: false, color: colorOf(e.src, e.dst), widthPx: width, style: EDGE_STYLE[e.group], alpha: 0.9 });
         this.addPortal(wall, dest);
         continue;
       }
       if (focusBox && !inA && !inB && this.lods.get(this.focus!) === Lod.Open) continue; // outside the room
-      lines.push({ points: this.arc(a, b, 1), closed: false, color: edgeColor, widthPx: width, style: EDGE_STYLE[e.group], alpha: 0.75 });
+      lines.push({ points: this.arc(a, b, 1), closed: false, color: colorOf(e.src, e.dst), widthPx: width, style: EDGE_STYLE[e.group], alpha: 0.75 });
     }
     this.edgeSet.set(lines);
   }
@@ -690,13 +843,14 @@ export class MapScene {
     const pair = (s: string, c: string, color: string, style: LineStyle, w: number): void => {
       const rs = this.rep(s), rc = this.rep(c);
       if (rs === null || rc === null || rs === rc) return;
-      lines.push({ points: this.arc(this.topCenter(rs, topOf), this.topCenter(rc, topOf), 1.4), closed: false, color: new THREE.Color(color), widthPx: w, style });
+      const lc = this.isDimmed(rs) || this.isDimmed(rc) ? dimmed(th, color) : new THREE.Color(color);
+      lines.push({ points: this.arc(this.topCenter(rs, topOf), this.topCenter(rc, topOf), 1.4), closed: false, color: lc, widthPx: w, style });
     };
     if (m.showSuggestions) for (const [s, c] of m.suggestionPairs) pair(s, c, token(th, "link.suggestion"), "dotted", 2.4);
     for (const l of m.links)
       pair(l.spec, l.code, token(th, l.kind === "normative" ? "link.normative" : "link.suggestion"), l.kind === "normative" ? "solid" : "dashed", 2.6);
     if (this.replay) {
-      const hi = new THREE.Color(th.emphasis.color);
+      const hi = new THREE.Color(th.replay.highlight); // >= 3:1 on dimmed and undimmed neighbors (ADR-0051)
       const path = (this.replay.path ?? []).map(this.rep).filter((x): x is string => x !== null);
       const cur = [...new Set([...this.replay.nodes.map(this.rep).filter((x): x is string => x !== null), ...path])];
       const prev = [...new Set(this.replay.prev.map(this.rep).filter((x): x is string => x !== null))];
@@ -710,6 +864,8 @@ export class MapScene {
           ([px, pz]) => new THREE.Vector3(b.x + b.w / 2 + px * b.w * 1.08, y, b.y + b.h / 2 + pz * b.h * 1.08),
         );
         lines.push({ points: pts, closed: true, color: hi, widthPx: 5, style: "solid" });
+        const ring = this.ringFor(id, topOf);  // a step below label size gets a readable ring (P6.1)
+        if (ring) lines.push({ points: ring, closed: true, color: hi, widthPx: 3, style: "solid" });
       }
       if (prev.length && cur.length && prev[0] !== cur[0])
         lines.push({ points: this.arc(this.topCenter(prev[0]!, topOf), this.topCenter(cur[0]!, topOf), 1.2), closed: false, color: hi, widthPx: 4, style: "dashed" });
@@ -750,6 +906,7 @@ export class MapScene {
   private applyTheme(): void {
     this.scene.background = new THREE.Color(this.theme.background);
     this.renderer.setClearColor(this.theme.background);
+    this.billboards?.setBackground(this.theme.background); // labels dim toward it (P6.1)
   }
 }
 

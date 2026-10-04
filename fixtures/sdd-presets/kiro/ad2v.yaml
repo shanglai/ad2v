@@ -1,0 +1,4 @@
+# Kiro ids are synthesized from the feature folder (order-export -> ORDEREXPORT); test names that
+# refer to them need the prefix listed here.
+spec_ids:
+  test_name_prefixes: [REQ, ORDEREXPORT]

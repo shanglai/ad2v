@@ -1,0 +1,14 @@
+# P6.1 golden: Kiro preset (.kiro/specs/<feature>/requirements.md). Ids synthesized from the folder:
+# order-export -> ORDEREXPORT; requirement N -> ORDEREXPORT-N; criterion M -> ORDEREXPORT-N.M.
+spec_roots: [.kiro/specs]
+presets: {order-export/requirements.md: kiro}
+counts: {spec_doc: 1, spec_component: 1, requirement: 7}
+requirements:   # [qualified name, status, ears]
+  - [ORDEREXPORT-1, implemented, null]        # test name test_orderexport_1_… (prefix listed in ad2v.yaml)
+  - [ORDEREXPORT-1.1, implemented, event]     # WHEN … THEN the Exporter SHALL …
+  - [ORDEREXPORT-1.2, implemented, event]     # WHEN …, THE Exporter SHALL …
+  - [ORDEREXPORT-1.3, specified, unwanted]    # IF … THEN …
+  - [ORDEREXPORT-2, specified, null]          # no title: the user story is the text
+  - [ORDEREXPORT-2.1, implemented, ubiquitous]
+  - [ORDEREXPORT-2.2, specified, state]       # WHILE …, THE … SHALL
+parents: {ORDEREXPORT-1.2: ORDEREXPORT-1, ORDEREXPORT-1: ORDEREXPORT}

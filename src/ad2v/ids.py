@@ -13,7 +13,8 @@ from typing import Any
 
 ID_HEX_LEN = 20
 # Spec IDs (format spec §3.6). `REQ-X001`: the reserved range for LLM-proposed items (P4, ADR-0031).
-SPEC_ID_PATTERN = r"[A-Z][A-Z0-9]*-X?[0-9]+"
+# P6.1 (ADR-0048): optional `<namespace>:` (spec-kit feature slug) and `.n` sub-id (Kiro criteria)
+SPEC_ID_PATTERN = r"(?:[a-z0-9][a-z0-9-]*:)?[A-Z][A-Z0-9]*-X?[0-9]+(?:\.[0-9]+)?"
 UTF8_BOM = b"\xef\xbb\xbf"
 
 

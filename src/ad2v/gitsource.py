@@ -126,11 +126,12 @@ def run_history(
     repo: Path,
     rev_range: str,
     into: Path,
-    spec_rel: str | None = None,
+    spec_rel: str | list[str] | None = None,
     test_results_rel: list[str] | None = None,
     manifest_rel: str | None = None,
     use_cache: bool = True,
     on_epoch: Callable[[str, pipeline.Result], None] | None = None,
+    spec_autodetect: bool = True,
 ) -> list[tuple[str, pipeline.Result]]:
     repo = Path(repo).resolve()
     out = []
@@ -147,12 +148,16 @@ def run_history(
             else:
                 update(repo, prev, commit, tree)
             prev = commit
-            spec = tree / spec_rel if spec_rel else None
+            # the same resolution per commit (ADR-0047): an explicit --spec that is absent in this
+            # commit means "no specs here", never a fallback to auto-detection
+            rels = [spec_rel] if isinstance(spec_rel, str) else list(spec_rel or [])
+            explicit = [tree / r for r in rels]
+            present = [p for p in explicit if p.exists()]
             tests = [tree / t for t in test_results_rel or [] if (tree / t).is_file()]
             manifest = tree / manifest_rel if manifest_rel else None
             res = pipeline.extract_to_file(
                 tree,
-                spec if spec is not None and spec.exists() else None,
+                present if rels else None,
                 into,
                 manifest,
                 test_results=tests or None,
@@ -160,6 +165,7 @@ def run_history(
                 use_cache=use_cache,
                 name_hint=repo.name,
                 repo_commit=commit,
+                spec_autodetect=spec_autodetect,
             )
             out.append((commit, res))
             if on_epoch is not None:

@@ -11,6 +11,7 @@ from typing import Any
 
 from ad2v import __version__, admin, diff, dump, gitsource, ir, layout, materialize, pipeline, store
 from ad2v.cli_llm import register as register_llm
+from ad2v.cli_specs import register as register_specs
 from ad2v.junit import JUnitError
 from ad2v.llm.api import LLMRunError
 from ad2v.llm.config import LLMConfigError
@@ -131,13 +132,15 @@ def cmd_extract(a: argparse.Namespace) -> int:
     target = a.into or a.out
     res = pipeline.extract_to_file(
         Path(a.repo),
-        Path(a.spec) if a.spec else None,
+        [Path(s) for s in a.spec] if a.spec else None,
         Path(target),
         Path(a.manifest) if a.manifest else None,
         test_results=[Path(t) for t in a.test_results or []],
         into=bool(a.into),
         use_cache=not a.no_cache,
+        spec_autodetect=not a.no_spec_autodetect,
     )
+    _out(res.spec_roots.describe() + "\n")
     if res.unchanged:
         _out(f"no changes: inputs identical to head epoch {res.epoch.parent_epoch_id}; nothing written\n")
         return 0
@@ -150,7 +153,7 @@ def cmd_history(a: argparse.Namespace) -> int:
 
     def report(commit: str, res: pipeline.Result) -> None:
         if res.unchanged:
-            line = f"{commit[:10]}  no changes (skipped)"
+            line = f"{commit[:10]}  no changes (skipped)  [{res.spec_roots.describe()}]"
         else:
             st = res.stats
             line = (
@@ -158,6 +161,7 @@ def cmd_history(a: argparse.Namespace) -> int:
                 f" {len(res.graph.nodes):6d} nodes"
                 f"  cache {st['cache_hits']}/{st['cache_hits'] + st['cache_misses']}"
                 f"  lineage {len(res.lineage.rows)}  {res.elapsed_s:.2f}s"
+                f"  [{res.spec_roots.describe()}]"
             )
         lines.append(line)
         _out(line + "\n")
@@ -168,6 +172,7 @@ def cmd_history(a: argparse.Namespace) -> int:
         Path(a.into),
         spec_rel=a.spec,
         test_results_rel=a.test_results,
+        spec_autodetect=not a.no_spec_autodetect,
         manifest_rel=a.manifest,
         use_cache=not a.no_cache,
         on_epoch=report,
@@ -503,7 +508,16 @@ def parser() -> argparse.ArgumentParser:
 
     e = sub.add_parser("extract", help="extract a repository and its specs into a .ad2v file")
     e.add_argument("--repo", required=True)
-    e.add_argument("--spec")
+    e.add_argument(
+        "--spec",
+        action="append",
+        help="spec directory or file (repeatable); default: ad2v.yaml spec_root, else auto-detect",
+    )
+    e.add_argument(
+        "--no-spec-autodetect",
+        action="store_true",
+        help="do not look for specs/, spec/, docs/specs/, .kiro/specs/",
+    )
     e.add_argument("--manifest")
     target = e.add_mutually_exclusive_group(required=True)
     target.add_argument("--out", help="write a fresh single-epoch file (replaces it)")
@@ -516,7 +530,10 @@ def parser() -> argparse.ArgumentParser:
 
     h = sub.add_parser("history", help="extract a git commit range, one epoch per commit")
     h.add_argument("--repo", required=True)
-    h.add_argument("--spec", help="spec path relative to the repo root")
+    h.add_argument("--spec", action="append", help="spec path relative to the repo root (repeatable)")
+    h.add_argument(
+        "--no-spec-autodetect", action="store_true", help="do not auto-detect spec folders per commit"
+    )
     h.add_argument("--manifest", help="manifest path relative to the repo root")
     h.add_argument("--commits", required=True, help="git rev-list range, e.g. HEAD~20..HEAD")
     h.add_argument("--into", required=True)
@@ -627,6 +644,7 @@ def parser() -> argparse.ArgumentParser:
     v.add_argument("--epoch", help=f"{epoch_help} (default: every epoch)")
     v.set_defaults(func=cmd_validate)
     register_llm(sub, epoch_help)
+    register_specs(sub)
     return p
 
 

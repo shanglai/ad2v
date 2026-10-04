@@ -7,6 +7,7 @@ an existing file (`--into`), reusing that file's parse cache.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 from collections.abc import Callable
@@ -14,13 +15,26 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ad2v import glyphs, history, ids, ir, junit, layout, materialize, pairing, severity, store, workflows
+from ad2v import (
+    glyphs,
+    history,
+    ids,
+    ir,
+    junit,
+    layout,
+    materialize,
+    pairing,
+    severity,
+    specroots,
+    store,
+    workflows,
+)
 from ad2v import rules as rules_mod
 from ad2v.extract import files as filewalk
 from ad2v.extract.code.base import CodeFacts, Layout
 from ad2v.extract.code.python import PythonExtractor
 from ad2v.extract.code.python_local import LOCAL_EXTRACTOR_VERSION
-from ad2v.extract.spec import extract_specs, spec_files, spec_tree_hash
+from ad2v.extract.spec import extract_specs, spec_tree_hash
 from ad2v.manifest import Config
 from ad2v.manifest import load as load_manifest
 
@@ -59,6 +73,9 @@ class Result:
     unchanged: bool = False  # inputs identical to the parent: no epoch was built
     lineage_names: dict[str, str] = field(default_factory=dict)  # old id -> parent qualified name
     sources: dict[str, str] = field(default_factory=dict)  # content_hash -> normalized file text
+    spec_roots: specroots.SpecRoots = field(
+        default_factory=specroots.SpecRoots
+    )  # P6.1: where specs came from
 
     @property
     def derived(self) -> store.Derived:
@@ -95,15 +112,42 @@ def resolve_spec_refs(graph: ir.Graph) -> None:
     for nid, n in sorted(graph.nodes.items()):
         if n.side == "spec":
             by_qname.setdefault(n.qualified_name, []).append(nid)
+    namespaced: dict[str, list[str]] = {}  # bare id -> ids of namespaced spec items (`ns:FR-001`)
+    for q, nids in by_qname.items():
+        if ":" in q and not q.startswith(("http", "cli:", "mcp:")) and ".md::" not in q:
+            namespaced.setdefault(q.split(":", 1)[1], []).extend(nids)
     for nid in sorted(graph.nodes):
         n = graph.nodes[nid]
+        hints = n.attrs.get("spec_ref_hints", {})
         for ref in sorted(set(n.spec_ref)):
             targets = [t for t in by_qname.get(ref, []) if t != nid]
+            if not targets and ":" not in ref and ref in namespaced:
+                # a bare `FR-001`: resolves only if exactly one namespace has it (after a test-name hint);
+                # otherwise every candidate is linked as needs_review, never guessed (ADR-0048)
+                cands = sorted(t for t in namespaced[ref] if t != nid)
+                hint = hints.get(ref)
+                if hint:
+                    hinted = [t for t in cands if _namespace_matches(graph.nodes[t].qualified_name, hint)]
+                    cands = hinted or cands
+                if len(cands) == 1:
+                    graph.add_edge(nid, cands[0], "annotated_as", attrs={"ref": ref})
+                else:
+                    names = sorted(graph.nodes[t].qualified_name for t in cands)
+                    for t in cands:
+                        graph.add_edge(nid, t, "annotated_as", attrs={"ref": ref, "ambiguous": names})
+                continue
             if targets:
                 for t in targets:
                     graph.add_edge(nid, t, "annotated_as", attrs={"ref": ref})
             elif ref not in by_qname:
                 graph.unresolved.append(ir.UnresolvedRef(nid, ref, "spec_id", "not_found"))
+
+
+def _namespace_matches(qname: str, hint: str) -> bool:
+    """`003-payments:FR-001` matches the test-name hint `payments` (or `003_payments`)."""
+    ns = qname.split(":", 1)[0]
+    base = re.sub(r"^[0-9]+(?:-[0-9]+)*-", "", ns)
+    return hint in (ns.replace("-", "_"), base.replace("-", "_"))
 
 
 def _carry_tests(parent: Parent, graph: ir.Graph, lineage: history.Lineage) -> dict[str, ir.TestResult]:
@@ -118,7 +162,7 @@ def _carry_tests(parent: Parent, graph: ir.Graph, lineage: history.Lineage) -> d
 
 def build(
     repo: Path,
-    spec: Path | None = None,
+    spec: Path | list[Path] | None = None,
     manifest: Path | None = None,
     rules_path: Path | None = None,
     test_results: list[Path] | None = None,
@@ -128,6 +172,7 @@ def build(
     name_hint: str | None = None,
     repo_commit: str | None = None,
     seq: int = 1,
+    spec_autodetect: bool = True,
 ) -> Result:
     t0 = time.perf_counter()
     timings: dict[str, float] = {}
@@ -143,12 +188,18 @@ def build(
     system_name = config.system_name or name_hint or repo.name
     extractor = PythonExtractor(config, rules)
     rel = filewalk.walk(repo, config.exclude, extractor.suffixes)
-    spec_root = Path(spec).resolve() if spec is not None else None
-    if spec_root is not None and spec_root != repo and spec_root.is_relative_to(repo):
-        spec_rel = spec_root.relative_to(repo).as_posix()
-        rel = [p for p in rel if not p.startswith(spec_rel + "/")]
+    cli_specs = None if spec is None else [Path(spec)] if isinstance(spec, (str, Path)) else list(spec)
+    sroots = specroots.resolve(
+        repo, cli_specs, list(config.spec_roots), config.exclude, spec_autodetect, config.spec_markdown
+    )
+    for root in sroots.roots:  # spec files inside the repo never count as code
+        if root.is_dir() and root != repo and root.is_relative_to(repo):
+            spec_rel = root.relative_to(repo).as_posix()
+            rel = [p for p in rel if not p.startswith(spec_rel + "/")]
     files = filewalk.load(repo, rel)
-    specs = spec_files(spec_root, config.exclude) if spec_root is not None else []
+    specs = specroots.collect(sroots, config.exclude, config.spec_markdown)
+    config.effective_spec_roots = tuple(sroots.labels)
+    config.spec_presets = {p: ch.preset for p, ch in sroots.choices.items()}
     tests_given = bool(test_results)
     tr_paths = [Path(t) for t in test_results or []]
     repo_tree = ids.tree_hash({f.path: f.content_hash for f in files})
@@ -185,6 +236,7 @@ def build(
             [],
             rules=rules,
             unchanged=True,
+            spec_roots=sroots,
         )
         res.elapsed_s = time.perf_counter() - t0
         return res
@@ -195,8 +247,10 @@ def build(
     facts = extractor.extract(graph, layout, files, cache)
     t = lap("code_extraction", t)
     timings.update({f"code.{k}": v for k, v in extractor.timings.items()})
-    if spec_root is not None:
-        extract_specs(graph, spec_root, config.exclude, root_name=system_name, files=specs)
+    if sroots.roots:
+        extract_specs(
+            graph, sroots.roots[0], config.exclude, root_name=system_name, files=specs, choices=sroots.choices
+        )
     resolve_spec_refs(graph)
     graph.link_contains()
     graph.compute_subtree_hashes()
@@ -257,6 +311,7 @@ def build(
         dict(extractor.new_cache_entries),
     )
     res.timings = timings
+    res.spec_roots = sroots
     res.sources = {f.content_hash: f.text for f in files} | {ids.content_hash(t): t for _, _, t in specs}
     if parent is not None:
         res.lineage_names = {o: parent.graph.nodes[o].qualified_name for o, _, _, _ in lineage.rows}
@@ -313,7 +368,7 @@ def write_epoch(conn: sqlite3.Connection, res: Result, parent: Parent | None) ->
 
 def extract_to_file(
     repo: Path,
-    spec: Path | None,
+    spec: Path | list[Path] | None,
     out: Path,
     manifest: Path | None = None,
     rules_path: Path | None = None,
@@ -323,6 +378,7 @@ def extract_to_file(
     use_cache: bool = True,
     name_hint: str | None = None,
     repo_commit: str | None = None,
+    spec_autodetect: bool = True,
 ) -> Result:
     """`--out` (into=False): fresh single-epoch file. `--into`: append an epoch if inputs changed."""
     out = Path(out)
@@ -350,6 +406,7 @@ def extract_to_file(
             name_hint=name_hint,
             repo_commit=repo_commit,
             seq=int(seq_row[0]) + 1,
+            spec_autodetect=spec_autodetect,
         )
         res.timings["load_parent"] = t_parent
         if res.unchanged:
