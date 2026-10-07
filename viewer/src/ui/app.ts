@@ -29,6 +29,8 @@ import {
   renderMentions,
   type DiffEntry,
   type Digest,
+  displayLabel,
+  truncateWords,
 } from "../model/text";
 import { PORT_KINDS, SceneTree } from "../model/tree";
 import { MapScene, type MapModel } from "../render/scene";
@@ -44,7 +46,7 @@ import {
 import { copyText, h } from "./dom";
 import { EDGE_MODES, type EdgeMode } from "../model/declutter";
 import { ChatPanel } from "./chat";
-import { legendPanel, notEvaluableNote } from "./legend";
+import { componentOutOfScopeNote, legendPanel, notEvaluableNote } from "./legend";
 import { Replay } from "./replay";
 
 const RESOURCE_KINDS = new Set(["datastore", "queue", "external_service", "llm_endpoint", "ui"]);
@@ -287,12 +289,22 @@ export class App {
 
   /** Names of nodes outside the loaded slices (app mode), fetched for cards. */
   private readonly extraNames = new Map<string, string>();
-  private label = (id: string): string => this.cur.byId.get(id)?.name ?? this.extraNames.get(id) ?? id;
+  private label = (id: string): string => {
+    const n = this.cur.byId.get(id);
+    return n ? displayLabel(n) : this.extraNames.get(id) ?? id;
+  };
+
+  /** P9 (ADR-0072): a node without a box on the map (a scenario step) is shown as its nearest drawn ancestor. */
+  private drawn = (id: string): string => {
+    let at: string | null = id;
+    while (at !== null && !this.cur.tree.nodes.has(at)) at = this.cur.byId.get(at)?.parentId ?? null;
+    return at ?? id;
+  };
 
   private async ensureNames(ids: Array<string | null>): Promise<void> {
     const missing = [...new Set(ids)].filter((x): x is string => !!x && !this.cur.byId.has(x) && !this.extraNames.has(x)).slice(0, 20);
     const got = await Promise.all(missing.map((x) => this.ds.nodeDetail(this.cur.epoch.epochId, x)));
-    got.forEach((g, i) => { if (g) this.extraNames.set(missing[i]!, g.node.name); });
+    got.forEach((g, i) => { if (g) this.extraNames.set(missing[i]!, displayLabel(g.node)); });
   }
 
   private async showEpoch(epochId: string, keepView: boolean): Promise<void> {
@@ -409,7 +421,11 @@ export class App {
       const v = (e.target as HTMLSelectElement).value;
       if (v) void this.startReplay(v);
     } }, h("option", { value: "" }, "Replay a workflow…"),
-      ...this.cur.workflows.filter((w) => w.side === "code").map((w) => h("option", { value: w.workflowId }, w.name)));
+      ...["code", "spec"].flatMap((side) => {
+        const ws = this.cur.workflows.filter((w) => w.side === side);
+        return ws.length ? [h("optgroup", { label: side === "code" ? "Code workflows" : "Spec scenarios" },
+          ...ws.map((w) => h("option", { value: w.workflowId }, truncateWords(w.name, 60))))] : [];
+      }));
     this.toolbar.replaceChildren(
       h("span", { class: "brand" }, "ad2v"),
       h("span", { class: "sys" }, `${this.meta.systemName}${llm}`),
@@ -727,7 +743,7 @@ export class App {
     const card = this.cur.summaries.get(id)?.card ?? this.fallback(id);
     const colors = statusColors(THEMES[resolveTheme(this.themeChoice)], st?.status ?? "none");
     this.tooltip.replaceChildren(
-      h("div", { class: "tt-title" }, n.name, h("span", { class: "kind" }, ` ${n.kind.replace(/_/g, " ")}`)),
+      h("div", { class: "tt-title" }, displayLabel(n), h("span", { class: "kind" }, ` ${n.kind.replace(/_/g, " ")}`)),
       h("div", { class: "tt-status" }, h("span", { class: "swatch", style: `border-color:${colors.stroke};border-style:${cssLine(st?.status ?? "none")}` }),
         ` ${st?.status ?? "none"}${st?.provenance === "llm" ? " (AI)" : ""}`),
       h("div", { class: "tt-card" }, oneLine(stripIds(card))),
@@ -808,18 +824,34 @@ export class App {
     const sec = (title: string, open: boolean, ...kids: Array<Node | string | null>): HTMLElement =>
       h("details", { open }, h("summary", {}, title), ...kids);
     const fly = h("button", { class: "linkish", onclick: () => this.select(id, false, true) }, "fly here");
+    const outOfScope = d.links.filter((l) => l.specId === id).flatMap((l) => l.evidence)
+      .find((e) => e.kind === "component_out_of_scope");
     const reasons = (detail?.reasons ?? []).slice(0, 6).map((r) => h("li", {}, `${String(r.status)}: ${String(r.kind)}`));
     const header = h("div", { class: "card-head" },
-      h("h3", {}, n.name, " ", h("span", { class: "kind" }, n.kind.replace(/_/g, " "))),
+      h("h3", {}, displayLabel(n), " ", h("span", { class: "kind" }, n.kind.replace(/_/g, " ")),
+        n.nfr ? h("span", { class: "badge nfr", id: "nfr-badge", title: "non-functional requirement" }, "NFR") : null),
       h("div", { class: "qname" }, n.qname), fly,
       h("div", { class: "statuses" },
         statusChip("normative", sn?.status ?? "none"),
         se && se.status !== se.normative ? statusChip(`effective${se.provenance === "llm" ? " (AI)" : ""}`, se.status) : null),
       reasons.length ? h("ul", { class: "reasons" }, ...reasons) : null,
       (se?.status ?? sn?.status) === "not_evaluable"
-        ? h("p", { class: "scope-note", id: "scope-note" },
-            notEvaluableNote(typeof detail?.attrs?.language === "string" ? detail.attrs.language : undefined))
-        : null);
+        ? h("p", { class: "scope-note", id: "scope-note" }, outOfScope
+          ? componentOutOfScopeNote(String(outOfScope.component).split("::").pop()!, Array.isArray(outOfScope.languages) ? outOfScope.languages.map(String) : [])
+          : notEvaluableNote(typeof detail?.attrs?.language === "string" ? detail.attrs.language : undefined))
+        : null,
+      n.nfr ? h("p", { class: "scope-note nfr-note" }, "Non-functional requirement: a quality of the system, not a feature. It is not expected to pair with one piece of code; link it to tests or code with an ad2v: marker when that helps.") : null);
+    // P9 (ADR-0072): a scenario's steps are text in its card, in order, with the keyword marked
+    const stepRows = d.nodes
+      .filter((s) => s.parentId === id && s.kind === "scenario_step")
+      .sort((a, b) => (a.spanStart ?? 0) - (b.spanStart ?? 0) || (a.id < b.id ? -1 : 1));
+    const stepsEl = stepRows.length
+      ? h("ol", { class: "steps", id: "scenario-steps" }, ...stepRows.map((s) => {
+        const kw = s.keyword ?? "";
+        const rest = kw && s.name.startsWith(kw) ? s.name.slice(kw.length) : ` ${s.name}`;
+        return h("li", {}, kw ? h("b", { class: "kw" }, kw) : null, rest);
+      }))
+      : null;
     // P7 (ADR-0061): what is inside, with statuses; click to fly (labels on the map are culled)
     const kids = d.tree.nodes.get(id)?.children ?? [];
     const kidsEl = kids.length
@@ -827,7 +859,7 @@ export class App {
         .sort((a, b) => (d.byId.get(a)?.name ?? a).localeCompare(d.byId.get(b)?.name ?? b))
         .slice(0, 60)
         .map((k) => h("li", {},
-          h("button", { class: "linkish", onclick: () => this.select(k, true, true) }, d.byId.get(k)?.name ?? k),
+          h("button", { class: "linkish", onclick: () => this.select(k, true, true) }, truncateWords(this.label(k), 80)),
           " ", statusChip("", (this.effective ? d.statusE : d.statusN).get(k)?.status ?? "none"))))
       : null;
     // summary
@@ -883,6 +915,7 @@ export class App {
     return h("section", { class: "card node", "data-node": id },
       header,
       sec("Summary", true, summaryEl),
+      stepsEl ? sec(`Steps (${stepRows.length})`, true, stepsEl) : null,
       kidsEl ? sec(`Contents (${kids.length})`, kids.length <= 30, kidsEl) : null,
       myLinks.length ? sec(`Spec ↔ code links (${myLinks.length})`, true, ...linkEls) : null,
       sugEls.length ? sec(`Suggestions (${sugEls.length})`, true, ...sugEls) : null,
@@ -916,6 +949,8 @@ export class App {
     const [steps, narrations] = await Promise.all([this.ds.steps(d.epoch.epochId, workflowId), this.ds.narrations(d.epoch.epochId, workflowId)]);
     this.stopReplay();
     this.replay = new Replay(workflowId, wf.name, steps, d.anc, narrations as NarrationRow[]);
+    // P9: a spec scenario reads step by step (Given / When / Then), so it starts at the finest level
+    if (wf.side === "spec") this.replay.setLevel(this.replay.levels.length - 1);
     this.replayBar.classList.remove("hidden");
     this.card(h("section", { class: "card info" }, h("h3", {}, `Replay: ${wf.name}`), h("p", { class: "muted" }, `${steps.length} fine steps · ${this.replay.levels.length} detail levels`)));
     this.renderReplay(true);
@@ -963,9 +998,16 @@ export class App {
     const r = this.replay;
     if (!r) return;
     const cur = r.current, prev = r.previous;
-    this.scene.setReplay({ nodes: cur.nodeIds, prev: prev?.nodeIds ?? [] });
-    this.scene.setEmphasis(cur.nodeIds); // the rest is dimmed, opaquely (ADR-0051)
-    this.scene.frameStep(cur.nodeIds); // P6.1: on screen and readable at every step and level
+    // P9: a spec scenario steps through its Given/When/Then text; the scenario is what is drawn
+    const onMap = [...new Set(cur.nodeIds.map(this.drawn))];
+    const prevOnMap = [...new Set((prev?.nodeIds ?? []).map(this.drawn))];
+    const stepText = cur.nodeIds
+      .map((id) => this.cur.byId.get(id))
+      .filter((n): n is NodeRow => n?.kind === "scenario_step")
+      .map((n) => n.name);
+    this.scene.setReplay({ nodes: onMap, prev: prevOnMap });
+    this.scene.setEmphasis(onMap); // the rest is dimmed, opaquely (ADR-0051)
+    this.scene.frameStep(onMap); // P6.1: on screen and readable at every step and level
     const slider = h("input", { type: "range", id: "detail", min: 0, max: r.levels.length - 1, value: r.levelIdx, "aria-label": "detail level",
       oninput: (e) => { r.setLevel(Number((e.target as HTMLInputElement).value)); this.renderReplay(true); } });
     const speed = h("select", { "aria-label": "speed", onchange: (e) => { this.speed = Number((e.target as HTMLSelectElement).value); if (this.timer !== null) { this.togglePlay(); this.togglePlay(); } } },
@@ -983,9 +1025,9 @@ export class App {
       h("button", { title: "stop replay", onclick: () => this.stopReplay() }, "✕"));
     if (announce) {
       const nar = r.narration();
-      const text = nar.text ?? this.fallbackStep(cur.nodeIds, prev?.nodeIds ?? [], r.index);
+      const text = nar.text ?? (stepText.length ? stepText.join(" · ") : this.fallbackStep(onMap, prevOnMap, r.index));
       // P7 (issue 71): a step not visible at this LOD is drawn as its visible ancestor; say so
-      const hidden = cur.nodeIds.filter((id) => !this.scene.visibleLods().has(id));
+      const hidden = onMap.filter((id) => !this.scene.visibleLods().has(id));
       const anc = hidden.length ? this.scene.representative(hidden[0]!) : null;
       this.card(h("section", { class: "card step", "data-level": r.level, "data-index": r.index },
         nar.parent ? h("p", { class: "subtitle" }, nar.parent) : null,
@@ -1039,6 +1081,5 @@ function stripIds(s: string): string {
 }
 
 function oneLine(s: string): string {
-  const t = s.replace(/\s+/g, " ").trim();
-  return t.length > 200 ? t.slice(0, 197) + "…" : t;
+  return truncateWords(s, 200);
 }

@@ -25,6 +25,11 @@ export interface NodeRow {
   path: string | null;
   spanStart: number | null;
   spanEnd: number | null;
+  /** P9 (ADR-0072): display fields from attrs/spec_ref, the same in both data sources */
+  title: string | null;
+  refs: string[];
+  nfr: boolean;
+  keyword: string | null;
 }
 
 export interface Box {

@@ -1,0 +1,3 @@
+system: reportes
+spec_ids:
+  test_name_prefixes: [REQ, HU, US]

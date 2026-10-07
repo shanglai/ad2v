@@ -17,14 +17,17 @@ describe("LocalFileSource against the demo file", async () => {
     expect(meta.llmProviders).toEqual(["fake"]);
   });
 
-  it("has a layout row and a glyph for every node", async () => {
+  it("has a glyph for every node and a layout row for every node on the map", async () => {
     const nodes = await ds.nodes(head.epochId);
     const layout = await ds.layout(head.epochId);
     const glyphs = await ds.glyphs(head.epochId);
     expect(LAYOUT_ALGORITHM).toBe("nestgrid-v1");
     expect(nodes.length).toBeGreaterThan(100);
+    const steps = nodes.filter((n) => n.kind === "scenario_step");
+    expect(steps.length).toBeGreaterThan(0);
     for (const n of nodes) {
-      expect(layout.has(n.id)).toBe(true);
+      // P9 (ADR-0072): scenario steps stay in the graph but get no box (listed in their scenario's card)
+      expect(layout.has(n.id)).toBe(n.kind !== "scenario_step");
       expect(glyphs.has(n.id)).toBe(true);
     }
   });

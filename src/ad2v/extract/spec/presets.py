@@ -24,9 +24,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ad2v import ids, ir
-from ad2v.extract.spec import markdown
+from ad2v.extract.spec import markdown, team
 
-PRESETS = ("ad2v", "spec-kit", "kiro", "custom")
+PRESETS = ("ad2v", "spec-kit", "kiro", "custom", "table", "stories")
 FULL_ID_RE = re.compile(r"^" + ids.SPEC_ID_PATTERN + r"$")
 
 
@@ -77,7 +77,15 @@ def detect(path: str, text: str) -> str | None:
         and any(SPECKIT_ID_RE.match(x) for x in lines)
     ):
         return "spec-kit"
-    return markdown.detect(path, text)
+    found = markdown.detect(path, text)
+    if found:
+        return found
+    # P9 (ADR-0069): team formats, after every earlier preset so their files keep their reader
+    if team.detect_table(text):
+        return "table"
+    if team.detect_stories(text):
+        return "stories"
+    return None
 
 
 def choose(path: str, text: str, rules: list[dict[str, Any]]) -> Choice | None:
@@ -492,5 +500,9 @@ def extract(graph: ir.Graph, rel: str, text: str, ch: Choice | None) -> None:
         extract_speckit(graph, rel, text, ch)
     elif ch.preset == "kiro":
         extract_kiro(graph, rel, text, ch)
+    elif ch.preset == "table":
+        team.extract_table(graph, rel, text, parse_ears)
+    elif ch.preset == "stories":
+        team.extract_stories(graph, rel, text, parse_ears)
     else:
         extract_custom(graph, rel, text, ch)

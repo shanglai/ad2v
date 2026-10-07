@@ -38,11 +38,24 @@ New-Item -ItemType Directory -Force C:\ad2v-maps | Out-Null
 
 Call the repositories **Repo A** and **Repo B** in everything you share.
 
-## 1. Check how the specs are written
+## 1. Start with `ad2v init`, then check how the specs are written
+
+`ad2v init` (P9) reads the repository and proposes the manifest. It runs nothing, calls no model
+and writes only with `--write`. Time it, and keep its report: it is the first finding.
+
+```powershell
+Measure-Command { .venv-dogfood\Scripts\ad2v init --repo $REPO | Out-Host }
+.venv-dogfood\Scripts\ad2v init --repo $REPO --write C:\ad2v-maps\repo-a.ad2v.yaml
+```
+
+Open the written file. Fill in every empty `path_constants` value, and count those edits for the
+results table. Remove anything that looks wrong and note why. The rest of this section is for
+checking what `init` proposed.
 
 ad2v finds specs in `--spec <dir>` (repeatable) > `spec_root` in `ad2v.yaml` > auto-detection
-(`specs/`, `spec/`, `docs/specs/`, `.kiro/specs/`, a root `openapi.*`). For each format the repo
-uses, check the shape (details: `docs/quickstart.md` §3):
+(`specs/`, `spec/`, `docs/specs/`, `.kiro/specs/`, `sdd/`, `docs/sdd/`, a root `openapi.*`).
+`init` also finds folders with other names by content. For each format the repo uses, check the
+shape (details: `docs/quickstart.md` §3):
 
 | format | what ad2v reads | ids |
 |---|---|---|
@@ -51,6 +64,8 @@ uses, check the shape (details: `docs/quickstart.md` §3):
 | spec-kit (`specs/<NNN-feature>/spec.md`) | `**FR-001**: System MUST …` | `<feature>:FR-001` |
 | Kiro (`.kiro/specs/<name>/requirements.md`) | `### Requirement 1: …` + numbered EARS criteria | `NAME-1`, `NAME-1.2` |
 | OpenAPI 3 | paths and methods | `GET /path` |
+| requirements table (Spanish or English headers) | `| ID | Descripción | … |`, optional title / priority / type / component columns | as written (`RF-001`) |
+| user stories | `HU-001` + "Como … quiero … para …" + acceptance criteria | `HU-001`, `HU-001.1` |
 | your own Markdown | `spec_markdown` rules with `preset: custom` regexes | yours |
 
 If anything needs configuration, create `ad2v.yaml` **outside** the repository (so you do not
@@ -150,12 +165,14 @@ do not need it again. Nothing was written inside the private repositories.
 | language mix (e.g. "Python only", "Python + TS front end") | | |
 | size: code files / code lines (`code_files`, `code_lines`) | | |
 | spec formats used | | |
+| `ad2v init` time (s) / proposal edits needed (count) / proposal entries removed (count) | | |
 | configuration needed (none / spec_root / presets / path_constants / custom regexes) | | |
 | `extract` time (s) | | |
 | `history` time (s) / commits | | |
 | viewer first render (s) / fluid? | | |
 | nodes (total) | | |
 | spec items: verified / implemented / not_evaluable / specified / missing / drift / needs_review / stale | | |
+| non-functional requirements (count) / by status (`nonfunctional_requirements_by_status`) | | |
 | code nodes: verified / implemented / not_evaluable / orphan / drift / needs_review | | |
 | languages not read (files per language) | | |
 | drift rows checked / real / false | | |

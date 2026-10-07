@@ -1,13 +1,13 @@
-# P8 report: release readiness without release, plus the extractor plug-in API
+# P9 report: brownfield onboarding (`ad2v init`, Spanish SDD presets, issue 95, the spec side of the map)
 
-ad2v 0.7.0.dev0, format v0.5 (plug-in identity added within v0.5). Phase dates: 2026-10-04.
-**Addendum P8.1 (2026-10-07): `not_evaluable` and format v0.6, see §13.**
-Previous report: [docs/reports/P7.md](docs/reports/P7.md). This report is also at
-[docs/reports/P8.md](docs/reports/P8.md).
+P9 makes ad2v work on an existing project that was not built for it. The example: specs in
+`sdd/`, written in Spanish as requirement tables, user stories and Gherkin; a Python backend and
+a TypeScript frontend with no `ad2v:` annotations; SQL; Terraform. The path from "never seen
+this repo" to "a useful map" is now `ad2v init` → review the proposed `ad2v.yaml` → `extract`.
+It is fully deterministic and makes no LLM call.
 
-Nothing was published: no PyPI/TestPyPI upload, tag, release, Pages site, visibility change or
-public demo. No cloud resources, no LLM calls (fake provider only), no CI minutes (the workflows are
-written and statically checked, not run).
+The P8 + P8.1 report moved to [docs/reports/P8.md](docs/reports/P8.md) (one copy). This report is
+also at [docs/reports/P9.md](docs/reports/P9.md).
 
 ## 1. Accrued cost per phase
 
@@ -21,431 +21,369 @@ written and statically checked, not run).
 | P6 | $0 | |
 | P6.1 | $0 | |
 | P7 | $0.385 | Vertex AI, 163 calls (approved live run) |
-| **P8** | **$0** | no cloud, no LLM, no CI minutes |
+| P8 | $0 | |
+| P8.1 | $0 | |
+| **P9** | **$0** | no cloud, no LLM (the bootstrap cycle used the `fake` provider) |
 | **total** | **$0.977** | |
 
-Claude's own usage is not metered per phase: the account is on the Max plan with extra usage
-disabled, so it adds no per-phase cost that could be reported here.
+**CI minutes (GitHub Actions, private repository).** `ci.yml` runs on pushes to `main` and
+`master`, so each branch push is one run. That gives about 18 billed ubuntu minutes per run (the
+P8 estimate).
 
-## 2. Milestones
+| pushes | runs | estimate | note |
+|---|---|---|---|
+| Step 0: `master`, `master:main` (P8.1) | 2 | ~36 min by the rule | both runs **failed after ~12 s** at `pip install -e .` (§2), so the real billed time is a few minutes (per-job minimum) |
+| final: `master`, `master:main` (P9) | 2 | ~36 min | |
+| **P9 total** | **4** | **~72 min (upper bound)** | no manual all-OS dispatch |
+
+**Claude usage** is not observable per phase. The account is on the Max plan with extra usage
+disabled, so this phase added no metered Claude cost.
+
+## 2. Step 0: P8.1 committed and pushed
+
+- Gates before committing: pytest 386 passed + 2 skipped, Vitest 51, ruff, ESLint, tsc, both
+  license gates, and `test:mcp` (parity 6/6, Inspector 38/38, App e2e 10/10). The sanitization
+  scan was clean.
+- Commit **`d5038d5`**: "P8.1: not_evaluable status for code in languages no active extractor
+  reads (format v0.6, ADR-0066)".
+- Pushes: `origin/master` and `origin/main`, both **fast-forward** `b7e1726..d5038d5`. No force.
+- **Both CI runs failed** in about 12 seconds. A fresh checkout has no `viewer/dist`, and
+  `pyproject.toml` mapped the viewer packages onto it, so `pip install -e .` stopped. Any fresh
+  clone hit the same failure. Fixed in P9 (ADR-0067, §3 M5). It was verified on a fresh copy of
+  the tree in a throwaway venv:
+  - `pip install -e .` works without a viewer build, and `extract` runs;
+  - `AD2V_REQUIRE_VIEWER=1 python -m build --wheel` fails without the build and passes with it
+    (112 files, viewer and app included).
+  The P9 push is the first CI run with the fix.
+
+## 3. Milestones
 
 | milestone | state | notes |
 |---|---|---|
-| M1 extractor plug-in API | **done** | `ad2v.api` 1.0; entry points; opt-in; identity in the epoch; Python extractor and framework pack as plug-ins with no behavior change (dumps compared, §4); conformance kit; two out-of-tree examples installed in a temp venv |
-| M2 blind retrieval eval | **done** | harness, template with 2 dummy questions, docs, no-leak tests; no blind content written or read |
-| M3 packaging, not publishing | **done** | 0.7.0.dev0; wheel and `pip install .` verified in clean venvs; quickstart guard against the installed wheel; `twine check` passed; `release.yml` disabled; `docs/RELEASING.md` |
-| M4 CI | **done (written, not run)** | `ci.yml` (ubuntu on push/PR, all OS on manual dispatch), static checks in place of actionlint (not installed) |
-| M5 security review | **done** | `docs/security.md`, `SECURITY.md`; 11 findings fixed, 5 open (low, or inherent and documented) |
-| M6 sanitization inventory | **done** | tracked files fixed with placeholders; history reported by type and count; no secrets (gitleaks not installed; regex scan) |
-| M7 dogfood readiness | **done** | `docs/dogfood.md` + `scripts/dogfood_counts.py` |
+| M1 `ad2v init` | **done** | `init.py`, `cli_init.py`; `--write [--force]`, `--format yaml|json`, `--check`; ADR-0071 |
+| M2 team presets | **done** | `table`, `stories` (Spanish + English), Spanish EARS, Spanish Gherkin (native), titles, NFR; ADR-0069 |
+| M3 issue 95 | **done** | `component_out_of_scope`; test titles in unread languages (`test_in_unread_language`, never verified); ADR-0070; issue closed |
+| M4 spec side of the map | **done** | steps off the map, scenario roll-up, labels, word-boundary truncation, NFR badge, step lists, spec replay; stability 1.0000; ADR-0072 |
+| M5 default excludes | **done** | wider defaults, SQL kept under `migrations/`/`alembic/`, IaC not `not_evaluable`; ADR-0068. Also the fresh-clone install fix (ADR-0067) |
+| M6 `fixtures/brownfield-es` | **done** | written from the prompt alone; goldens `expected-init.txt`, `expected.yaml`; in `determinism_check.py` |
+| M7 docs, gates, report | **done** | quickstart §2b (guarded by a test), convention, format spec notes (no bump), dogfood, README, claude-context, issues, pending, dependencies |
 
-## 3. The plug-in interfaces (ADR-0063, ADR-0064, ADR-0065)
+## 4. `ad2v init`
 
-**Public module:** `ad2v.api` (`src/ad2v/api.py`). It re-exports the existing internal model
-(`Graph`, `Node`, `Edge`, `UnresolvedRef`, `CodeFacts`, `Event`, `Layout`, `SourceFile`,
-`Config`, `NODE_KINDS`, `EDGE_KINDS`, `node_id()`, `content_hash()`) plus:
+**Detectors:**
+- **Spec folders.** By name: `specs/`, `spec/`, `docs/specs/`, `.kiro/specs/`, `sdd/`,
+  `docs/sdd/`, `requirements/`, `docs/requirements/`, `specification(s)/`. By content: any folder
+  whose files a reader recognizes. Each candidate is scored, with the evidence (files per
+  format), and nested candidates are folded into their parent.
+- **Format per file.** ad2v, spec-kit, kiro, table, stories, gherkin, openapi, or prose. Prose
+  files are listed as candidates for `specs bootstrap`.
+- **Prefixes.** Spec id prefixes become `test_name_prefixes`. Non-functional prefixes are
+  detected from ids, or from a table type column.
+- **Containers.** Project manifests at depth ≤ 3, with their language and whether an active
+  extractor reads it. A components hint when spec component names match container names.
+- **Excludes.** Default or generated folders actually present, with the files and code files each
+  one drops.
+- **SQL.** SQL files are listed, with a warning when an exclude would drop them.
+- **IaC.** Terraform, Pulumi, CloudFormation, Kubernetes and Helm: reported, plus a commented
+  `# infra:` hint.
+- **Test results.** JUnit XML files and pytest configuration, with a suggested `--test-results`.
+- **Route prefixes.** The Python extractor runs with the proposed containers. The prefix
+  expressions it cannot resolve become `path_constants` with **empty** values.
 
-```python
-API_VERSION = "1.0"
-EXTRACTOR_GROUP = "ad2v.extractors"
-FRAMEWORK_GROUP = "ad2v.frameworks"
-
-class Extractor(Protocol):
-    api_version: str; name: str; version: str
-    languages: tuple[str, ...]
-    file_patterns: tuple[str, ...]          # globs on file name or repo-relative path
-    rules_files: tuple[Path, ...]           # YAML; canonical hash enters the epoch identity
-    node_kinds: frozenset[str]; edge_kinds: frozenset[str]   # besides Layout's
-    def extract(self, ctx: ExtractContext) -> ExtractOutput: ...
-
-@dataclass
-class ExtractContext:
-    graph: Graph            # empty, holds the system node; add nodes/edges; graph.unresolved
-    layout: Layout          # container_for(path), parent_for_module(path)
-    files: FileAccessor     # read-only, exactly the claimed files, pre-read and normalized
-    config: Config
-    rules: Mapping[str, Any]                 # effective: own files + attached packs (+ overlay)
-    cache: Mapping[tuple[str, str], Any]     # earlier parse-cache payloads
-    warnings: list[str]; def warn(msg): ...
-
-@dataclass
-class ExtractOutput:
-    facts: CodeFacts        # events, wrappers, entry_ports, files_read
-    cache_entries: dict[str, tuple[str, Any]]; timings: dict[str, float]; stats: dict[str, int]
-
-class FrameworkPack(Protocol):
-    api_version: str; name: str; version: str
-    attaches_to: tuple[str, ...]; frameworks: tuple[str, ...]
-    file_patterns: tuple[str, ...]          # extra inputs for the hook (e.g. "*.sql")
-    rules_files: tuple[Path, ...]           # fragments pack-merged into the extractor's rules
-    node_kinds: frozenset[str]; edge_kinds: frozenset[str]
-    def post_extract(self, ctx: FrameworkContext) -> None: ...
-
-@dataclass
-class FrameworkContext:
-    extractor: str; graph: Graph; files: FileAccessor; config: Config
-    rules: Mapping[str, Any]; facts: CodeFacts; warnings: list[str]
-```
-
-`FileAccessor`: `paths`, iteration over `SourceFile`s, `read_text(path)`, `content_hash(path)`,
-`source(path)`; anything outside the set raises `FileAccessError` and is recorded.
-`api_compatible(plugin_api, core_api)` implements the policy below.
-
-**Entry-point groups:** `ad2v.extractors` and `ad2v.frameworks`; the entry point loads to a
-zero-argument class or factory. The built-ins are registered in `pyproject.toml` and in an internal
-registry (source checkouts work without metadata): `python = ad2v.extract.code.plugin:PythonPlugin`
-(version 1.0.0) and `python-frameworks = ad2v.extract.code.plugin:PythonFrameworksPack` (1.0.0).
-
-**Compatibility policy:** semver on `MAJOR.MINOR`. Minor releases only add (optional fields and
-attributes with defaults, kinds, helpers). Breaking = removing or renaming anything in `ad2v.api`,
-changing a signature or a field's meaning, the pack-merge rules, the accessor contract or the identity
-inputs, or making an optional attribute required. The core accepts its own major (plug-in minor ≤
-core minor) and the previous major (with a deprecation note); deprecations last at least one minor
-release and until the next major.
-
-**Opt-in:** only the built-ins are active. Others need `ad2v.yaml` `extractors: {enabled: [name]}`
-or `--extractor <name>` (repeatable) on `extract`/`history`; enabling an uninstalled name is an
-error; disabled plug-ins are never imported by `extract`/`history`, and `extractors list` imports
-them only with `--inspect`; names that shadow a built-in or are registered twice are refused.
-`extractors.*` is excluded from `config_hash` (the identity enters through the rules).
-
-**Identity and isolation:** every active plug-in's `{kind, name, version, api_version, rules_hash,
-attaches_to | effective_rules_hash}` is stored under `plugins` in the epoch rules, so it is part of
-`rules_hash` and the epoch id; a plug-in change is a `change_kind = rules` epoch. Additive within
-v0.5 (no DDL change; ADR-0065). Parse-cache key: `extractor_version = name@version[:cache
-version]`, `rules_hash` = the extractor's effective rules hash (GC updated). Each extractor writes
-its own graph, merged in name order; third-party plug-ins run with exception isolation and a
-timeout (`--plugin-timeout`, default 600 s), and a failure is printed, recorded in
-`epochs.attrs.plugin_failures` and skipped (`--strict` makes it fatal; a failing pack hook runs on a
-copy, so it leaves nothing behind). `extract` prints one line per plug-in with version, api and
-rules hash.
-
-**What did not fit cleanly (reported, not changed):**
-
-1. `python.yaml` still holds the language-agnostic `severity:` and `retrieval:` sections (the epoch
-   rules keep the P7 top-level layout). They belong in core rules before a second real extractor
-   (issue 89).
-2. Framework recognition in the Python extractor is parameterized by rules: a pack can add
-   constructors, decorators, methods, settings bases, but not a new recognition *algorithm* that
-   needs the syntax tree; the hook sees the finished graph and file text (issue 90). Click group
-   resolution, Celery beat dictionaries and Starlette route lists stay code in `python.py`.
-3. The schema-digest hook re-parses Python with `ast` (as in P7).
-4. `CodeFacts.events` / `wrappers` are Python-shaped; an extractor that returns none gets no code
-   workflows traced.
-5. Cross-extractor references (a routes file naming a Python handler) can only be expressed as
-   computed node ids; the core does not resolve them.
-
-## 4. Proof of no behavior change
-
-The "before" dumps were captured before any code was touched, with the P7 code at `27c24c6`: `ad2v
-dump --normative-only --epoch all` of 9 scenarios, then the same script after the refactor.
-
-| scenario | epochs | rows | result |
-|---|---|---|---|
-| payments-recon, with JUnit results | 1 | 1,039 | identical, epoch id / rules hash masked |
-| payments-recon, without results (settings prefixes off) | 1 | 1,035 | identical, masked |
-| payments-recon, settings prefixes via `path_constants` | 1 | 1,035 | identical, masked |
-| payments-recon, settings prefixes via the resolver | 1 | 1,035 | identical, masked |
-| P3 history scenario (8 commits), LF | 8 | 8,369 | identical, masked |
-| P3 history scenario, CRLF + BOM | 8 | 8,369 | identical, masked |
-| sdd-presets spec-kit | 1 | 239 | identical, masked |
-| sdd-presets kiro | 1 | 138 | identical, masked |
-| sdd-presets custom | 1 | 88 | identical, masked |
-
-How: byte comparison first; the dumps were the same length but not byte-identical, because every
-epoch id and rules hash changes: the epoch rules now include the plug-in identity records, which is
-the intended effect (ADR-0065). The comparison then replaced each P8 epoch id and rules hash with the
-P7 value of the same `seq` (2 substitutions per single-epoch file, 9 for the history files) and
-compared the sorted rows: **identical for all 9 scenarios, 23 epochs, 21,347 rows.**
-(`rules_versions.rules_json`, where the `plugins` key lives, is not part of the normative dump.)
-Supporting checks: pack-merging `python.yaml` + `python-frameworks.yaml` reproduces the P7
-`python.yaml` canonical hash (`40e0c803…`, pinned by a test), so the Python extractor's effective
-rules and its parse-cache rules hash are unchanged; `scripts/determinism_check.py` shows LF and
-CRLF+BOM give identical dumps for 4 fixtures; P7's existing goldens all pass.
-
-## 5. Out-of-tree example plug-ins
-
-`examples/plugins/routes-dsl-extractor` (`ad2v-routes-dsl` 0.1.0, extractor `routes-dsl`: `*.routes`
-files → `module` + `http_route` nodes, `# ad2v: REQ-…` refs) and
-`examples/plugins/bottle-framework-pack` (`ad2v-bottle-pack` 0.1.0, framework pack `bottle`: one
-route recognizer, `bottle.Bottle`, as a rules fragment). Both import only `ad2v.api`.
-
-Install (done in a fresh temporary venv, then deleted):
-
-```bash
-python -m venv <tmp>/venv && <tmp>/venv/Scripts/python -m pip install . examples/plugins/routes-dsl-extractor examples/plugins/bottle-framework-pack
-```
-
-`ad2v extractors list` (installed, nothing enabled):
+**Verbatim output on `fixtures/brownfield-es`** (also the golden `expected-init.txt`):
 
 ```text
-ad2v plug-in API 1.0; groups: ad2v.extractors, ad2v.frameworks
-kind       name               version       api  distribution            state
-extractor  python             1.0.0         1.0  ad2v 0.7.0.dev0         built-in
-framework  python-frameworks  1.0.0         1.0  ad2v 0.7.0.dev0         built-in -> python
-extractor  routes-dsl         (not loaded)  -    ad2v-routes-dsl 0.1.0   disabled
-framework  bottle             (not loaded)  -    ad2v-bottle-pack 0.1.0  disabled
+ad2v init: fixtures/brownfield-es
+
+Spec folders (score; evidence = files per format):
+  sdd/  score 15  (gherkin 1, openapi 1, prose 1, stories 1, table 1)  proposed
+Spec files:
+  sdd/api/openapi.yaml: openapi
+  sdd/contexto.md: prose
+  sdd/features/conciliacion.feature: gherkin
+  sdd/historias.md: stories
+  sdd/requerimientos.md: table
+Prose no preset reads (candidates for `ad2v specs bootstrap`):
+  sdd/contexto.md
+Spec id prefixes: HU, RF, RNF
+Containers:
+  backend (src/backend/, pyproject.toml): python, read by the python extractor
+  frontend (src/frontend/, package.json): typescript, no active extractor: not_evaluable
+Excluded folders (files dropped; code files of them):
+  dist: 2 (2 code)  [default]
+  node_modules: 1 (1 code)  [default]
+SQL files (schema digests):
+  src/db/migrations/V2__indices.sql
+  src/db/schema.sql
+Infrastructure as code (detected; not mapped until P10):
+  terraform: infra/
+Test results:
+  pytest config: src/backend/pyproject.toml (run `pytest --junitxml <file>`)
+Route prefixes the extractor cannot resolve (3 route(s)): settings.API_PREFIX; fill in pairing.path_constants
+
+Next:
+  ad2v init --repo fixtures/brownfield-es --write <a file outside the repo>
+  ad2v extract --repo fixtures/brownfield-es --manifest <a file outside the repo> --out brownfield-es.ad2v
+  ad2v specs bootstrap --repo fixtures/brownfield-es --from sdd/contexto.md --plan
+  ad2v view brownfield-es.ad2v
+
+# ---- proposed ad2v.yaml ----
+# ad2v.yaml proposed by `ad2v init` (review it; nothing here is guessed).
+# Keep it outside the repository while you try it: `ad2v extract --manifest <this file>`.
+# one container per project manifest found (language: read by an extractor?)
+containers:
+  - {kind: service, name: backend, paths: [src/backend]}  # python, pyproject.toml; read
+  - {kind: service, name: frontend, paths: [src/frontend]}  # typescript, package.json; not read: shown as not_evaluable
+pairing:
+  orphan_policy: auto  # auto | strict | off
+  # route prefixes the extractor cannot resolve: fill in the values (empty = ignored)
+  path_constants:
+    "settings.API_PREFIX": ""
+spec_ids:
+  test_name_prefixes: [CMP, FR, HU, REQ, RF, RNF]  # test_rf_001_… links to RF-001
+  nonfunctional_prefixes: [RNF]
+# team formats found (they are auto-detected too; listed to keep the choice stable)
+spec_markdown:
+  - {glob: sdd/historias.md, preset: stories}
+  - {glob: sdd/requerimientos.md, preset: table}
+spec_root: [sdd]
+system: "brownfield-es"
+# infra: terraform in infra (detected; not mapped until P10)
 ```
 
-With `--inspect`: `routes-dsl 0.1.0 api 1.0` and `bottle 0.1.0 api 1.0 -> python`.
+The output is identical across runs and for LF vs CRLF+BOM inputs (tested). The proposal
+round-trips through YAML exactly and loads as a valid manifest as written.
 
-Conformance kit (`ad2v extractor check`, installed): **routes-dsl PASS 8/8** (determinism: second
-run and CRLF+BOM identical, 10 rows; id stability 7/7 ids kept; schema valid; no file opened outside
-its set; no side effects; kinds as declared), **bottle PASS 8/8** (12 rows, 8/8 ids), and the
-built-ins `python` and `python-frameworks` PASS 8/8 on `sdd-presets/kiro`.
+**Known false positives and negatives** (by design or by test; not measured on real
+repositories yet):
+- FN: a container whose manifest is deeper than 3 levels (monorepo `packages/a/b/c/`) is not
+  proposed (issue 102).
+- FN: route prefixes are found for Python routes only (the only extractor).
+- FN: a spec folder whose Markdown no reader recognizes (pure prose in an unusual folder) is not
+  a candidate. Named folders still are, and their prose is listed for bootstrap.
+- FP: a `docs/` folder with one table that has an `ID` column whose values fit the spec-id
+  grammar would be proposed as a spec root. The score and evidence make that visible.
+- FP: `.feature` files under third-party test data would be proposed. Excludes (`vendor/`,
+  `node_modules/`) remove the usual cases.
+- The `generated` exclude is proposed by folder name only (`generated/`, `__generated__/`).
 
-Real extracts: the routes fixture enables `routes-dsl` in its own `ad2v.yaml`; `ad2v extract` prints
-the three plug-in lines, emits 3 routes that pair with its OpenAPI spec (3 implemented, the
-unimplemented `POST /v1/orders/{id}/cancel` correctly `missing`) and validates. The Bottle fixture
-gives no routes without the pack and `GET /health`, `GET /hello/<name>` with `--extractor bottle`.
-The same examples run in-process in `tests/test_plugins.py` and installed in the CI `plugins` job.
+## 5. Presets: counts, Spanish EARS, titles, NFR
 
-## 6. Tests
+| fixture | presets | requirements | EARS matched / raw | GWT criteria | Gherkin | NFR |
+|---|---|---|---|---|---|---|
+| `sdd-presets/table` (es + en) | table ×2 | 11 (8 es, 3 en) | 10 / 1 (event 2, state 1, unwanted 1, ubiquitous 6) | 0 | — | 4 (`RNF-001`, `RNF-002`, `CAL-001` by Tipo, `EXP-3` by Type) |
+| `sdd-presets/stories` (es + en) | stories ×2 | 10 (4 stories + 6 criteria; 7 es, 3 en) | 3 / 7 (stories and GWT criteria are not EARS) | 3 | — | 0 |
+| `brownfield-es` | table, stories | 22 (14 table, 8 stories) | 16 / 6 (event 1, state 1, unwanted 2, ubiquitous 12) | 1 | 1 feature, 4 scenarios (1 Background), 11 steps (Dado 4, Cuando 3, Entonces 3, Y 1) | 4 (`RNF-001..004`) |
+| `polyglot` | ad2v | 4 | 4 / 0 | 0 | — | 0 |
 
-| suite | P7 | P8 |
+The raw (`ears: null`) requirements are the cases the prompt asked for:
+- a table row that isn't EARS ("La pantalla de conciliación muestra …");
+- the story requirements themselves (Como … quiero …);
+- Dado/Cuando/Entonces criteria (kept as `gwt`);
+- one criterion with a modal outside the EARS forms ("Solo un usuario con rol de aprobador puede
+  aprobar").
+
+**Title examples** (explicit wins; otherwise derived, ≤ 6 words, trailing function words cut):
+
+| id | source | title |
 |---|---|---|
-| pytest (collected) | 321: 320 passed, 1 cloud skip | **382: 380 passed, 2 skipped** (cloud; a symlink test that needs privileges on Windows) |
-| new pytest files | | `test_plugins.py` 38, `test_security.py` 12, `test_blind_eval.py` 6, `test_ci_workflows.py` 3, `test_license_gate.py` 2 (+61) |
-| Vitest | 49 | 49 |
-| Playwright | 22 (21 run + 1 on-demand skip) | **24 (23 passed + 1 on-demand skip)**: `hostile.spec.ts` 2 new |
-| `npm run test:mcp` | parity, Inspector, App e2e 10/10 | all passed |
-| coverage | 95% | 95% (new modules 87–100%; the kit's audit-hook body runs but is not traced) |
+| RF-001 (table) | `Título` column | Iniciar conciliación |
+| RF-002 | EARS response | Emparejar cada movimiento del extracto |
+| RF-003 | unwanted response | Marcarlo como pendiente |
+| RF-006 | state response (*debe*) | Reintentar la descarga del extracto |
+| HU-001 | story heading | Cargar un extracto |
+| HU-002.1 | GWT *then* | Ve los movimientos pendientes ordenados |
+| RNF-001 | response, "en menos de" cut | Conciliar 100.000 movimientos |
+| EXP-1 (en) | event response | Write a CSV file |
+| REQ-004 (en) | unwanted response, modal "can" cut | Return an error the client |
 
-Changed tests (none removed):
+Two refinements came from these examples: comparatives (*menos*, *más*, *than*) and modals
+(*can*, *may*, *puede*) are now trailing words. Titles stay a heuristic (issue 99).
 
-- `test_history.py::test_prune_and_gc`: its GC invariant now joins the per-plug-in
-  `effective_rules_hash` (the parse-cache key changed, ADR-0065).
-- `test_p3_units.py::test_cached_extraction_equals_uncached` and `::test_stale_cache_version_is_ignored`:
-  `cache_entries` is grouped by (extractor version, rules hash) and the cache loader takes both.
-- `test_llm.py`: the GCP project id in a Vertex URL test became `example-project` (M6).
+**NFR handling.** `attrs.requirement_type = nonfunctional` comes from the id prefix
+(`spec_ids.nonfunctional_prefixes`, default RNF/NFR/NF; `init` proposes the ones it finds) or
+from a table type cell. Non-functional requirements pair like any other, so they usually stay
+`specified`. They are counted apart in:
+- `ad2v status` (a summary line);
+- the MCP overview (`nonfunctional_requirements`);
+- `scripts/dogfood_counts.py` (`nonfunctional_requirements_by_status`).
+In the viewer they get an NFR badge, and the card explains that they are not expected to pair
+with one piece of code.
 
-A mistake caught before the end: the new CI-workflow checks were first written over the existing
-`tests/test_workflows.py` (8 workflow-trace tests). The per-file test counts against P7 exposed it;
-the original file is restored unchanged and the new checks live in `tests/test_ci_workflows.py`.
+## 6. Issue 95: before and after
 
-Gates: ruff check and format, ESLint, tsc, both license gates (Python: runtime closure 11 dists,
-dev 20; npm: 166 packages), viewer builds, Python 3.11 `compileall`.
-
-## 7. Dependencies
-
-**No new dependencies** (Python or npm). The runtime closure is unchanged: tree-sitter,
-tree-sitter-python, gherkin-official, PyYAML, jsonschema (+ attrs, jsonschema-specifications,
-referencing, rpds-py: MIT; typing_extensions: PSF-2.0). New stdlib-only scripts:
-`scripts/check_python_licenses.py`, `scripts/determinism_check.py`, `scripts/dogfood_counts.py`.
-
-Tools run outside the tree (none added to `pyproject.toml` or `package.json`):
-
-| tool | version | license | how |
+| requirement | P8.1 | P9 | why |
 |---|---|---|---|
-| build | 1.6.1 | MIT | throwaway venv (pipx is not installed on this machine) |
-| twine | 7.0.0 | Apache-2.0 | throwaway venv |
-| pip-audit | 2.10.1 | Apache-2.0 | throwaway venv |
-| npm audit | npm 11.17.0 | Artistic-2.0 | built into npm |
-| MCP Inspector | 2.8.0 | Apache-2.0 / MIT | `npx` (in `test:mcp`) |
-| Playwright Chromium | build 1243 | BSD-3-Clause / Chromium | installed for this session, deleted at the end |
-| actionlint | not available | MIT | not run; static workflow tests instead |
-| gitleaks | not available | MIT | not run; regex history scan instead |
+| polyglot REQ-001 | implemented | implemented | Python, evaluated |
+| polyglot REQ-002 | not_evaluable | not_evaluable | `// ad2v: REQ-002` in TypeScript (P8.1) |
+| polyglot REQ-003 | **specified** | **not_evaluable** | its spec component (Web client) pairs with the all-TypeScript `web` container: `component_out_of_scope` |
+| polyglot REQ-004 (new) | (would be specified) | not_evaluable | `it("REQ-004 …")` in `web/src/cart.test.ts`: `test_in_unread_language` |
+| brownfield RF-007 | (specified) | not_evaluable | `Componente = Frontend` → container `frontend` (TypeScript): `component_out_of_scope` |
+| brownfield RF-008 | (specified) | not_evaluable | `it("RF-008 …")` in `avance.test.ts` |
+| brownfield RF-009 | (specified) | not_evaluable | component, like RF-007 |
 
-## 8. Security findings (docs/security.md §9)
+None of them is ever `verified`: ad2v has no test results for unread languages.
 
-| # | issue | surface | severity | status |
-|---|---|---|---|---|
-| S1 | `ad2v.yaml` `spec_root` could point outside the repository (local files read into a shareable map) | repository-supplied paths | medium | fixed |
-| S2 | `ad2v.yaml` `rules_overlay` could point outside the repository | repository-supplied paths | medium | fixed |
-| S3 | an auto-detected `specs/` symlink could point outside the repository | repository-supplied paths | medium | fixed |
-| S4 | `ad2v view` checked `Host` only on chat endpoints (DNS rebinding could read the map) | local server | medium | fixed |
-| S5 | writers would fire triggers embedded in a hostile file | malicious `.ad2v` | medium | fixed (refuse; `trusted_schema = OFF`) |
-| S6 | `validate` missed foreign tables/views/triggers, huge strings, deep JSON (and crashed on deep JSON) | malicious `.ad2v` | low | fixed |
-| S7 | the MCP server served files with redefined views | MCP | low | fixed (refused) |
-| S8 | `specs approve --to` accepted a destination outside the repository | CLI paths | low | fixed |
-| S9 | CSP lacked `object-src`, `base-uri`, `form-action`, `frame-ancestors`; no `Referrer-Policy` | local server | info | fixed |
-| S10 | the conformance kit did not detect network, subprocess or write side effects | plug-ins | low | fixed (`side_effects`) |
-| S11 | `ad2v.chat` missing from the wheel (since P7) | packaging | info | fixed |
-| S12 | plug-ins are not sandboxed (in-process, user privileges) | plug-ins | low | open, by design (opt-in, documented) |
-| S13 | pathological views in a hostile file can hang the standalone viewer's tab | malicious `.ad2v` | low | open |
-| S14 | `braces` ≤ 3.0.3 advisory in the build-only chain (`vite-plugin-singlefile`); no patched release | supply chain | low | open |
-| S15 | prompt injection can bias informative LLM output | prompt injection | medium | open, inherent (no write tools, informative only) |
-| S16 | a timed-out plug-in thread keeps running until exit | plug-ins | low | open |
+## 7. The spec side of the map (ADR-0072)
 
-Evidence: hostile-file tests (`tests/hostile.py`: XSS in every text column and JSON leaf, a 2 MiB
-string, 5,000-level JSON, a wrong version, extra table/view/trigger, a redefined built-in view);
-Playwright shows no script runs in either viewer mode; `pip-audit`: 0 known vulnerabilities (runtime
-and dev); `npm audit`: 0 in runtime dependencies, 3 high (one advisory, S14) in dev.
+What changed:
+- **Steps off the map.** `scenario_step` nodes stay in the graph (ids, glyph rows, edges,
+  workflows) but get no layout row. They are listed in order in the scenario's card, with the
+  keyword marked. Spec scenarios are in the replay picker (a "Spec scenarios" group), start at the
+  finest level, and show each step's text.
+- **Statuses.** Steps are `none`. A scenario adds one `via_spec_ref` reason per (referenced
+  requirement, link status), so it shows the worst status of the requirements its tags name.
+- **Labels.**
+  - requirement: `RF-001 · Iniciar conciliación`;
+  - spec component with an id: `CMP-001 · Reconciliation API`;
+  - scenario: `Start a reconciliation run [REQ-001, REQ-002]`.
+  The full label is in the hover tooltip and the card. NodeRow carries `title`, `refs`, `nfr`
+  and `keyword` in both data sources, and the parity test is green.
+- **Truncation.** Text is cut at a word boundary with "…" everywhere: map labels (48), contents
+  lists (80), the replay picker (60) and tooltip text (200). The mid-word cut is gone.
+- **Cards.**
+  - NFR badge and note;
+  - `component_out_of_scope` note naming the component and its language ("its component
+    Frontend is implemented in typescript …").
 
-## 9. Sanitization inventory (no values)
+**Layout stability on the P3 history scenario:** 786/786 unchanged nodes keep their position
+across epochs, **1.0000** with both `nestgrid-v1` and `nestgrid-v2` (target ≥ 0.95).
 
-Types: local absolute paths containing the OS username, the OS username, the GitHub owner name, the
-owner's first name in prose, personal email addresses, the GCP project id, secrets.
+**Screenshots** (`docs/reports/P9-screens/`, dark and light, 12 files):
+1. `*-1-payments-recon-scenario.png`: scenario card with 4 ordered steps and the roll-up reasons.
+2. `*-2-payments-recon-component.png`: `CMP-001 · Reconciliation API`.
+3. `*-3-payments-recon-replay.png`: a spec scenario replayed step by step.
+4. `*-4-brownfield-nfr.png`: `RNF-001 · …` with the NFR badge and note.
+5. `*-5-brownfield-scenario.png`: Spanish scenario, Dado / Cuando / Entonces.
+6. `*-6-brownfield-component-out-of-scope.png`: RF-007 `not_evaluable` with the component note.
 
-| type | tracked/untracked files before | after | history (15 commits, all refs) |
-|---|---|---|---|
-| absolute local path with username | 3 lines in 2 files (context doc 1, a P6 report config example 2) | 0 (`<repo-root>`) | 7 added lines in 3 commits |
-| GitHub owner name | 1 line in 1 file (context doc) | 0 (`<github-owner>`) | 1 added line in 1 commit |
-| GCP project id | 12 lines in 7 files (P4 report 4, P7 report 1, root report 1, context doc 1, status 2, a fixture LLM config 1, a test 2) | 0 (`<your-gcp-project>`; the test uses `example-project`) | 17 added lines in 4 commits |
-| owner first name in new public-facing docs | 5 lines in 3 files (written this phase) | 0 ("the owner") | 0 |
-| personal email in files | 0 | 0 | 0 in content; commit metadata: personal-domain address as author on 15/15 commits and committer on 14/15 (1 GitHub noreply) |
-| secrets (11 patterns: cloud, OpenAI, Anthropic, GitHub, AWS, Slack keys/tokens, private keys, service-account JSON, OAuth tokens, bearer tokens, password assignments) | 0 real (3 false-positive pattern groups: a file name, minified three.js, style tokens) | 0 | 0 real (same false positives) |
+## 8. Brownfield results: zero-config vs `init`
 
-Kept on purpose: generic placeholder paths in `docs/mcp.md` (`C:\Users\you\…`) and a built-in sql.js
-string in the demo bundle. Also scanned: the demo's embedded map and the LLM and chat recordings
-(clean). Not scanned: 64 tracked screenshots (binary). The history findings stay until the planned
-fresh, squashed public repository; gitleaks was not available, so the secret scan used regexes over
-`git log -p --all` and the tree. No real secret was found, so no stop was needed.
+| | zero-config | with `init` |
+|---|---|---|
+| commands | 1 (`extract`) | 2 (`init --write`, `extract --manifest`) |
+| human edits | 0 | 1 (`"settings.API_PREFIX": "/api/v1"`) |
+| tool time (3 runs, this machine) | 0.72–0.87 s | init 0.60–0.69 s + extract 0.71–0.75 s |
+| spec roots | `sdd/` (auto-detected, new in P9) | `sdd/` (manifest) |
+| spec items found | 22 requirements, 4 scenarios, 3 endpoints, 5 components (same) | same |
+| containers | 1 fallback (`brownfield-es`) | `backend`, `frontend` |
+| endpoints (3) | **missing** (route prefix lost) | **implemented** |
+| code orphans | 5 (the 3 routes, the fallback container, `src`) | **0** |
+| RF-002 / RF-003 | specified (`RF` is not a default test prefix) | **implemented** (`test_rf_002_…`) |
+| RF-007/008/009 | not_evaluable (name match) | not_evaluable (`component_out_of_scope` / test title) |
+| spec status counts | missing 3, implemented 1, not_evaluable 5, specified 25 | implemented 8, not_evaluable 5, specified 21 |
 
-## 10. Skipped because it would cost money (estimates)
+**Time to first useful map:** zero-config takes 1 command and under a second, but the map is
+misleading: three spec endpoints look unbuilt, and their routes look like dead code. With `init`
+it takes 2 commands and 1 edit (about 1.3 s of tool time plus reading the report). Every
+endpoint and route pairs, and the backend and frontend are separate containers. The edit is the
+only step a person must think about, and `init --check` keeps flagging it until it is done.
 
-- **CI minutes** (not run; repository private). Per push/PR (ubuntu only): viewer ≈ 4 min, python
-  3.12 ≈ 5, python 3.11 ≈ 5, plug-ins ≈ 3, determinism ≈ 1 → **≈ 18 billed minutes**. A manual
-  all-OS dispatch adds Windows (≈ 14 min × 2) and macOS (≈ 11 min × 10) → **≈ 156 weighted
-  minutes**. On a 2,000-minute private plan that is ≈ 110 pushes a month, or ≈ 12 all-OS
-  dispatches. Beyond the included minutes, at GitHub's standard Linux rate (about $0.008/min at the
-  time of writing; check current pricing) a push is about $0.15 and an all-OS dispatch about $1.25.
-  Free once the repository is public.
-- **TestPyPI dry run**: free but it publishes, so it is out of scope (decision 1).
-- **LLM on the dogfood repositories**: not part of dogfooding without an approved budget. If
-  approved, P7's measured costs apply: judge at thinking `low` ≈ $0.0017 per link; summaries and
-  narrations for a dispatch-sized repository ≈ $10.60 (P7 re-estimate).
+The bootstrap cycle on `sdd/contexto.md` (prose) ran with the `fake` provider:
+1. plan;
+2. bootstrap (a Spanish EARS proposal);
+3. approve to `sdd/aprobados`.
+REQ-X001 is then `specified`.
 
-## 11. Open questions for the reviewer, and the recommended P9 scope
+## 9. Tests, goldens, dependencies
 
-Questions:
+| gate | before (Step 0) | after |
+|---|---|---|
+| pytest | 386 passed + 2 skipped | **428 passed + 2 skipped** (cloud skip, Windows symlink skip); `-m slow` included |
+| coverage | — | total 95%; new modules: `cli_init` 100%, `team` 96%, `titles` 97%, `init` 93%, `scope` 98% |
+| Vitest | 51 | **53** |
+| Playwright | 26 (25 + 1 skip) | **30 (29 + 1 skip)**; new `spec-side.spec.ts` (4) |
+| `test:mcp` | parity 6/6, Inspector 38/38, App 10/10 | same |
+| ruff, ESLint, tsc, npm and Python license gates | clean | clean |
+| determinism (LF vs CRLF+BOM) | 5 fixtures | 8 (+ `sdd-table`, `sdd-stories`, `brownfield-es`) |
 
-1. **Epoch-id change.** Every P8 extraction has new epoch ids (plug-in identity), so a P7 history
-   file gets one `rules` epoch on its next run. Acceptable, or should the first P8 epoch of an old
-   file be labeled as a "toolchain" change in the viewer?
-2. **Built-in versions.** `python` and `python-frameworks` are 1.0.0 and bumped by hand. Tie them to
-   `LOCAL_EXTRACTOR_VERSION` / `rules_version`, or keep them independent?
-3. **Plug-in timeout default** (600 s) and **`--strict` default** (off): right for the private Java
-   extractor?
-4. **Tree-level hook.** Does the enterprise pack need to add *algorithms* to the Python extractor
-   (issue 90)? If so, api 1.1 could expose a per-module hook with the tree-sitter tree.
-5. **Blind set.** Size and repositories for the blind questions; the harness suppresses per-type
-   rows below 5 questions.
-6. **actionlint / gitleaks:** install them (standalone binaries, MIT) for the next session?
+**Changed goldens and expectations, with reasons:**
+- `fixtures/payments-recon/expected-history.yaml`, diff 4→5: `verified → stale` goes from 2 to 3.
+  The scenario tagged `@REQ-001` now rolls up REQ-001, which goes stale (ADR-0072).
+- `tests/test_layout.py`: the geometry and stability checks skip `OFF_MAP_KINDS` (steps have no
+  box).
+- `viewer/tests/datasource.test.ts`: every node has a glyph; every node except steps has a
+  layout row.
+- `tests/test_scope.py`: polyglot REQ-003 `specified` → `not_evaluable`; REQ-004 added (issue 95).
+- `viewer/e2e/scope.spec.ts`: "typescript 3 file(s)" (was 2; `cart.test.ts` added).
+- **Normative dumps:** steps' `node_status` is now always `none`, and scenarios gain
+  `via_spec_ref` reasons. No other node or link row changes. `payments-recon/expected.yaml` and
+  every preset golden pass unchanged.
 
-Recommended P9: the TypeScript extractor as a plug-in, after the dogfood results and the agreement.
+**Dependencies:** none added (Python or npm). `build` ran once more in a throwaway venv, and
+Playwright's Chromium was used for the screenshots. Both were removed (`docs/dependencies.md`).
 
-1. First move `severity:` and `retrieval:` from `python.yaml` into core rules (issue 89), with the
-   same masked-dump proof as P8 §4.
-2. A `typescript` extractor (tree-sitter-typescript, MIT) behind `ad2v.api`, in-repo but loaded as
-   a built-in plug-in: modules, classes, functions, imports and calls, test detection, `ad2v:`
-   annotations; events/wrappers for workflows.
-3. A `typescript-frameworks` pack: Express, Fastify, NestJS controllers, Next.js route handlers,
-   Prisma/TypeORM schema digests, as rules fragments plus hooks; extend the pack vocabulary if a
-   tree-level hook is needed (decide question 4 first).
-4. A mixed Python + TypeScript fixture with goldens; the kit on both; dogfood findings fixed first
-   where they are extractor-independent.
-5. Keep the API at 1.x (additive) unless the TypeScript work proves a breaking change necessary.
+## 10. Open questions for P10 and P11
 
-## 12. Commit
+**P10: infrastructure.**
+1. **Plan JSON vs static `.tf`.** A supplied `terraform show -json` plan has resolved values,
+   modules and counts. Static `.tf` parsing (HCL) needs a license-clean parser: python-hcl2 is
+   MIT, but its `lark` dependency must be checked. Which comes first, and is the static fallback
+   worth a dependency?
+2. **The env-var bridge.** Code reads `os.environ["DATABASE_URL"]` / `settings.X`; infra sets
+   `environment { DATABASE_URL = aws_db_instance.main.endpoint }`. Should a match create an edge
+   (normative, deterministic), and what happens when several resources set the same name in
+   different workspaces?
+3. **C4 view.** A deterministic C4 container or deployment view in its own tab. Should it be
+   derived from the same graph (new `infra` side, or new kinds on the code side), and is that a
+   format v0.7 change (new kinds = new CHECK constraints, ADR-0055/0066 style upgrade)?
+4. **Secrets in plans.** Plan JSON can contain sensitive values. Should they be dropped at read
+   time (never stored), with `sensitive: true` respected?
 
-Hash: see `git log -1` (a committed file cannot contain its own commit hash). One commit, not pushed.
+**P11: the TypeScript extractor.**
+1. Parser: tree-sitter-typescript (MIT) through the existing plug-in API, and which frameworks
+   first (Express/Fastify/Nest routes, React Router, Next.js app router)?
+2. Test results for TS (Jest/Vitest JUnit reporters) to make `test_in_unread_language` links
+   `verified`?
+3. Once the plug-in claims `*.ts`, `not_evaluable` disappears by itself. Keep the polyglot and
+   brownfield goldens as the before/after proof?
 
-Changed files, grouped:
+## 11. Commit
 
-- **Plug-in API and core:** `src/ad2v/api.py` (new), `src/ad2v/plugins.py` (new),
-  `src/ad2v/cli_plugins.py` (new), `src/ad2v/extract/code/plugin.py` (new),
-  `src/ad2v/extract/code/rules/python-frameworks.yaml` (new), `src/ad2v/extract/code/rules/python.yaml`,
-  `src/ad2v/pipeline.py`, `src/ad2v/rules.py`, `src/ad2v/manifest.py`, `src/ad2v/extract/files.py`,
-  `src/ad2v/gitsource.py`, `src/ad2v/admin.py`, `src/ad2v/cli.py`,
-  `src/ad2v/testing/__init__.py`, `src/ad2v/testing/conformance.py` (new).
-- **Blind eval:** `src/ad2v/mcp/blind.py` (new), `fixtures/retrieval-eval/blind-template.yaml` (new),
-  `docs/blind-eval.md` (new).
-- **Security:** `src/ad2v/store.py`, `src/ad2v/validate.py`, `src/ad2v/view.py`,
-  `src/ad2v/mcp/files.py`, `src/ad2v/specroots.py`, `src/ad2v/bootstrap.py`, `docs/security.md`
-  (new), `SECURITY.md` (new).
-- **Packaging and CI:** `pyproject.toml`, `src/ad2v/__init__.py`, `viewer/package.json`,
-  `viewer/package-lock.json`, `viewer/src/app-main.ts`, `.github/workflows/ci.yml` (new),
-  `.github/workflows/release.yml` (new), `docs/RELEASING.md` (new),
-  `scripts/check_python_licenses.py` (new), `scripts/determinism_check.py` (new), `.gitignore`.
-- **Examples:** `examples/plugins/` (new: README, routes-dsl-extractor, bottle-framework-pack, with
-  fixtures).
-- **Dogfood:** `docs/dogfood.md` (new), `scripts/dogfood_counts.py` (new).
-- **Tests:** `tests/test_plugins.py`, `tests/test_security.py`, `tests/hostile.py`,
-  `tests/test_blind_eval.py`, `tests/test_ci_workflows.py`, `tests/test_license_gate.py` (new);
-  `tests/test_history.py`, `tests/test_p3_units.py`, `tests/test_llm.py`;
-  `viewer/e2e/hostile.spec.ts` (new); `viewer/tests/fixtures/projections.json` (regenerated: epoch id).
-- **Docs and tracking:** ADR-0063, 0064, 0065 (new), `docs/plugins.md` (new),
-  `docs/spec/ad2v-format-v0.5.md` (now v0.6), `docs/dependencies.md`, `README.md`, `docs/claude-context.md`,
-  `issues.md` (84–93), `pending.md`, `status.md`, `REPORT.md`, `docs/reports/P8.md` (new).
-- **Sanitized:** `docs/reports/P4.md`, `docs/reports/P6.md`, `docs/reports/P7.md`,
-  `fixtures/payments-recon/llm-vertex.yaml`; `docs/reports/P5-demo.html` rebuilt with the current
-  viewer.
+- Commit: **"P9: brownfield onboarding (`ad2v init`, Spanish SDD presets, issue 95, spec-side
+  view)"**. Hash: see `git log -1`.
+- Push: `origin/master` and `origin/main`, fast-forward only. The result is recorded in
+  `status.md` after the push.
+- Changed files, grouped:
+  - **Onboarding:**
+    - `src/ad2v/init.py`, `src/ad2v/cli_init.py` (new), `src/ad2v/cli.py`;
+    - `src/ad2v/specroots.py` (`sdd/`);
+    - `src/ad2v/extract/code/python.py` (`unresolved_prefix_exprs`, state only).
+  - **Specs:**
+    - `src/ad2v/extract/spec/team.py`, `titles.py` (new);
+    - `markdown.py` (Spanish EARS, `(Título)`), `presets.py`, `__init__.py`;
+    - `src/ad2v/llm/prose.py` (Spanish modals).
+  - **Scope, pairing, layout, manifest:**
+    - `src/ad2v/scope.py` (test titles), `pairing.py` (component scope, scenario roll-up,
+      steps);
+    - `layout.py` (`OFF_MAP_KINDS`), `manifest.py` (excludes, NFR prefixes), `pipeline.py`;
+    - `src/ad2v/mcp/slices.py`, `mcp/tools.py`.
+  - **Packaging:** `setup.py` (new), `pyproject.toml`, `.github/workflows/release.yml`,
+    `.gitignore`.
+  - **Viewer:**
+    - `src/data/types.ts`, `LocalFileSource.ts`;
+    - `src/model/text.ts` (`displayLabel`, `truncateWords`);
+    - `src/render/billboards.ts`;
+    - `src/ui/app.ts`, `ui/legend.ts`, `style.css`;
+    - tests `model.test.ts`, `datasource.test.ts`; e2e `spec-side.spec.ts` (new), `scope.spec.ts`.
+  - **Fixtures:**
+    - `fixtures/brownfield-es/` (new);
+    - `fixtures/sdd-presets/{table,stories}/` (new);
+    - `fixtures/polyglot/` (`cart.test.ts`, REQ-004);
+    - `fixtures/payments-recon/expected-history.yaml`.
+  - **Tests:** `test_brownfield.py`, `test_team_presets.py` (new), `test_presets.py`,
+    `test_scope.py`, `test_layout.py`, `test_quickstart.py` (step 2b).
+  - **Scripts:** `scripts/determinism_check.py`, `scripts/dogfood_counts.py`.
+  - **Docs:**
+    - ADR-0067..0072;
+    - `docs/quickstart.md`, `docs/spec/spec-markdown-convention.md`,
+      `docs/spec/ad2v-format-v0.6.md`;
+    - `docs/dogfood.md`, `docs/dependencies.md`, `docs/claude-context.md`;
+    - `README.md`, `issues.md`, `pending.md`, `status.md`;
+    - `REPORT.md` + `docs/reports/P9.md`, `docs/reports/P9-screens/`.
 
-Cleanup: temporary venvs (plug-ins, wheel, source install, tools, final kit run), the P7 worktree
-used for test counts, build artifacts in `examples/` and `build/`, the Playwright browsers installed
-for this session, the MCP Inspector's npx cache entry created by `test:mcp`, the regenerated
-screenshots of earlier phases (restored to their committed versions) and `viewer/test-results` were
-deleted. Scratch files lived in the session scratchpad only.
-
-## 13. Addendum P8.1: `not_evaluable`, code in a language ad2v cannot read (ADR-0066)
-
-**Why.** While preparing the dogfood run, the first candidate (a middleware whose services are
-Java, with prose specs in another repository) showed the gap: ad2v walked only Python, so
-everything built in another language was invisible. Requirements implemented there showed as
-`specified` or `missing`, and their containers as `orphan`, which is false. The owner asked for a
-legend or category for "specified and developed, but not evaluable because the language is outside
-the comprehended scope", with TypeScript as the example for an upcoming Python + TypeScript test
-project.
-
-**What it is.** A ninth status, **`not_evaluable`**: there is code for this in a language no active
-extractor reads, so ad2v neither confirms nor contradicts the spec there.
-
-| aspect | definition |
-|---|---|
-| what is read | every file whose extension is in the scope table (TypeScript, JavaScript, Vue, Svelte, Java, Kotlin, Scala, Go, Rust, C#, F#, Ruby, PHP, Swift, Objective-C, Dart, Elixir, C, C++; `*.d.ts` skipped) that no active plug-in claims becomes a `module` node with `attrs.extracted = false` and `attrs.language`; its content is an epoch input; the table is in the epoch rules (`scope`) |
-| links | `ad2v: REQ-001` in a comment (`//`, `#`, `/*`, `*`, `--`, `<!--`) is a spec reference; a link that would be `implemented` with an unextracted module (or an all-unextracted container/component) on the code side becomes `not_evaluable` with evidence `language_out_of_scope` |
-| no orphans | unextracted code with no spec link is `not_evaluable`, never `orphan` |
-| precedence | `drift > needs_review > missing > orphan > stale > verified > implemented > not_evaluable > specified > none`: any evaluated evidence wins; a component with Python and TypeScript is judged on its Python |
-| containers | `package.json`, `go.mod`, `Cargo.toml`, `pom.xml`, `build.gradle(.kts)` now mark containers (a TypeScript client lands in its own container) |
-| goes away by itself | when an extractor plug-in for the language is enabled, it claims those files (tested with a toy TypeScript plug-in) |
-| legend | **viewer:** a **Legend** toolbar button lists every status with its non-color signature and meaning; `not_evaluable` is thin, dotted, hollow, with a "∅" badge, olive-sage (dark 8.9:1, light 5.6:1); a node card says "written in typescript, which no active extractor reads" and what to do. **CLI:** `extract` prints `not extracted (no active extractor reads it): typescript 2 file(s); shown as not_evaluable`; `ad2v status --status not_evaluable`. **MCP:** "unevaluated", "evaluable", "unsupported" find it. **Dogfood:** `dogfood_counts.py` reports `unextracted_files_by_language`, and the results table has a row for it |
-
-**Format v0.6.** The status is in the CHECK constraints of `links.status` and `node_status.status`;
-a v0.5 file is upgraded in place when opened for writing (both tables rebuilt, rows copied), v0.4
-files go 0.4 → 0.5 → 0.6, readers accept 0.4–0.6. Schema, IR schema and spec renamed to v0.6.
-
-**Proof that Python-only repositories are unaffected.** Normative dumps (every epoch) from the P8
-commit (`4d5740b`, temporary worktree) and from P8.1, for payments-recon (with test results),
-the 3 SDD presets and the 8-epoch history scenario: identical after normalizing four expected
-differences: epoch id and rules hash (the `scope` table is in the epoch rules), the
-`format_version` row, and the precedence list that each `node_status` row records. All P7/P8 goldens
-pass unchanged.
-
-**The fixture** `fixtures/polyglot` (Python API + TypeScript web client + one spec):
-
-| node | status |
-|---|---|
-| REQ-001, CMP-001 (Python API) | implemented |
-| REQ-002 (annotated in `cart.ts`), CMP-002 (mapped to the TypeScript container) | not_evaluable |
-| REQ-003 (referenced nowhere) | specified |
-| `cart.ts`, `format.ts`, `web/src`, `container:web` | not_evaluable (no orphans) |
-| `types.d.ts` | not a node |
-
-Screenshots: `docs/reports/P8.1-screens/` (legend and a TypeScript module's card, both themes).
-
-**Tests.** pytest 382 → **388** collected (386 passed, 2 skipped): `tests/test_scope.py` 5 new, and
-1 new upgrade test (v0.5 → v0.6). Vitest 49 → **51**. Playwright 24 → **26** (25 passed, 1
-on-demand skip): `e2e/scope.spec.ts` 2. `test:mcp`: Inspector 38/38, App e2e 10/10, parity 6/6.
-Changed tests: `test_pairing.py::test_precedence_order_is_the_documented_one` (the new precedence),
-`test_upgrade.py` v0.4 test (now ends at 0.6), `viewer/tests/datasource.test.ts` (format 0.6).
-Determinism (LF vs CRLF+BOM) now also covers the polyglot fixture.
-
-**Not done** (issue 95, pending): requirements under a spec component mapped to an all-unextracted
-container stay `specified` unless annotated; test titles in other languages (`it("REQ-001 …")`) are
-not read.
-
-**Cost:** $0 (no cloud, no LLM). Total still **$0.977**.
-
-**Files (P8.1):** `src/ad2v/scope.py` (new), `src/ad2v/{ir,pairing,pipeline,plugins,tokens,preview,
-upgrade,store,cli}.py`, `src/ad2v/extract/code/base.py`, `src/ad2v/mcp/locate.py`;
-`schema/ad2v-v0.6.sql`, `schema/ir-v0.6.schema.json` (renamed from v0.5), `schema/themes/*.json`;
-`viewer/src/{theme.ts,render/style.ts,render/scene.ts,ui/app.ts,ui/legend.ts (new),style.css,
-data/types.ts}`, `viewer/e2e/scope.spec.ts` (new), `viewer/tests/{theme,datasource}.test.ts`;
-`fixtures/polyglot/` (new); `tests/test_scope.py` (new), `tests/test_upgrade.py`,
-`tests/test_pairing.py`; `scripts/dogfood_counts.py`, `scripts/determinism_check.py`;
-`docs/adr/0066-not-evaluable-language-scope.md` (new), `docs/spec/ad2v-format-v0.6.md` (renamed),
-`docs/spec/visual-tokens-v0.2.md`, `README.md`, `docs/quickstart.md`, `docs/dogfood.md`,
-`docs/claude-context.md`, `status.md`, `issues.md` (94–96), `pending.md`,
-`docs/reports/P8.1-screens/` (new), `docs/reports/P5-demo.html` (rebuilt).
-
+**Clean-up:**
+- removed: the scratch files, the fresh-copy tree, its venv and the wheels;
+- removed after the screenshots: Playwright's Chromium;
+- removed: the npx MCP Inspector cache, which was used only by `test:mcp`;
+- restored: earlier phases' screenshots that the full e2e run had re-taken.

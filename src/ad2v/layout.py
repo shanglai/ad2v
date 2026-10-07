@@ -160,12 +160,24 @@ def assign_slots(children: list[str], prev: Grid | None, g: ir.Graph) -> Grid:
     return grid
 
 
+# P9 (ADR-0072): kinds that stay in the graph but get no box on the map (shown in their parent's card)
+OFF_MAP_KINDS = frozenset({"scenario_step"})
+
+
+def map_children(g: ir.Graph) -> dict[str, list[str]]:
+    return {
+        k: [c for c in v if g.nodes[c].kind not in OFF_MAP_KINDS]
+        for k, v in g.children().items()
+        if g.nodes[k].kind not in OFF_MAP_KINDS
+    }
+
+
 class Layouter:
     def __init__(self, g: ir.Graph, glyph_sizes: dict[str, int], prev_grids: dict[str, Grid]) -> None:
         self.g = g
         self.sizes = glyph_sizes
         self.prev = prev_grids  # already mapped to this epoch's ids
-        self.kids = g.children()
+        self.kids = map_children(g)
         self.grids: dict[str, Grid] = {}
         self.boxes: dict[str, Box] = {}
 
@@ -382,7 +394,7 @@ class ShelfLayouter(Layouter):
 def density(g: ir.Graph, boxes: dict[str, Box]) -> dict[str, float]:
     """Occupied / parent area: the children's footprints over the parents' inner areas, summed over
     every parent with children (area-weighted), and at the top level only (the system's children)."""
-    kids = g.children()
+    kids = map_children(g)
     occ = tot = top_occ = top_tot = 0.0
     for pid, cs in kids.items():
         inner = [c for c in cs if c in boxes and g.nodes[c].kind not in PORT_KINDS]

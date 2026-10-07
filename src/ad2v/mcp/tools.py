@@ -291,6 +291,11 @@ def t_overview(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         else []
     )
     differ = sum(1 for nid in ix.nodes if ix.eff.get(nid, {}).get("status", ix.status(nid)) != ix.status(nid))
+    nfr: dict[str, int] = {}  # P9 (ADR-0069): non-functional requirements, by normative status
+    for nid, n in ix.nodes.items():
+        if n["kind"] == "requirement" and ix.attrs.get(nid, {}).get("requirement_type") == "nonfunctional":
+            k = ix.status(nid)
+            nfr[k] = nfr.get(k, 0) + 1
     s = {
         **where(ix),
         "system": clean_name(m.get("system_name", "")),
@@ -300,6 +305,7 @@ def t_overview(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         "counts_by_kind": dict(sorted(counts.items())),
         "status_counts": st,
         "effective_differs": differ,
+        "nonfunctional_requirements": dict(sorted(nfr.items())),
         "top_risks": risks,
         "epochs_last5": eps,
         "llm_providers": providers,
@@ -311,6 +317,11 @@ def t_overview(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         "Containers: " + ("; ".join(ix.ref_text(c["id"]) for c in containers) or "none"),
         "Nodes: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())),
         f"Normative status, code: {fmt(st['normative']['code'])}; spec: {fmt(st['normative']['spec'])}",
+        *(
+            [f"Non-functional requirements: {sum(nfr.values())} ({fmt(nfr)}); not expected to pair with code"]
+            if nfr
+            else []
+        ),
         f"Effective status differs from normative on {differ} node(s)"
         + (" (LLM judgments: label them AI)" if differ else ""),
         "Top risks: "

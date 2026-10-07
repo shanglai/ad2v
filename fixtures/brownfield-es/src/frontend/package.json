@@ -1,0 +1,6 @@
+{
+  "name": "conciliacion-frontend",
+  "version": "0.3.0",
+  "private": true,
+  "scripts": {"build": "tsc", "test": "vitest run"}
+}

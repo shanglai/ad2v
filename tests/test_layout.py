@@ -65,8 +65,8 @@ def _with(path, algorithm: str):  # noqa: ANN001, ANN202
 @pytest.mark.parametrize("algorithm", layout.ALGORITHMS)
 def test_geometry_invariants(algorithm):
     g, L = _with(_fixture_file(), algorithm)
-    assert set(L) == set(g.nodes)
-    kids = g.children()
+    assert set(L) == {n for n, v in g.nodes.items() if v.kind not in layout.OFF_MAP_KINDS}
+    kids = layout.map_children(g)
     for pid, cs in kids.items():
         p = L[pid]
         inner = [c for c in cs if g.nodes[c].kind not in layout.PORT_KINDS]
@@ -140,7 +140,7 @@ def test_stability_over_history(tmp_path, algorithm):
             fwd = {o: n for o, n, m, _ in store.load_lineage(conn, b) if m != "ambiguous"}
             for old, n in ga.nodes.items():
                 new = fwd.get(old, old)
-                if new not in gb.nodes:
+                if new not in gb.nodes or n.kind in layout.OFF_MAP_KINDS:
                     continue
                 if old in fwd:  # renamed: keeps its slot (same position)
                     renamed_ok.append((La[old]["x"], La[old]["y"]) == (Lb[new]["x"], Lb[new]["y"]))

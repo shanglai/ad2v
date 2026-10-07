@@ -4,6 +4,29 @@ import type { EpochInfo, LineageRow, NodeRow, StatusInfo, SuggestionRow } from "
 
 export type Segment = { text: string } | { nodeId: string; label: string };
 
+/** P9: cut at a word boundary and end with "…" (never mid-word, unless one word is longer than max). */
+export function truncateWords(s: string, max: number): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const sp = t[max - 1] === " " ? cut.length : cut.lastIndexOf(" "); // the cut may end exactly on a word
+  const head = sp >= max * 0.4 ? cut.slice(0, sp) : cut;
+  return head.replace(/[\s,;:.\-–—·(]+$/, "") + "…";
+}
+
+const SPEC_ID = /^[A-Za-z][A-Za-z0-9]*-\d+(\.\d+)*$/;
+
+/**
+ * P9 (ADR-0072): the label of a node on the map and in lists. A requirement reads `<id> · <title>`,
+ * a spec component with an id `CMP-001 · name`, a scenario its name plus the ids it references.
+ */
+export function displayLabel(n: Pick<NodeRow, "kind" | "name" | "qname" | "title" | "refs">): string {
+  if (n.kind === "requirement") return n.title ? `${n.name} · ${n.title}` : n.name;
+  if (n.kind === "spec_component" && SPEC_ID.test(n.qname) && n.qname !== n.name) return `${n.qname} · ${n.name}`;
+  if (n.kind === "scenario" && n.refs.length) return `${n.name} [${n.refs.join(", ")}]`;
+  return n.name;
+}
+
 /** `(n_xxx)` tokens become links when in `mentions`, and are stripped otherwise. */
 export function renderMentions(text: string, mentions: string[], labelOf: (id: string) => string | null): Segment[] {
   const out: Segment[] = [];

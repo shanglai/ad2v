@@ -58,8 +58,19 @@ def counts(path: Path) -> dict:
             (head,),
         ):
             unextracted[str(json.loads(raw).get("language"))] += 1
+        nfr = collections.Counter(
+            st
+            for (st,) in q(
+                "SELECT s.status FROM node_status s JOIN nodes n"
+                " ON n.epoch_id = s.epoch_id AND n.id = s.node_id"
+                " WHERE s.epoch_id = ? AND n.kind = 'requirement'"
+                ' AND n.attrs_json LIKE \'%"requirement_type":"nonfunctional"%\'',
+                (head,),
+            )
+        )
         return {
             "format_version": meta.get("format_version"),
+            "nonfunctional_requirements_by_status": dict(sorted(nfr.items())),
             "unextracted_files_by_language": dict(sorted(unextracted.items())),
             "epochs": epochs,
             "code_files": modules,

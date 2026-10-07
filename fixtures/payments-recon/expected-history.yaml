@@ -87,8 +87,8 @@ diffs:   # by epoch seq: from -> to
     counts: {"verified -> stale": 3}
     spec_changed: [CMP-001, REQ-003]
     new_risks: 0
-  "4->5":
-    counts: {"verified -> stale": 2}
+  "4->5":   # REQ-001, start_run, and (P9, ADR-0072) the scenario tagged @REQ-001 rolls up its requirement
+    counts: {"verified -> stale": 3}
     spec_changed: []
     modified: [api/recon_api/routes.py, api/recon_api/routes.py::start_run]
   "1->8":   # across the whole history (lineage composed along the chain)

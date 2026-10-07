@@ -62,6 +62,8 @@ jobs:
           npm run build
           npm run build:app
       - name: Build sdist and wheel (build and twine run outside the dependency tree)
+        env:
+          AD2V_REQUIRE_VIEWER: "1" # a wheel without the viewer is an error here (ADR-0067)
         run: |
           python -m pip install --upgrade build twine
           python -m build

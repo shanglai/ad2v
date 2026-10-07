@@ -48,6 +48,13 @@ export function legendPanel(onClose: () => void): HTMLElement {
 }
 
 /** The sentence a node card shows for a `not_evaluable` node. */
+/** P9 (ADR-0070, issue 95): a requirement whose spec component maps to code no extractor reads. */
+export function componentOutOfScopeNote(component: string, languages: string[]): string {
+  const lang = languages.length ? languages.join(", ") : "a language no active extractor reads";
+  return `Not evaluable: its component ${component} is implemented in ${lang}, which no active extractor reads, ` +
+    "so ad2v cannot check this requirement against the code. Enable an extractor for it (ad2v extractors list).";
+}
+
 export function notEvaluableNote(language: string | undefined): string {
   const lang = language ? `in ${language}, ` : "in a language ";
   return `Not evaluable: this is written ${lang}which no active extractor reads, so ad2v cannot check ` +

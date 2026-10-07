@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ad2v import __version__, admin, diff, dump, gitsource, ir, layout, materialize, pipeline, plugins, store
+from ad2v.cli_init import register as register_init
 from ad2v.cli_llm import register as register_llm
 from ad2v.cli_plugins import register as register_plugins
 from ad2v.cli_specs import register as register_specs
@@ -318,6 +319,15 @@ def cmd_status(a: argparse.Namespace) -> int:
             r["id"]: r
             for r in conn.execute("SELECT id, side, kind, qualified_name FROM nodes WHERE epoch_id = ?", (e,))
         }
+        # P9 (ADR-0069): non-functional requirements are counted apart
+        nfr = {
+            r["id"]
+            for r in conn.execute(
+                "SELECT id FROM nodes WHERE epoch_id = ? AND kind = 'requirement'"
+                ' AND attrs_json LIKE \'%"requirement_type":"nonfunctional"%\'',
+                (e,),
+            )
+        }
         if store.is_materialized(conn, e):
             statuses = [
                 (r["node_id"], r["status"], json.loads(r["reasons_json"])["reasons"])
@@ -352,6 +362,16 @@ def cmd_status(a: argparse.Namespace) -> int:
     table = [(i["status"], i["side"], i["kind"], i["qualified_name"], _brief(i["reasons"])) for i in items]
     header = ("status", "side", "kind", "qualified_name", "reasons")
     _out(_table(table, header) if table else "no matching nodes\n")
+    if nfr:
+        by: dict[str, int] = {}
+        for nid, status, _ in statuses:
+            if nid in nfr:
+                by[status] = by.get(status, 0) + 1
+        _out(
+            f"\nnon-functional requirements: {len(nfr)} ("
+            + ", ".join(f"{k} {v}" for k, v in sorted(by.items()))
+            + "); quality / infrastructure requirements, evaluated against infra in P10\n"
+        )
     return 0
 
 
@@ -574,7 +594,7 @@ def parser() -> argparse.ArgumentParser:
     e.add_argument(
         "--no-spec-autodetect",
         action="store_true",
-        help="do not look for specs/, spec/, docs/specs/, .kiro/specs/",
+        help="do not look for specs/, spec/, docs/specs/, .kiro/specs/, sdd/, docs/sdd/",
     )
     e.add_argument("--manifest")
     target = e.add_mutually_exclusive_group(required=True)
@@ -727,6 +747,7 @@ def parser() -> argparse.ArgumentParser:
     register_specs(sub)
     register_plugins(sub)
     register_eval(sub)
+    register_init(sub)
     return p
 
 

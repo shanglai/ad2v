@@ -1,12 +1,13 @@
 # ad2v: context for a new Claude session
 
-You are picking up **ad2v** after nine phases of work (P1–P8, plus P6.1). This file brings you up to date:
+You are picking up **ad2v** after eleven phases of work (P1–P9, plus P6.1 and P8.1). This file brings you up to date:
 goals, standing rules, architecture, decisions, findings, open issues, and the developer's open
 questions (at the end). Read it fully before acting. Then read `status.md`, the latest
 `REPORT.md`, and any ADR you need (`docs/adr/`).
 
-Snapshot: 2026-10-04, after the P8 commit (see `git log -1`). P6.1 (`b7e1726`) is pushed to
-`origin/main` and `origin/master`; P7 (`27c24c6`) and P8 are committed locally and not pushed.
+Snapshot: 2026-10-07, after the P9 commit (see `git log -1`). Everything up to P8.1
+(`d5038d5`) is pushed to `origin/master` and `origin/main`, both fast-forward. P9 is pushed the
+same way at the end of the phase (REPORT.md §11).
 - Repo: `<repo-root>` (the working directory of every session; GitHub `<github-owner>/ad2v`, private).
 
 ---
@@ -43,7 +44,8 @@ Principles:
 3. **Every report includes an "Accrued cost per phase" table** (P1…Pn): cloud and LLM spend.
    Claude's own usage is not metered per phase; the account is on Max with extra usage disabled,
    so say so. Totals so far: P1–P3 $0, P4 $0.592 (Vertex AI, gemini-3.8-flash, 125 calls), P5 $0,
-   P6 $0, P6.1 $0, P7 $0.385 (Vertex, 163 calls), P8 $0, **total $0.977**. The developer explicitly asked for this at the end of each phase.
+   P6 $0, P6.1 $0, P7 $0.385 (Vertex, 163 calls), P8 $0, P8.1 $0, P9 $0, **total $0.977**.
+   Also count CI runs triggered by pushes (about 18 billed minutes each, ubuntu jobs). The developer explicitly asked for this at the end of each phase.
 4. **No copyleft dependencies**, transitive ones included, on both the Python and npm sides:
    GPL, LGPL, AGPL, MPL, EPL, CDDL, CC-BY-SA, OFL-only fonts.
    - **`certifi` (MPL-2.0) is banned**, which rules out `httpx`, `requests`, provider SDKs and
@@ -69,7 +71,7 @@ Principles:
    used once, and scratch files. `node_modules/` stays gitignored.
 9. If context runs low, finish the current milestone, skip the rest, and mark them "not done" in
    the report.
-10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0067**.
+10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0073**.
 11. **Environment:** Windows 11, Python 3.12 (`.venv`), Node 24 / npm 11, git; everything must be
     cross-platform. Python 3.11 is the declared minimum (CI runs it).
 12. **Sanitization:** no local absolute paths, usernames, emails or the GCP project id in tracked
@@ -108,11 +110,13 @@ Principles:
 | P7 | `27c24c6` | verified quickstart, settings prefixes, retrieval v2 (70-question eval), the viewer's own chat (`ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, nestgrid-v2 (flag), format v0.5 | template 23 -> 0 unresolved; MRR P6-25 0.89 -> 0.98; live judge catches REQ-009 (low: acc 0.9, k 0.81, $0.0017/call); summaries -60%/call; dispatch 59.9 fps |
 
 | P8 | `4d5740b` | extractor plug-in API (`ad2v.api` 1.0, entry points, opt-in, identity in the epoch, built-ins as plug-ins, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (0.7.0.dev0, not published), CI workflows (written, not run), security review, sanitization inventory, dogfood procedure | 9 fixture dump scenarios identical with epoch id / rules hash masked; examples pass the kit in a temp venv; wheel verified in a clean venv; 11 security fixes; 382 pytest |
-| P8.1 | `git log -1` (or uncommitted) | status `not_evaluable` for code in a language no active extractor reads (language-scope inventory, `ad2v:` comment markers, legend in the viewer), format v0.6 + upgrade | polyglot fixture; Python-only dumps unchanged except epoch id / rules hash / format version / recorded precedence; 388 pytest |
+| P8.1 | `d5038d5` | status `not_evaluable` for code in a language no active extractor reads (language-scope inventory, `ad2v:` comment markers, legend in the viewer), format v0.6 + upgrade | polyglot fixture; Python-only dumps unchanged except epoch id / rules hash / format version / recorded precedence; 388 pytest; first push, first CI runs (both failed: fresh-clone install, fixed in P9) |
+| P9 | `git log -1` | brownfield onboarding: `ad2v init` (deterministic manifest proposal), team SDD presets `table` and `stories` (Spanish and English), Spanish EARS and Gherkin, titles, non-functional requirements, issue 95 (`component_out_of_scope`, test titles in unread languages), spec side of the map (steps off the map, scenario roll-up, `id · title` labels, word-boundary truncation), wider default excludes with SQL kept under `migrations/`, optional viewer packages (fresh-clone install) | `fixtures/brownfield-es`: zero-config 1 command (endpoints missing, 5 orphans) vs init 2 commands + 1 edit (endpoints implemented, 0 orphans); layout stability 1.0000; 428 pytest, Vitest 53, Playwright 29 |
 
-**Next, as planned by the owner:** **P9: the TypeScript extractor as a plug-in**, after the
-owner's dogfood results (docs/dogfood.md) and the employer agreement. Do not start it without the
-owner's prompt.
+**Next, as planned by the owner:** **P10: infrastructure** (a supplied `terraform show -json`
+plan plus a static `.tf` fallback, the env-var bridge between code and infra, a deterministic C4
+view in its own tab), after the developer's evaluation-project results. **P11** is the
+TypeScript extractor. Do not start either without the owner's prompt.
 
 ## 4. Architecture
 
@@ -240,12 +244,12 @@ owner's prompt.
 
 ### 4.5 Tests and gates
 
-- `pytest`: 382 collected (380 pass + 1 cloud skip + 1 symlink skip on Windows); `-m mcp`, `-m slow`
-  (the quickstart guard).
-- Viewer: Vitest 49; `npm run test:mcp` covers parity, Inspector conformance and the App e2e.
+- `pytest`: 430 collected (428 pass + 1 cloud skip + 1 symlink skip on Windows); `-m mcp`, `-m slow`
+  (the quickstart guard, which runs step 2b `ad2v init` on a copy of `fixtures/brownfield-es`).
+- Viewer: Vitest 53; `npm run test:mcp` covers parity, Inspector conformance and the App e2e.
 - Playwright: the P5 tour (2), the App (10), replay camera (2), dim (3), chat (3, against a real
   `ad2v view --chat` with the fake provider), UX v2 (2), hostile file (2, P8: no script runs in
-  either viewer mode).
+  either viewer mode), scope (2, P8.1), spec side (4, P9: payments-recon and brownfield-es).
 - CI (P8, written, never run): `.github/workflows/ci.yml` (ubuntu on push/PR; all OS on manual
   dispatch) and `release.yml` (disabled). Gates: `scripts/check_python_licenses.py`,
   `scripts/determinism_check.py`, npm license gate, ruff, ESLint, tsc, Vitest, conformance kit.
@@ -330,6 +334,17 @@ owner's prompt.
   - 0064: discovery, opt-in, trust and isolation (timeouts, `--strict`);
   - 0065: plug-in identity in the epoch rules (additive within v0.5), parse-cache key, GC.
 - **0066 (P8.1):** `not_evaluable` and the language-scope inventory; format v0.6.
+- **0067–0072 (P9):**
+  - 0067: viewer packages optional in a source install (`setup.py`), required for release builds
+    (`AD2V_REQUIRE_VIEWER=1`);
+  - 0068: wider default excludes; `migrations/` and `alembic/` are code-only excludes (SQL kept);
+    IaC is not `not_evaluable`;
+  - 0069: presets `table` and `stories`, Spanish EARS and Gherkin, titles, non-functional
+    requirements;
+  - 0070: issue 95, `component_out_of_scope` and test titles in unread languages (never verified);
+  - 0071: `ad2v init` (deterministic, writes only with `--write`, `--check`), `sdd/` auto-detect;
+  - 0072: spec side of the map (`OFF_MAP_KINDS`, scenario roll-up `via_spec_ref`, labels,
+    word-boundary truncation).
 
 ## 6. Findings worth knowing
 
@@ -407,7 +422,10 @@ owner's prompt.
 - **Language support:** code extraction is **Python only** (TypeScript is P9, as a plug-in). Since
   P8.1, code in other languages is inventoried (`ad2v.scope`) and shown as **`not_evaluable`**
   (dotted, hollow, thin, "∅" badge; Legend in the viewer); `// ad2v: REQ-001` comments link it.
-  #95 (component-mapped requirements, test titles in other languages) is open.
+  Since P9 (#95 closed), requirements under a component mapped to unread code are
+  `not_evaluable` (`component_out_of_scope`), and test titles in unread files (`it("RF-008 …")`)
+  are references (never verified). P9 issues: #97 (fixed), #98–#102 (pre-P9 files keep step
+  layout rows; heuristic titles; IaC not mapped; init depth ≤ 3).
 
 ## 8. How inputs are found (P6.1, P7)
 
@@ -417,26 +435,33 @@ No folder layout is required.
 - **Code:** every `*.py` under `--repo`, minus `exclude` globs (defaults plus `ad2v.yaml`), minus
   the spec roots.
 - **Spec roots** (ADR-0047): `--spec` (repeatable) > `spec_root` in ad2v.yaml (str or list) >
-  auto-detect (`specs/`, `spec/`, `docs/specs/`, `.kiro/specs/`, root `openapi.*`).
+  auto-detect (`specs/`, `spec/`, `docs/specs/`, `.kiro/specs/`, `sdd/`, `docs/sdd/`, root
+  `openapi.*`). On an existing repository, start with **`ad2v init --repo <path>`** (P9): it
+  finds spec folders by content, containers, prefixes, excludes, SQL, IaC and unresolved route
+  prefixes, and prints a proposed manifest (`--write <file>`, `--check <file>`, `--format json`).
   `--no-spec-autodetect` disables it. `extract` and `history` print the roots and their source.
   `project/` with `project/specs/` and no flags → "spec roots (auto-detected): specs/".
 - **Spec files:** Gherkin, OpenAPI 3, and Markdown read with one preset each (ADR-0048): the ad2v
-  convention, spec-kit (`<feature>:FR-001`), Kiro (`ORDEREXPORT-1`, `ORDEREXPORT-1.2`), or
-  `custom` regexes from `spec_markdown` rules. Markdown with no recognized structure stays a
+  convention, spec-kit (`<feature>:FR-001`), Kiro (`ORDEREXPORT-1`, `ORDEREXPORT-1.2`),
+  `table` (requirement tables, Spanish or English headers, P9), `stories` (`HU-001`, criteria
+  `HU-001.1`, P9), or `custom` regexes from `spec_markdown` rules. EARS and Gherkin are read in
+  Spanish too. Spec items get `attrs.title`; `RNF`/`NFR`/`NF` ids are non-functional. Markdown with no recognized structure stays a
   `spec_doc` with prose.
 - **Prose without a convention** (ADR-0049): `ad2v specs bootstrap --from <paths> --plan`, then
   `--yes --max-cost-usd N` (real model calls; P6.1 tested with `fake` only), `ad2v specs review`,
   `ad2v specs approve <file>`. Proposals use `-X` ids in `<spec root>/.ad2v-extracted/`.
 - **SQL DDL** (`*.sql`) is read for schema digests and is an epoch input (P7).
 - **`ad2v.yaml`** optionally sets: `system`, `containers`, `exclude`, `spec_root`,
-  `spec_markdown`, `spec_ids` (`test_name_prefixes`), `pairing` (incl. `orphan_policy`,
+  `spec_markdown`, `spec_ids` (`test_name_prefixes`, `nonfunctional_prefixes`), `pairing` (incl. `orphan_policy`,
   `path_constants`, `resolve_settings_defaults`), `rules_overlay`, `workflows`, `llm` (incl.
   `tasks.<task>.thinking`, `output_language: auto`).
 
 ## 9. Where things are
 
-- Reports: `REPORT.md` (P8), `docs/reports/P1.md`–`P6.md`, `P6.1.md`, `P7.md`, `P8.md`.
-- Screenshots: `docs/reports/P5-screens/`, `P6-screens/`, `P6.1-screens/`, `P7-screens/`.
+- Reports: `REPORT.md` (P9), `docs/reports/P1.md`–`P6.md`, `P6.1.md`, `P7.md`, `P8.md` (P8 + P8.1),
+  `P9.md`.
+- Screenshots: `docs/reports/P5-screens/`, `P6-screens/`, `P6.1-screens/`, `P7-screens/`,
+  `P8.1-screens/`, `P9-screens/`.
 - Demo: `docs/reports/P5-demo.html`, rebuilt in P7 with the current viewer.
 - Tracking: `status.md`, `issues.md`, `pending.md`.
 - Docs: `docs/adr/`, `docs/spec/`, `docs/dependencies.md`, `docs/mcp.md`,
@@ -444,7 +469,10 @@ No folder layout is required.
   `docs/security.md` + `SECURITY.md`, `docs/blind-eval.md`, `docs/dogfood.md`,
   `docs/RELEASING.md` (not for now).
 - Fixtures: `fixtures/payments-recon/` (code, `specs/`, goldens, `expected-questions.yaml`),
-  `fixtures/sdd-presets/{spec-kit,kiro,custom}` (+ `expected-questions.yaml`),
+  `fixtures/sdd-presets/{spec-kit,kiro,custom,table,stories}` (+ `expected-questions.yaml`),
+  `fixtures/polyglot/` (Python API + TypeScript client, P8.1/P9), `fixtures/brownfield-es/`
+  (P9: Spanish SDD in `sdd/`, FastAPI backend under a settings prefix, TypeScript frontend,
+  SQL, Terraform; goldens `expected-init.txt` and `expected.yaml`),
   `fixtures/retrieval-eval/fastapi-template.yaml` (questions only; the clone is not shipped). The viewer demo file
   `viewer/tests/fixtures/demo.ad2v` is gitignored; build it with `npm run fixtures`.
 
@@ -463,6 +491,7 @@ No folder layout is required.
 P7 answered the remaining questions: the viewer now has its own chat (`ad2v view --chat`),
 FastAPI settings prefixes resolve, and the quickstart is verified.
 
-Next is P9, the TypeScript extractor as a plug-in, after the owner's dogfood results and the
-employer agreement (REPORT.md §11, pending.md "After P8"). Do not start it without the owner's
-prompt.
+P9 made ad2v usable on an existing project: `ad2v init`, Spanish team formats, and a readable
+spec side of the map. Next is **P10 (infrastructure)**, after the developer's evaluation-project
+results, then **P11 (the TypeScript extractor)**. Open questions for both are in REPORT.md §10.
+Do not start either without the owner's prompt.

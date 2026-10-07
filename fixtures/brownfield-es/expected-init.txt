@@ -1,0 +1,56 @@
+ad2v init: fixtures/brownfield-es
+
+Spec folders (score; evidence = files per format):
+  sdd/  score 15  (gherkin 1, openapi 1, prose 1, stories 1, table 1)  proposed
+Spec files:
+  sdd/api/openapi.yaml: openapi
+  sdd/contexto.md: prose
+  sdd/features/conciliacion.feature: gherkin
+  sdd/historias.md: stories
+  sdd/requerimientos.md: table
+Prose no preset reads (candidates for `ad2v specs bootstrap`):
+  sdd/contexto.md
+Spec id prefixes: HU, RF, RNF
+Containers:
+  backend (src/backend/, pyproject.toml): python, read by the python extractor
+  frontend (src/frontend/, package.json): typescript, no active extractor: not_evaluable
+Excluded folders (files dropped; code files of them):
+  dist: 2 (2 code)  [default]
+  node_modules: 1 (1 code)  [default]
+SQL files (schema digests):
+  src/db/migrations/V2__indices.sql
+  src/db/schema.sql
+Infrastructure as code (detected; not mapped until P10):
+  terraform: infra/
+Test results:
+  pytest config: src/backend/pyproject.toml (run `pytest --junitxml <file>`)
+Route prefixes the extractor cannot resolve (3 route(s)): settings.API_PREFIX; fill in pairing.path_constants
+
+Next:
+  ad2v init --repo fixtures/brownfield-es --write <a file outside the repo>
+  ad2v extract --repo fixtures/brownfield-es --manifest <a file outside the repo> --out brownfield-es.ad2v
+  ad2v specs bootstrap --repo fixtures/brownfield-es --from sdd/contexto.md --plan
+  ad2v view brownfield-es.ad2v
+
+# ---- proposed ad2v.yaml ----
+# ad2v.yaml proposed by `ad2v init` (review it; nothing here is guessed).
+# Keep it outside the repository while you try it: `ad2v extract --manifest <this file>`.
+# one container per project manifest found (language: read by an extractor?)
+containers:
+  - {kind: service, name: backend, paths: [src/backend]}  # python, pyproject.toml; read
+  - {kind: service, name: frontend, paths: [src/frontend]}  # typescript, package.json; not read: shown as not_evaluable
+pairing:
+  orphan_policy: auto  # auto | strict | off
+  # route prefixes the extractor cannot resolve: fill in the values (empty = ignored)
+  path_constants:
+    "settings.API_PREFIX": ""
+spec_ids:
+  test_name_prefixes: [CMP, FR, HU, REQ, RF, RNF]  # test_rf_001_… links to RF-001
+  nonfunctional_prefixes: [RNF]
+# team formats found (they are auto-detected too; listed to keep the choice stable)
+spec_markdown:
+  - {glob: sdd/historias.md, preset: stories}
+  - {glob: sdd/requerimientos.md, preset: table}
+spec_root: [sdd]
+system: "brownfield-es"
+# infra: terraform in infra (detected; not mapped until P10)

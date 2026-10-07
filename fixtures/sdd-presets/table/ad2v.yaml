@@ -1,0 +1,3 @@
+system: conciliacion
+spec_ids:
+  test_name_prefixes: [REQ, RF, EXP]

@@ -306,16 +306,41 @@ def pair_links(
         if lk.code_node_id in out_of_scope and lk.status == "implemented":
             lk.status = "not_evaluable"
             lk.evidence.append(out_of_scope[lk.code_node_id])
+            refs = nodes[lk.code_node_id].attrs.get("spec_ref_sources", {})
+            ref = next((e.get("ref") for e in lk.evidence if e.get("kind") == "annotation"), None)
+            if ref is not None and "test_title" in refs.get(ref, []):  # P9 (ADR-0070)
+                lk.evidence.append({"kind": "test_in_unread_language"})
+    # P9 (ADR-0070, issue 95): a spec component paired with code nobody reads makes its unpaired
+    # requirements not_evaluable too
+    comp_scope: dict[str, dict[str, Any]] = {}
+    for lk in links.all():
+        if (
+            lk.status == "not_evaluable"
+            and lk.spec_node_id is not None
+            and lk.code_node_id is not None
+            and nodes[lk.spec_node_id].kind == "spec_component"
+        ):
+            ev = out_of_scope.get(lk.code_node_id, {})
+            comp_scope[lk.spec_node_id] = {
+                "kind": "component_out_of_scope",
+                "component": nodes[lk.spec_node_id].qualified_name,
+                "languages": ev.get("languages", []),
+            }
 
     # unpaired spec items ----------------------------------------------------------------------
     paired_spec = {lk.spec_node_id for lk in links.all() if lk.spec_node_id}
     for nid in by_kind["spec_endpoint"]:
         if nid not in paired_spec:
             links.add(ir.Link(nid, None, "missing", "none", [{"kind": "no_matching_route"}]))
+    spec_anc = _ancestors(graph) if comp_scope else {}
     for kind in ("requirement", "scenario", "spec_component"):
         for nid in by_kind[kind]:
             if nid not in paired_spec:
-                links.add(ir.Link(nid, None, "specified", "none", [{"kind": "no_deterministic_pair"}]))
+                comp = next((a for a in spec_anc.get(nid, []) if a in comp_scope), None)
+                if kind == "requirement" and comp is not None:
+                    links.add(ir.Link(nid, None, "not_evaluable", "none", [comp_scope[comp]]))
+                else:
+                    links.add(ir.Link(nid, None, "specified", "none", [{"kind": "no_deterministic_pair"}]))
 
     # orphans ----------------------------------------------------------------------------------
     code_linked = {lk.code_node_id for lk in links.all() if lk.code_node_id and lk.spec_node_id}
@@ -472,12 +497,30 @@ def _node_statuses(
                 own[nid].append({**r, "kind": "via_handler", "handler": _q(graph, h)})
     for u in graph.unresolved:
         own[u.src].append({"status": "needs_review", "kind": "unresolved_ref", "ref": u.ref})
+    # P9 (ADR-0072): a scenario shows the statuses of the requirements it references (its tags),
+    # next to its own; a step is text inside its scenario and carries no status
+    by_q = {n.qualified_name: nid for nid, n in nodes.items() if n.side == "spec" and n.kind == "requirement"}
+    req_links: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for lk in links:
+        if lk.spec_node_id is not None and nodes[lk.spec_node_id].kind == "requirement":
+            req_links[lk.spec_node_id].append({"status": lk.status})
+    for nid in sorted(nodes):
+        n = nodes[nid]
+        if n.kind != "scenario":
+            continue
+        for ref in sorted(set(n.spec_ref)):
+            rid = by_q.get(ref)
+            for st in sorted({r["status"] for r in req_links.get(rid, [])} if rid else set()):
+                own[nid].append({"status": st, "kind": "via_spec_ref", "ref": ref})
     for nid, extra in sorted((extra_reasons or {}).items()):
         if nid in nodes:
             own[nid].extend(extra)
 
     out: dict[str, ir.NodeStatus] = {}
     for nid in sorted(nodes, key=lambda x: (len(anc[x]), x)):  # parents before children
+        if nodes[nid].kind == "scenario_step":
+            out[nid] = ir.NodeStatus(nid, "none", [{"status": "none", "kind": "step"}])
+            continue
         reasons = sorted(own.get(nid, []), key=ids.canonical_json)
         if reasons:
             status = min((r["status"] for r in reasons), key=RANK.__getitem__)

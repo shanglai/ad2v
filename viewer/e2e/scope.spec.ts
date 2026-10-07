@@ -15,14 +15,15 @@ type Win = Window & { __ad2v: any; __ad2vPerf: { ready: boolean } }; // eslint-d
 
 let proc: ChildProcess | null = null;
 let url = "";
+let tmp = "";
 
 test.beforeAll(async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ad2v-scope-"));
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ad2v-scope-"));
   const file = path.join(tmp, "polyglot.ad2v");
   const made = spawnSync(PY, ["-m", "ad2v", "extract", "--repo", path.join(ROOT, "fixtures", "polyglot"), "--out", file], { encoding: "utf-8" });
   expect(made.status, made.stderr).toBe(0);
-  expect(made.stdout).toContain("typescript 2 file(s); shown as not_evaluable");
+  expect(made.stdout).toContain("typescript 3 file(s); shown as not_evaluable");
   proc = spawn(PY, ["-m", "ad2v", "view", file, "--no-browser", "--port", "0"], { stdio: ["ignore", "pipe", "pipe"] });
   url = await new Promise<string>((resolve, reject) => {
     let buf = "";
@@ -36,8 +37,10 @@ test.beforeAll(async () => {
   });
 });
 
-test.afterAll(() => {
+test.afterAll(async () => {
   proc?.kill();
+  await new Promise((r) => setTimeout(r, 300)); // let the server release the file (Windows)
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
 async function open(page: Page, theme: "dark" | "light"): Promise<void> {

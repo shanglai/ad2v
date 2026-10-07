@@ -63,6 +63,16 @@ LANGUAGES: dict[str, str] = {
 }
 MARK_RE = re.compile(r"(?://|#|/\*|^\s*\*|--|<!--)\s*ad2v:\s*(.+?)\s*(?:\*/|-->)?\s*$")
 REF_RE = re.compile(r"\b(" + ids.SPEC_ID_PATTERN + r")(?:@[0-9a-f]{8})?\b")
+# P9 (ADR-0070): test titles, read by a regex, never run. JS/TS it/test/describe, Java/Kotlin
+# @DisplayName, Kotlin backtick names; Go TestRF001… names are handled separately.
+TEST_TITLE_RES = (
+    re.compile(r"\b(?:it|test|describe|context|suite)(?:\.\w+)?\(\s*([\"'`])(?P<title>.*?)\1"),
+    re.compile(r"@DisplayName\(\s*\"(?P<title>[^\"]*)\""),
+    re.compile(r"\bfun\s+`(?P<title>[^`]+)`"),
+)
+GO_TEST_RE = re.compile(
+    r"^\s*func\s+Test(?P<prefix>[A-Z]{1,8})_?(?P<num>[0-9]{1,5})(?:_(?P<sub>[0-9]{1,3}))?"
+)
 
 
 def rules() -> dict[str, Any]:
@@ -88,6 +98,21 @@ def refs(text: str) -> list[tuple[str, int]]:
     return out
 
 
+def test_refs(text: str) -> list[tuple[str, int]]:
+    """(spec id, line) named in test titles: `it("RF-001 …")`, `@DisplayName("RF-001 …")`, Go
+    `func TestRF001…` (-> RF-001; `TestRF001_2` -> RF-001.2). Never executed."""
+    out = []
+    for i, line in enumerate(text.split("\n"), start=1):
+        for rx in TEST_TITLE_RES:
+            for m in rx.finditer(line):
+                out += [(r.group(1), i) for r in REF_RE.finditer(m.group("title"))]
+        g = GO_TEST_RE.match(line)
+        if g:
+            rid = f"{g.group('prefix')}-{g.group('num')}" + (f".{g.group('sub')}" if g.group("sub") else "")
+            out.append((rid, i))
+    return out
+
+
 def add_unextracted(graph: ir.Graph, layout: Layout, files: list[SourceFile]) -> dict[str, int]:
     """Module nodes for unextracted files (sorted by path); returns {language: count}."""
     counts: dict[str, int] = {}
@@ -96,10 +121,16 @@ def add_unextracted(graph: ir.Graph, layout: Layout, files: list[SourceFile]) ->
         if lang is None:
             continue
         counts[lang] = counts.get(lang, 0) + 1
-        found = refs(f.text)
+        marks, titles = refs(f.text), test_refs(f.text)
+        found = marks + titles
         attrs: dict[str, Any] = {"extracted": False, "language": lang}
         if found:
-            attrs["spec_ref_sources"] = {r: ["comment"] for r in sorted({r for r, _ in found})}
+            attrs["spec_ref_sources"] = {
+                r: sorted(
+                    {"comment" for rr, _ in marks if rr == r} | {"test_title" for rr, _ in titles if rr == r}
+                )
+                for r in sorted({r for r, _ in found})
+            }
         graph.add_node(
             ir.Node(
                 "code",

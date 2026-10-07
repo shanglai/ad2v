@@ -65,6 +65,27 @@ def test_guide_exists_and_draft_is_gone():
     assert "Your SDD format" in text
 
 
+def test_step2b_existing_project_init(ws):
+    """P9 (ADR-0071): `ad2v init` on an existing project, as step 2b shows it."""
+    text = GUIDE.read_text(encoding="utf-8")
+    assert "## 2b. Existing project? Start with `ad2v init`" in text
+    proj = ws["tmp"] / "brownfield"
+    shutil.copytree(ROOT / "fixtures" / "brownfield-es", proj)
+    before = sorted(p.relative_to(proj).as_posix() for p in proj.rglob("*"))
+    out = ad2v("init", "--repo", proj)
+    assert "proposed ad2v.yaml" in out and "settings.API_PREFIX" in out
+    y = ws["maps"] / "brownfield.yaml"
+    ad2v("init", "--repo", proj, "--write", y)
+    assert sorted(p.relative_to(proj).as_posix() for p in proj.rglob("*")) == before  # nothing written there
+    y.write_text(y.read_text(encoding="utf-8").replace('": ""', '": "/api/v1"'), encoding="utf-8")
+    m = ws["maps"] / "brownfield.ad2v"
+    ad2v("extract", "--repo", proj, "--manifest", y, "--out", m)
+    assert "POST /api/v1/conciliaciones" in ad2v("status", m, "--status", "implemented")
+    assert "up to date" in ad2v("init", "--repo", proj, "--check", y)
+    data = json.loads(ad2v("init", "--repo", proj, "--format", "json"))
+    assert data["findings"]["spec_id_prefixes"] == ["HU", "RF", "RNF"]
+
+
 def test_step5_first_extraction(ws):
     p, m = ws["proj"], ws["map"]
     out = ad2v(

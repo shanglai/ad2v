@@ -1,0 +1,24 @@
+openapi: 3.0.3
+info:
+  title: Conciliación
+  version: "1"
+paths:
+  /api/v1/conciliaciones:
+    post:
+      operationId: iniciarConciliacion
+      summary: Inicia una corrida de conciliación
+      x-ad2v-refs: [RF-001]
+  /api/v1/conciliaciones/{id}:
+    get:
+      operationId: obtenerCorrida
+      summary: Consulta una corrida
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      x-ad2v-refs: [RF-004]
+  /api/v1/conciliaciones/{id}/exportar:
+    get:
+      operationId: exportarCorrida
+      summary: Exporta una corrida aprobada en CSV
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      x-ad2v-refs: [RF-005]

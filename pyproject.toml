@@ -37,41 +37,8 @@ python = "ad2v.extract.code.plugin:PythonPlugin"
 [project.entry-points."ad2v.frameworks"]
 python-frameworks = "ad2v.extract.code.plugin:PythonFrameworksPack"
 
-[tool.setuptools]
-# schema/ is the canonical location; it ships inside the wheel as the data package ad2v._schema
-packages = [
-    "ad2v",
-    "ad2v.extract",
-    "ad2v.extract.code",
-    "ad2v.extract.code.rules",
-    "ad2v.extract.spec",
-    "ad2v.llm",
-    "ad2v.llm.providers",
-    "ad2v.llm.prompts",
-    "ad2v._schema",
-    "ad2v._schema.themes",
-    "ad2v._viewer",
-    "ad2v._viewer.assets",
-    "ad2v.mcp",
-    "ad2v.chat",
-    "ad2v.testing",
-    "ad2v._app",
-]
-
-[tool.setuptools.package-dir]
-"" = "src"
-"ad2v._schema" = "schema"
-"ad2v._viewer" = "viewer/dist"  # build it first: npm ci && npm run build (in viewer/)
-"ad2v._app" = "viewer/app-dist"  # the MCP App: npm run build:app (in viewer/)
-
-[tool.setuptools.package-data]
-"ad2v.extract.code.rules" = ["*.yaml"]
-"ad2v.llm.prompts" = ["*.md"]
-"ad2v._schema" = ["*.sql", "*.json"]
-"ad2v._schema.themes" = ["*.json"]
-"ad2v._viewer" = ["*.html"]
-"ad2v._viewer.assets" = ["*"]
-"ad2v._app" = ["app.html"]
+# The package layout (packages, package-dir, package-data) is in setup.py (P9, ADR-0067): the
+# built viewer and MCP App are optional in a source checkout.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

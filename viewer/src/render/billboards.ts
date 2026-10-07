@@ -1,6 +1,7 @@
 // Labels and badges as instanced screen-space quads from one canvas atlas: one draw call for all
 // of them. Text uses the browser's system UI font through Canvas 2D, so no font file ships with
 // the viewer (no font licensing question; works offline in the single-file demo).
+import { truncateWords } from "../model/text";
 import * as THREE from "three";
 
 const ATLAS = 2048;
@@ -87,7 +88,7 @@ export class Atlas {
         x += w;
       }
     } else if (key.startsWith("label:")) {
-      const text = key.slice(6).slice(0, 48);
+      const text = truncateWords(key.slice(6), 48);
       const w = Math.ceil(c.measureText(text).width) + PAD * 2;
       r = this.alloc(w, 32);
       if (!r) return null;

@@ -35,8 +35,9 @@ opt-in ([plug-in guide](docs/plugins.md)).
 | P6 | MCP server (stdlib, protocol 2026-07-28) + the map as an MCP App; deterministic retrieval | done ([report](docs/reports/P6.md), [setup](docs/mcp.md)) |
 | P6.1 | real-repo readiness: route recall (factories, `add_api_route`, Starlette, Flask), spec discovery, spec-kit / Kiro / custom presets, `ad2v specs` bootstrap, replay camera, opaque "dim the rest" | done ([report](docs/reports/P6.1.md)) |
 | P7 | verified quickstart, settings prefixes, retrieval v2, the viewer's own chat agent (BYOM, `ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, format v0.5 | done ([report](docs/reports/P7.md), [quickstart](docs/quickstart.md)) |
-| P8 | extractor plug-in API (`ad2v.api`, entry points, opt-in, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (not published), CI workflows, security review, sanitization, dogfood procedure | done ([report](REPORT.md), [plug-ins](docs/plugins.md), [security](docs/security.md)) |
-| **P8.1** | `not_evaluable`: a status and legend for code in a language no active extractor reads; format v0.6 | **done** ([report](REPORT.md) §13, ADR-0066) |
+| P8 | extractor plug-in API (`ad2v.api`, entry points, opt-in, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (not published), CI workflows, security review, sanitization, dogfood procedure | done ([report](docs/reports/P8.md), [plug-ins](docs/plugins.md), [security](docs/security.md)) |
+| P8.1 | `not_evaluable`: a status and legend for code in a language no active extractor reads; format v0.6 | done ([report](docs/reports/P8.md) §13, ADR-0066) |
+| **P9** | brownfield onboarding: `ad2v init`, Spanish and English team formats (requirement tables, user stories, Spanish EARS and Gherkin), titles, non-functional requirements, issue 95, the spec side of the map, wider default excludes, fresh-clone install fix | **done** ([report](REPORT.md), ADR-0067..0072) |
 
 Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
 line numbers): the same inputs (code, specs, rules, manifest, test results) give the same normative
@@ -102,6 +103,7 @@ python -m ad2v mcp --root path/to/maps
 ## CLI
 
 ```text
+ad2v init     --repo <path> [--write <file> [--force]] [--format yaml|json] [--check <ad2v.yaml>]   # propose a manifest
 ad2v extract  --repo <path> [--spec <path> ...] [--no-spec-autodetect] [--manifest ad2v.yaml] [--test-results junit.xml ...]
               (--out project.ad2v | --into project.ad2v) [--no-cache]
 ad2v history  --repo <path> --commits <rev-range> --into project.ad2v [--spec <rel> ...] [--manifest <rel>]
@@ -123,9 +125,15 @@ ad2v preview-tokens --out tokens.html
 ```
 
 Without `--spec`, specs are found from `spec_root` in ad2v.yaml, else auto-detected (`specs/`,
-`spec/`, `docs/specs/`, `.kiro/specs/`, a root `openapi.yaml`); `extract` prints what it used.
-Markdown specs may follow the ad2v convention, spec-kit, Kiro, or your own regexes
-([convention §6–7](docs/spec/spec-markdown-convention.md)).
+`spec/`, `docs/specs/`, `.kiro/specs/`, `sdd/`, `docs/sdd/`, a root `openapi.yaml`); `extract`
+prints what it used. Markdown specs may follow the ad2v convention, spec-kit, Kiro, a
+requirements table, user stories (Spanish or English), or your own regexes
+([convention §2, §6–7](docs/spec/spec-markdown-convention.md)).
+
+**Existing project?** `ad2v init --repo <path>` reads the repository and runs nothing. It
+proposes an `ad2v.yaml`: spec folders, containers and their languages, test-name prefixes,
+non-functional prefixes, and route prefixes left empty for you to fill in. It writes only with
+`--write` ([quickstart §2b](docs/quickstart.md)).
 
 An `<epoch>` is an epoch id, `head`, `parent`, a pin label, or a commit SHA prefix (≥ 7 chars).
 
@@ -197,7 +205,7 @@ repository code or tests.
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
 - [DDL](schema/ad2v-v0.6.sql), [IR JSON Schema](schema/ir-v0.6.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
-- [REPORT.md](REPORT.md) (P8), [P7 report](docs/reports/P7.md), [plug-in guide](docs/plugins.md), [security](docs/security.md), [blind eval](docs/blind-eval.md), [dogfood procedure](docs/dogfood.md), [releasing (not for now)](docs/RELEASING.md), [quickstart](docs/quickstart.md), [MCP setup](docs/mcp.md), [P6.1 report](docs/reports/P6.1.md), [P6 report](docs/reports/P6.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
+- [REPORT.md](REPORT.md) (P9), [P8 + P8.1 report](docs/reports/P8.md), [P7 report](docs/reports/P7.md), [plug-in guide](docs/plugins.md), [security](docs/security.md), [blind eval](docs/blind-eval.md), [dogfood procedure](docs/dogfood.md), [releasing (not for now)](docs/RELEASING.md), [quickstart](docs/quickstart.md), [MCP setup](docs/mcp.md), [P6.1 report](docs/reports/P6.1.md), [P6 report](docs/reports/P6.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
 ## Optional manifest (`ad2v.yaml`)
 

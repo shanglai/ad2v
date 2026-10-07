@@ -19,6 +19,26 @@ Companion documents:
 - [`../../schema/ad2v-v0.6.sql`](../../schema/ad2v-v0.6.sql): DDL (normative).
 - [`../../schema/ir-v0.6.schema.json`](../../schema/ir-v0.6.schema.json): JSON Schema of the IR (normative).
 
+### Additions within v0.6 (P9, ADR-0068..0072)
+
+No DDL change and no version bump; v0.6 readers need no change.
+
+- **Spec attributes.** `attrs.title` on spec items (explicit or derived, display only);
+  `attrs.requirement_type = "nonfunctional"` (by id prefix, `spec_ids.nonfunctional_prefixes`,
+  or a table type cell). Table rows add `priority`, `type` and `component`. Stories add `actor`,
+  `action` and `benefit`. Criteria add `gwt: {given, when, then}`. Steps add `keyword_type`.
+  `spec_doc` nodes may carry `skipped_ids`, `duplicate_ids` and `table_notes`.
+- **Spanish EARS** fills the same `attrs.ears` values (§3.5, convention §2).
+- **Evidence kinds** (§6.2): `component_out_of_scope` (`component`, `languages`) on a requirement
+  under a spec component paired with unread code; `test_in_unread_language` on a link from a test
+  title in an unextracted module. `spec_ref_sources` values may be `test_title`.
+- **Statuses** (§6.4): a `scenario_step` is always `none` (reason `step`). A `scenario` adds one
+  `via_spec_ref` reason per (referenced requirement, link status).
+- **Layout** (§12.1): `scenario_step` nodes get no `layout` row (`OFF_MAP_KINDS`). Files written
+  before P9 keep their rows.
+- **Excludes** (§10): the default list grows (ADR-0068). `migrations/` and `alembic/` are code-only
+  excludes: their `*.sql` stays in the walk.
+
 ### Changes from v0.5 (P8.1, ADR-0066)
 
 - New status **`not_evaluable`** (links and nodes, §6.2, §6.4): specified and implemented in a
@@ -582,6 +602,8 @@ columns and `confidence < 1`.
 2. If there are own reasons, the status with the highest precedence wins:
    **`drift` > `needs_review` > `missing` > `orphan` > `stale` > `verified` > `implemented` >
    `not_evaluable` > `specified` > `none`** (`not_evaluable` since v0.6: any evaluated evidence wins).
+   A `scenario`'s own reasons include `via_spec_ref`: the link statuses of each requirement its
+   tags reference, one per (ref, status) (P9, ADR-0072). A `scenario_step` is always `none`.
 3. Otherwise the node **inherits** its parent's effective status if that is `verified`,
    `implemented` or `specified` (reason `inherited`). Otherwise its status is `none` (no coverage
    applies; rendered neutrally, never red).
@@ -956,7 +978,8 @@ any spec file.
 
 ### 12.1 Layout `nestgrid-v1` (normative for producers that write `layout`)
 
-The layout gives every node of a materialized epoch a box `(x, y, z, w, h, d)` in `layout`
+The layout gives every node of a materialized epoch, except `scenario_step` nodes (P9, ADR-0072;
+shown in their scenario's card), a box `(x, y, z, w, h, d)` in `layout`
 (`lod = 0`, `algorithm = 'nestgrid-v1'`). `x, y` are on the ground plane (y grows south), `z` is
 the height the box stands at and `d` its own height. The algorithm is deterministic and uses no
 randomness:

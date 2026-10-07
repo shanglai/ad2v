@@ -27,8 +27,26 @@ FIXTURES = {
     "sdd-kiro": ROOT / "fixtures" / "sdd-presets" / "kiro",
     "sdd-custom": ROOT / "fixtures" / "sdd-presets" / "custom",
     "polyglot": ROOT / "fixtures" / "polyglot",  # P8.1: not_evaluable TypeScript
+    "sdd-table": ROOT / "fixtures" / "sdd-presets" / "table",  # P9
+    "sdd-stories": ROOT / "fixtures" / "sdd-presets" / "stories",
+    "brownfield-es": ROOT / "fixtures" / "brownfield-es",
 }
-TEXT = {".py", ".md", ".yaml", ".yml", ".feature", ".sql", ".xml", ".json", ".toml", ".txt", ".routes", ".ts"}
+TEXT = {
+    ".py",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".feature",
+    ".sql",
+    ".xml",
+    ".json",
+    ".toml",
+    ".txt",
+    ".routes",
+    ".ts",
+    ".tf",
+    ".js",
+}
 
 
 def crlf_bom_copy(src: Path, dst: Path) -> None:

@@ -94,8 +94,8 @@ export class LocalFileSource implements DataSource {
 
   async nodes(epoch: string): Promise<NodeRow[]> {
     return this.all(
-      "SELECT id, side, kind, name, qualified_name, parent_id, path, span_start_line, span_end_line" +
-        " FROM nodes WHERE epoch_id = ? ORDER BY id",
+      "SELECT id, side, kind, name, qualified_name, parent_id, path, span_start_line, span_end_line," +
+        " attrs_json, spec_ref_json FROM nodes WHERE epoch_id = ? ORDER BY id",
       [epoch],
     ).map(toNode);
   }
@@ -400,5 +400,18 @@ function toNode(r: Row): NodeRow {
     path: r.path === null ? null : String(r.path),
     spanStart: r.span_start_line === null ? null : Number(r.span_start_line),
     spanEnd: r.span_end_line === null ? null : Number(r.span_end_line),
+    ...displayFields(r),
+  };
+}
+
+/** P9 (ADR-0072): title, referenced ids, non-functional flag and step keyword (slices.py `_display`). */
+function displayFields(r: Row): Pick<NodeRow, "title" | "refs" | "nfr" | "keyword"> {
+  const attrs = (r.attrs_json ? JSON.parse(String(r.attrs_json)) : {}) as Record<string, unknown>;
+  const refs = (r.spec_ref_json ? JSON.parse(String(r.spec_ref_json)) : []) as unknown[];
+  return {
+    title: typeof attrs.title === "string" ? attrs.title : null,
+    refs: [...new Set(refs.map(String))].sort(),
+    nfr: attrs.requirement_type === "nonfunctional",
+    keyword: typeof attrs.keyword === "string" ? attrs.keyword : null,
   };
 }

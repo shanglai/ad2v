@@ -45,6 +45,21 @@ provenance and reused), and it is never part of the deterministic extractor.
 
 A requirement that doesn't match any template is still a requirement, with `ears: null`.
 
+**Spanish** (P9, ADR-0069). The same five forms, with *deberá(n)*, *debe(n)* or *tendrá que*,
+are tried after the English ones. A leading article on the system is dropped:
+
+| `attrs.ears` | plantilla |
+|---|---|
+| `unwanted` | `Si <disparador>, [entonces ]el <sistema> deberá <respuesta>.` |
+| `event` | `[Mientras <precondición>, ]Cuando <disparador>, el <sistema> deberá <respuesta>.` |
+| `state` | `Mientras <precondición>, el <sistema> deberá <respuesta>.` |
+| `optional` | `Donde <precondición>, el <sistema> deberá <respuesta>.` |
+| `ubiquitous` | `El <sistema> deberá <respuesta>.` |
+
+**Titles.** `- [REQ-012] (Exportar a CSV) When …` gives the requirement the title in
+parentheses. Without one, ad2v derives up to six words from the response. Titles are display
+only: the map reads `REQ-012 · Exportar a CSV`.
+
 ## 3. Everything else
 
 - The file becomes a `spec_doc` node (qualified name = path relative to the spec root). Text that is
@@ -78,9 +93,11 @@ The ad2v convention above is one of four Markdown **presets**. A file is read wi
 | `spec-kit` | `spec.md` with a Functional Requirements heading and `**FR-` lines (github/spec-kit v1.1.0 template) | the feature folder | `**FR-001**: System MUST …`, `**SC-001**` (success criteria) | `<feature>:FR-001` |
 | `kiro` | `.kiro/specs/<feature>/requirements.md` | the feature | `### Requirement N[: Title]` with `**User Story:**`; numbered acceptance criteria (EARS) as children | `<PREFIX>-N`, `<PREFIX>-N.M` |
 | `custom` | a `spec_markdown` rule with `preset: custom` | `component` regex (optional; group `name`) | `requirement` regex (required; groups `id` and `text`) | as captured |
+| `table` (P9) | a Markdown table whose header has an id column and a text column | the heading above the table; a `Componente`/`Component` cell → a sub-component | one per row whose id fits the grammar | as written |
+| `stories` (P9) | `HU-n`/`US-n` headings or items with "Como … quiero …" / "As a … I want …" | the heading above | the story; each acceptance criterion a child | `HU-001`, `HU-001.N` |
 
 Selection: the first `spec_markdown` rule in `ad2v.yaml` whose glob matches wins; otherwise
-auto-detection in the order of the table, Kiro and spec-kit first.
+auto-detection in the order kiro, spec-kit, ad2v, table, stories.
 
 ```yaml
 spec_markdown:
@@ -103,14 +120,33 @@ spec_markdown:
 - Tests cite namespaced ids by name (`test_fr_001_*`). Words before the prefix narrow the
   namespace: `test_refunds_fr_001_*` → `002-refunds:FR-001`. An ambiguous reference is
   `needs_review`.
-- Not parsed: Kiro `design.md`/`tasks.md`, spec-kit `plan.md`/`tasks.md`, tables (pending.md).
+- **table**: header names are matched without regard to case or accents:
+  - id: `ID`, `Id`, `Clave`, `Identificador`, `Código`, `Req`;
+  - text: `Descripción`, `Requerimiento`, `Requisito`, `Description`, `Requirement`;
+  - optional: `Título`/`Nombre`/`Title`, `Prioridad`/`Priority`, `Tipo`/`Type`,
+    `Componente`/`Módulo`/`Component`.
+  `\|` and pipes inside code spans are text, and `<br>` is a space. A row continued on the next
+  line is merged and noted in `table_notes`. Rows whose id does not fit are listed in
+  `skipped_ids`, repeated ids in `duplicate_ids`. A `Tipo` of *No funcional* / *Non-functional* /
+  *NFR* / *Calidad* marks the row non-functional.
+- **stories**: "Como <rol>, quiero <acción>, para <beneficio>" (or "As a …, I want …, so that
+  …"). The criteria list ("Criterios de aceptación" / "Acceptance criteria") can be numbered,
+  bulleted or written as Dado/Cuando/Entonces (Given/When/Then), on one line or several. Each
+  criterion is a child requirement with its `gwt` triple or EARS form.
+- **Non-functional**: ids with a prefix in `spec_ids.nonfunctional_prefixes` (default `RNF`,
+  `NFR`, `NF`) are `requirement_type: nonfunctional`. They are counted apart and badged NFR.
+- Spanish Gherkin (`# language: es`, `Característica` / `Escenario` / `Dado` / `Cuando` /
+  `Entonces`) is read like English.
+- Not parsed: Kiro `design.md`/`tasks.md`, spec-kit `plan.md`/`tasks.md`.
 
 ## 7. Where specs are found (ADR-0047)
 
 `--spec` (repeatable) beats `spec_root` in `ad2v.yaml` (a string or a list), which beats
-auto-detection: the first of `specs/`, `spec/`, `docs/specs/`, `.kiro/specs/` that holds a
-recognized file, plus a root `openapi.{yaml,yml,json}`. `--no-spec-autodetect` turns that off.
-Code under a spec root is never extracted as code.
+auto-detection: the first of `specs/`, `spec/`, `docs/specs/`, `.kiro/specs/`, `sdd/`,
+`docs/sdd/` that holds a recognized file, plus a root `openapi.{yaml,yml,json}`.
+`--no-spec-autodetect` turns that off. Code under a spec root is never extracted as code.
+`ad2v init` (ADR-0071) also finds spec folders with other names, by content, and proposes them
+as `spec_root`.
 
 ## 8. No convention at all: bootstrap from prose (ADR-0049)
 

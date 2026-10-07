@@ -3,7 +3,15 @@ import type { Box, NodeRow, StatusInfo, SuggestionRow } from "../src/data/types"
 import { aggregateEdges, groupOf } from "../src/model/edges";
 import { Lod, lodFor } from "../src/model/lod";
 import { ancestry, coarseIndexOf, levels, project } from "../src/model/projection";
-import { classifyDiff, composeLineage, dedupSuggestions, fallbackCard, renderMentions } from "../src/model/text";
+import {
+  classifyDiff,
+  composeLineage,
+  dedupSuggestions,
+  displayLabel,
+  fallbackCard,
+  renderMentions,
+  truncateWords,
+} from "../src/model/text";
 import { SceneTree } from "../src/model/tree";
 import { json, source } from "./fixture";
 
@@ -57,7 +65,7 @@ describe("LOD with hysteresis", () => {
 });
 
 function row(id: string, parentId: string | null, kind = "module"): NodeRow {
-  return { id, side: "code", kind, name: id, qname: id, parentId, path: null, spanStart: null, spanEnd: null };
+  return { id, side: "code", kind, name: id, qname: id, parentId, path: null, spanStart: null, spanEnd: null, title: null, refs: [], nfr: false, keyword: null };
 }
 const box = (w: number): Box => ({ x: 0, y: 0, z: 0, w, h: w, d: 0.2 });
 
@@ -143,5 +151,24 @@ describe("text helpers", () => {
     expect(lin.get("old")).toBe("new");
     const got = Object.fromEntries(classifyDiff(a, b, lin).map((e) => [e.id, e.cls]));
     expect(got).toEqual({ keep: "unchanged", new: "renamed", gone: "removed", flip: "transition", born: "added" });
+  });
+});
+
+describe("P9 labels (ADR-0072)", () => {
+  it("truncates at a word boundary with an ellipsis", () => {
+    expect(truncateWords("short", 48)).toBe("short");
+    expect(truncateWords("El sistema deberá conciliar los movimientos del extracto bancario", 30)).toBe("El sistema deberá conciliar…");
+    expect(truncateWords("a, b, c, d, e, f, g, h, i, j", 12)).toBe("a, b, c, d…");
+    expect(truncateWords("Supercalifragilisticexpialidocious", 10)).toBe("Supercali…"); // one long word
+    expect(truncateWords("x".repeat(60), 48)).toHaveLength(48);
+  });
+  it("labels requirements, components with ids and scenarios", () => {
+    const n = { kind: "requirement", name: "REQ-001", qname: "REQ-001", title: "Start a run", refs: [] };
+    expect(displayLabel(n)).toBe("REQ-001 · Start a run");
+    expect(displayLabel({ ...n, title: null })).toBe("REQ-001");
+    expect(displayLabel({ ...n, kind: "spec_component", name: "Reconciliation API", qname: "CMP-001" })).toBe("CMP-001 · Reconciliation API");
+    expect(displayLabel({ ...n, kind: "spec_component", name: "Frontend", qname: "requerimientos.md::Frontend" })).toBe("Frontend");
+    expect(displayLabel({ ...n, kind: "scenario", name: "Approve a run", qname: "f::Approve a run", refs: ["REQ-007"] })).toBe("Approve a run [REQ-007]");
+    expect(displayLabel({ ...n, kind: "module", name: "app.py", qname: "app.py" })).toBe("app.py");
   });
 });

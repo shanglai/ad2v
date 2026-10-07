@@ -65,4 +65,7 @@ def extract_specs(
             openapi.extract(graph, rel, text)
         read[rel] = ids.content_hash(text)
         graph.nodes[ids.node_id("spec", "spec_doc", rel)].parent_id = root_node.id
+    from ad2v.extract.spec.titles import apply_titles
+
+    apply_titles(graph)  # P9 (ADR-0069): a short title for every requirement
     return read

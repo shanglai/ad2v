@@ -24,19 +24,20 @@ def test_polyglot_fixture_statuses():
     st = _status(res)
     assert st["REQ-001"] == "implemented"  # Python: evaluated
     assert st["REQ-002"] == "not_evaluable"  # annotated in TypeScript
-    assert st["REQ-003"] == "specified"  # nothing references it anywhere
+    assert st["REQ-003"] == "not_evaluable"  # P9 (issue 95): its component maps to TypeScript-only code
+    assert st["REQ-004"] == "not_evaluable"  # P9: named only by a TypeScript test title
     assert st["CMP-002"] == "not_evaluable"  # mapped to a container that is all TypeScript
     assert st["web/src/cart.ts"] == st["web/src/format.ts"] == "not_evaluable"
     assert st["container:web"] == st["web/src"] == "not_evaluable"  # not orphans
     assert "orphan" not in st.values()
     mods = {n.path: n for n in res.graph.nodes.values() if n.kind == "module"}
-    assert set(mods) == {"api/app/main.py", "web/src/cart.ts", "web/src/format.ts"}  # .d.ts skipped
+    assert set(mods) == {"api/app/main.py", "web/src/cart.ts", "web/src/cart.test.ts", "web/src/format.ts"}
     assert mods["web/src/cart.ts"].attrs == {
         "extracted": False,
         "language": "typescript",
         "spec_ref_sources": {"REQ-002": ["comment"]},
     }
-    assert res.stats["unextracted"] == {"typescript": 2}
+    assert res.stats["unextracted"] == {"typescript": 3}
     ev = next(lk for lk in res.pairing.links if lk.status == "not_evaluable" and lk.spec_node_id)
     assert {"kind": "language_out_of_scope", "languages": ["typescript"]} in ev.evidence
     assert res.rules["scope"]["version"] == scope.SCOPE_VERSION
@@ -121,3 +122,85 @@ def test_an_extractor_for_the_language_makes_it_evaluable(monkeypatch):
     st = _status(pipeline.build(POLY, extractors=["toy-ts"]))
     assert st["REQ-002"] == "implemented"
     assert "not_evaluable" not in st.values()
+
+
+def test_issue_95_evidence_on_the_polyglot_fixture():
+    res = pipeline.build(POLY)
+    g = res.graph
+    ev = {
+        g.nodes[lk.spec_node_id].qualified_name: [e["kind"] for e in lk.evidence]
+        for lk in res.pairing.links
+        if lk.spec_node_id
+    }
+    assert ev["REQ-003"] == ["component_out_of_scope"]
+    assert ev["REQ-004"] == ["annotation", "language_out_of_scope", "test_in_unread_language"]
+    t = next(n for n in g.nodes.values() if n.qualified_name == "web/src/cart.test.ts")
+    assert t.attrs["spec_ref_sources"] == {"REQ-004": ["test_title"]}
+
+
+def test_test_titles_in_many_languages_are_references_never_run():
+    text = (
+        'it("RF-001 concilia", () => {})\n'
+        "test('muestra RF-002 y RF-003', () => {})\n"
+        "describe(`HU-001`, () => {})\n"
+        '@DisplayName("RF-004 exporta")\n'
+        "fun `RF-005 reintenta`() {}\n"
+        "func TestRF006Concilia(t *testing.T) {}\n"
+        "func TestHU010_2(t *testing.T) {}\n"
+        'const x = "RF-999"\n'
+    )
+    assert [r for r, _ in scope.test_refs(text)] == [
+        "RF-001",
+        "RF-002",
+        "RF-003",
+        "HU-001",
+        "RF-004",
+        "RF-005",
+        "RF-006",
+        "HU-010.2",
+    ]
+
+
+def test_tests_in_unread_languages_never_verify(tmp_path):
+    write_tree(
+        tmp_path / "w",
+        {
+            "web/package.json": "{}",
+            "web/a.test.ts": 'it("REQ-001 works", () => {})\n',
+            "specs/s.md": "# S\n\n## Component: Web {#CMP-001}\n\n- [REQ-001] The web shall work.\n",
+            "junit.xml": '<testsuite><testcase classname="web.a" name="REQ-001 works"/></testsuite>',
+        },
+    )
+    res = pipeline.build(tmp_path / "w", test_results=[tmp_path / "w" / "junit.xml"])
+    assert _status(res)["REQ-001"] == "not_evaluable"
+
+
+def test_default_excludes_and_migrations(tmp_path):
+    files = {
+        "app.py": "x = 1\n",
+        "web/src/ok.ts": "export const ok = 1;\n",
+        "db/migrations/0001_init.py": "x = 1\n",
+        "db/migrations/0001_init.sql": "CREATE TABLE t (id INTEGER PRIMARY KEY);\n",
+        "alembic/versions/a.py": "x = 1\n",
+        ".venv-x/lib/site.py": "x = 1\n",
+    }
+    for d in ("node_modules/lib", "dist", ".next", "out", "coverage", "vendor"):
+        files[f"web/{d}/x.js"] = "x\n"
+    files["web/target/G.java"] = "class G {}\n"
+    files["web/src/h.min.js"] = "x\n"
+    files["web/src/h.js.map"] = "{}\n"
+    write_tree(tmp_path / "x", files)
+    res = pipeline.build(tmp_path / "x")
+    mods = sorted(n.path for n in res.graph.nodes.values() if n.kind == "module")
+    assert mods == ["app.py", "web/src/ok.ts"]
+    from ad2v.extract import files as filewalk
+    from ad2v.manifest import DEFAULT_EXCLUDES, code_excluded
+
+    walked = filewalk.walk(tmp_path / "x", DEFAULT_EXCLUDES)
+    assert "db/migrations/0001_init.sql" in walked and not code_excluded("db/migrations/0001_init.sql")
+    assert code_excluded("db/migrations/0001_init.py") and code_excluded("alembic/versions/a.py")
+    sql_gone = pipeline.build(tmp_path / "x")
+    (tmp_path / "x" / "db" / "migrations" / "0001_init.sql").write_text("CREATE TABLE u (id INT);\n")
+    assert (
+        pipeline.build(tmp_path / "x").epoch.repo_tree_hash != sql_gone.epoch.repo_tree_hash
+    )  # SQL is an input

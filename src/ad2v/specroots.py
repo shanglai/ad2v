@@ -5,8 +5,9 @@ Resolution order (the first step that gives an answer wins; `extract` and `histo
 1. `--spec <dir|file>` on the command line (repeatable);
 2. `spec_root:` in ad2v.yaml (a string or a list, relative to the repo);
 3. auto-detection, unless disabled (`--no-spec-autodetect`): each of `specs/`, `spec/`,
-   `docs/specs/`, `.kiro/specs/` that holds at least one recognized spec file (Gherkin, OpenAPI,
-   or Markdown that a preset recognizes), plus an OpenAPI file at the repo root
+   `docs/specs/`, `.kiro/specs/`, `sdd/`, `docs/sdd/` (P9) that holds at least one recognized
+   spec file (Gherkin, OpenAPI, or Markdown that a preset recognizes), plus an OpenAPI file at the
+   repo root
    (`openapi.yaml|yml|json`).
 
 The effective roots, as repo-relative POSIX paths, enter `config_hash` (a change in discovery is
@@ -24,7 +25,8 @@ from typing import Any
 from ad2v.extract import files as filewalk
 from ad2v.extract.spec import SPEC_SUFFIXES, spec_files
 
-AUTO_DIRS = ("specs", "spec", "docs/specs", ".kiro/specs")
+# P9 (ADR-0071): sdd/ and docs/sdd/ too, still only when they hold a recognized file
+AUTO_DIRS = ("specs", "spec", "docs/specs", ".kiro/specs", "sdd", "docs/sdd")
 ROOT_OPENAPI = ("openapi.yaml", "openapi.yml", "openapi.json")
 
 

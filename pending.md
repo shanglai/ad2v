@@ -93,14 +93,20 @@ Items consciously left out so far, grouped by the phase that should pick them up
 - Packaging: the wheel ships the built viewer and app (verified in a clean venv); version
   `0.7.0.dev0` (not 0.7.0, nothing published).
 
-## After P8: P9 (TypeScript extractor as a plug-in) and later
+## Done in P9 (moved from this list)
 
-- P8.1 follow-ups (ADR-0066): read test titles in unextracted test files (`it("REQ-001 …")`),
-  let spec items under a component mapped to an all-unextracted container become `not_evaluable`,
-  and drop `not_evaluable` automatically once the TypeScript plug-in claims `*.ts` (works already;
-  keep a test when P9 lands).
+- P8.1 follow-ups: test titles in unextracted test files and `component_out_of_scope` (issue 95,
+  ADR-0070). Requirements as Markdown tables and user stories, in Spanish and English (ADR-0069).
+  `ad2v init` (ADR-0071). Steps off the map and readable spec labels (ADR-0072).
 
-- P9: the TypeScript extractor as the second real plug-in (after the owner's dogfood results and
+## After P9: P10 and later
+
+- P10: map infrastructure as code (Terraform, Pulumi, CloudFormation, Kubernetes, Helm), which
+  `ad2v init` already detects (issue 100).
+- Run `ad2v init` first on the owner's dogfood repositories; record its edits and removals
+  (docs/dogfood.md results table), and title quality (issue 99).
+- Keep a test that `not_evaluable` disappears once a TypeScript plug-in claims `*.ts`.
+- The TypeScript extractor as the second real plug-in (after the owner's dogfood results and
   the employer agreement); move `severity:` / `retrieval:` out of `python.yaml` into core rules first
   (issue 89); decide whether a tree-level framework hook is needed (issue 90).
 - Decide the default layout (nestgrid-v2 is far denser on dispatch, slightly less on the fixture;
@@ -121,7 +127,6 @@ Items consciously left out so far, grouped by the phase that should pick them up
   default that the environment can override (issue 70).
 - Kiro `design.md` and `tasks.md`; spec-kit `plan.md`, `tasks.md` and `contracts/`; tasks could
   link to requirements as `implements` edges.
-- Requirements written as Markdown tables (id | text | priority).
 - Routes on a router that is never statically included: flag `path_unresolved` (issue 76).
 - Sub-ids in test names (`test_orderexport_1_2`) for Kiro criteria.
 - Open the container of a replay step that is not visible at the current LOD (issue 71).

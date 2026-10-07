@@ -348,6 +348,8 @@ class PythonExtractor:
         self.http_prefix_kw = list(http.get("prefix_kwargs", ["prefix"]))
         self.settings_bases = set(http.get("settings_bases", []))
         self._srcs: set[str] | None = None  # collector for the fold in progress (P7)
+        self._route_fold = False  # P9: folding a route path or prefix
+        self.unresolved_prefix_exprs: set[str] = set()  # P9: for `ad2v init` (path_constants keys)
         self.last_src: frozenset[str] = frozenset()
         # P6.1: imperative registration and route lists (rules-driven, covered by rules_hash)
         self.http_add_routes = {r["method"]: r for r in http.get("add_route_methods", [])}
@@ -886,7 +888,18 @@ class PythonExtractor:
                     if got is not None:
                         self._note(f"settings_default:{base.class_qname}.{name}")
                         return got, True
+            if self._route_fold:
+                self.unresolved_prefix_exprs.add(key)
         return None, False
+
+    def _rfold(self, n: TSNode | None, ctx: Ctx) -> tuple[str | None, bool]:
+        """`_fold` of a route path or prefix: expressions it cannot resolve are remembered in
+        `unresolved_prefix_exprs` (P9, for `ad2v init`; never written to the graph)."""
+        outer, self._route_fold = self._route_fold, True
+        try:
+            return self._fold(n, ctx)
+        finally:
+            self._route_fold = outer
 
     def _note(self, src: str) -> None:
         if self._srcs is not None:
@@ -1000,7 +1013,7 @@ class PythonExtractor:
             meta: dict[str, Any] = {}
             for k in self.http_prefix_kw:
                 if k in kw:
-                    s, exact = self._fold(kw[k], ctx)
+                    s, exact = self._rfold(kw[k], ctx)
                     if s is not None or not exact:
                         meta["prefix"] = s or ""
                         if self.last_src:
@@ -1642,7 +1655,7 @@ class PythonExtractor:
                 prefix, exact, src = "", True, frozenset()
                 for k in self.http_prefix_kw:
                     if k in kw:
-                        s, exact = self._fold(kw[k], ctx)
+                        s, exact = self._rfold(kw[k], ctx)
                         prefix, src = s or "", self.last_src
                 self.mounts.setdefault(inner.origin, []).append((obj.origin, prefix, exact, src))
         if method in self.http_mount_methods and obj.ctor in self.http_ctors:
@@ -1665,7 +1678,7 @@ class PythonExtractor:
                 and inner.ctor in self.http_ctors
                 and path_node is not None
             ):
-                prefix, exact = self._fold(path_node, ctx)
+                prefix, exact = self._rfold(path_node, ctx)
                 self.mounts.setdefault(inner.origin, []).append(
                     (obj.origin, prefix or "", exact, self.last_src)
                 )
@@ -1739,7 +1752,7 @@ class PythonExtractor:
                     path_node = pos[0] if pos else kw.get("path") or kw.get("rule")
                     if path_node is None:
                         continue
-                    path, path_exact = self._fold(path_node, mctx)
+                    path, path_exact = self._rfold(path_node, mctx)
                     path_src = self.last_src
                     if meth in self.http_methods:
                         methods = [meth.upper()]
@@ -2027,7 +2040,7 @@ class PythonExtractor:
         fi = self._route_target(ep_node, ctx)
         if path_node is None or fi is None:
             return
-        path, exact = self._fold(path_node, ctx)
+        path, exact = self._rfold(path_node, ctx)
         self.route_decls.append(
             {
                 "fi": fi,
@@ -2081,7 +2094,7 @@ class PythonExtractor:
                 path_node = k.get("path") or (p[0] if p else None)
                 if fi is None or path_node is None:
                     continue
-                path, ok = self._fold(path_node, ctx)
+                path, ok = self._rfold(path_node, ctx)
                 self.route_decls.append(
                     {
                         "fi": fi,
@@ -2099,7 +2112,7 @@ class PythonExtractor:
                 sub = k.get("routes") or (p[1] if len(p) > 1 else None)
                 if sub is None:
                     continue
-                mp, ok = self._fold(mp_node, ctx) if mp_node is not None else ("", True)
+                mp, ok = self._rfold(mp_node, ctx) if mp_node is not None else ("", True)
                 msrc = self.last_src if mp_node is not None else frozenset()
                 self._route_list(
                     sub, join_route(prefix, mp or ""), exact and ok, ctx, framework, depth + 1, src | msrc

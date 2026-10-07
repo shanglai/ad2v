@@ -22,7 +22,7 @@ def _q(res, nid: str) -> str:
     return res.graph.nodes[nid].qualified_name
 
 
-@pytest.mark.parametrize("name", ["spec-kit", "kiro", "custom"])
+@pytest.mark.parametrize("name", ["spec-kit", "kiro", "custom", "table", "stories"])
 def test_preset_fixture_matches_golden(name):
     exp = yaml.safe_load((FIX / name / "expected.yaml").read_text(encoding="utf-8"))
     res = _build(name)
@@ -61,6 +61,22 @@ def test_preset_fixture_matches_golden(name):
     if "skipped_ids" in exp:
         doc = next(n for n in g.nodes.values() if n.kind == "spec_doc")
         assert doc.attrs["skipped_ids"] == exp["skipped_ids"]
+    # P9 (ADR-0069): titles, non-functional requirements, actors, Given/When/Then, doc notes
+    for q, title in (exp.get("titles") or {}).items():
+        assert by_q[q].attrs["title"] == title, q
+    if "nonfunctional" in exp:
+        got = sorted(
+            n.qualified_name for n in g.nodes.values() if n.attrs.get("requirement_type") == "nonfunctional"
+        )
+        assert got == exp["nonfunctional"]
+        assert res.stats["nonfunctional_requirements"] == len(got)
+    for q, actor in (exp.get("actors") or {}).items():
+        assert by_q[q].attrs["actor"] == actor, q
+    for q, parts in (exp.get("gwt") or {}).items():
+        assert by_q[q].attrs["gwt"] == parts, q
+    for doc_q, attrs in (exp.get("docs") or {}).items():
+        for k, v in attrs.items():
+            assert by_q[doc_q].attrs[k] == v, (doc_q, k)
 
 
 def test_spec_id_grammar_and_kiro_prefixes():
@@ -116,7 +132,7 @@ def _crlf_bom_copy(src: Path, dst: Path) -> None:
             p.write_bytes(b"\xef\xbb\xbf" + text.encode("utf-8"))
 
 
-@pytest.mark.parametrize("name", ["spec-kit", "kiro", "custom"])
+@pytest.mark.parametrize("name", ["spec-kit", "kiro", "custom", "table", "stories"])
 def test_preset_dumps_are_deterministic_and_crlf_bom_invariant(name, tmp_path):
     outs = []
     for i, src in enumerate([FIX / name, FIX / name, tmp_path / "crlf" / name]):

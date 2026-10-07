@@ -71,12 +71,57 @@ In the browser:
 
 ---
 
+## 2b. Existing project? Start with `ad2v init`
+
+On a repository that already has code and specs, let `ad2v init` look first. It reads files
+only: it runs nothing, calls no model and writes nothing unless you pass `--write`.
+
+```powershell
+ad2v init --repo C:\path\to\my-project
+```
+
+It prints what it found:
+- the spec folders, with a score and the files per format;
+- the prose no preset reads;
+- the spec id prefixes;
+- one container per project manifest, with its language and whether ad2v can read it;
+- the vendored folders it drops;
+- SQL, infrastructure, and test results or a pytest configuration;
+- the route prefixes it cannot resolve.
+
+Then it prints a proposed `ad2v.yaml`. Save the proposal outside the repository while you try it:
+
+```powershell
+ad2v init --repo C:\path\to\my-project --write C:\ad2v-maps\my-project.yaml
+```
+
+Open that file and fill in any empty value: `pairing.path_constants: {"settings.API_PREFIX": ""}`
+means your routers are mounted under a setting whose value ad2v will not guess (for example
+`/api/v1`). An empty value is ignored, so the file works as written. Then:
+
+```powershell
+ad2v extract --repo C:\path\to\my-project --manifest C:\ad2v-maps\my-project.yaml --out C:\ad2v-maps\my-project.ad2v
+ad2v init --repo C:\path\to\my-project --check C:\ad2v-maps\my-project.yaml   # later: what changed since
+```
+
+`--check` exits 1 and lists the differences:
+- new or vanished spec folders and containers;
+- excludes that match nothing;
+- prefixes your tests use that are missing from the manifest;
+- empty path constants.
+
+`--format json` prints the findings for tools. TypeScript, Java and other languages without an
+active extractor are shown as `not_evaluable`, not as missing (step 7, **Legend**).
+
+---
+
 ## 3. Your SDD format
 
 ad2v reads specs deterministically. Use what you already have, mix them freely, and let ad2v find
 them: without `--spec` it uses `spec_root` from `ad2v.yaml`, otherwise the first of `specs/`,
-`spec/`, `docs/specs/`, `.kiro/specs/` that holds a spec, plus a root `openapi.yaml`. `extract`
-prints the roots it used.
+`spec/`, `docs/specs/`, `.kiro/specs/`, `sdd/`, `docs/sdd/` that holds a spec, plus a root
+`openapi.yaml`. `extract` prints the roots it used. Spanish and English are both read: EARS
+(`Cuando …, el sistema deberá …`), Gherkin with `# language: es`, and the team formats below.
 
 **OpenAPI** (`specs/openapi.yaml`): endpoints pair with FastAPI, Flask and Starlette routes by
 method and path. `x-ad2v-refs: [REQ-001]` ties an endpoint to a requirement.
@@ -130,6 +175,37 @@ spec_markdown:
     component: '^## (?P<name>.+?)\s*$'
     requirement: '^REQ: (?P<id>[A-Za-z]+-[0-9]+) - (?P<text>.+?)\s*$'
 ```
+
+**A requirements table** (the `table` preset, picked by shape; no `ad2v.yaml` needed). Headers
+are matched in Spanish or English, ignoring case and accents. A `Componente` column pairs each
+row with the container of that name. `RNF-…` ids (or a `Tipo` cell saying *No funcional*) are
+non-functional: counted apart and badged NFR in the viewer.
+
+```markdown
+## Requerimientos funcionales
+| ID | Título | Descripción | Prioridad | Componente |
+|----|--------|-------------|-----------|------------|
+| RF-001 | Iniciar conciliación | Cuando el operador inicia una corrida, el sistema deberá cargar los movimientos. | Alta | Backend |
+```
+
+**User stories** (the `stories` preset). Each criterion becomes `HU-001.1`, `HU-001.2`, …:
+
+```markdown
+## HU-001 Cargar un extracto
+Como operador, quiero cargar el extracto del banco, para conciliarlo con el libro mayor.
+
+Criterios de aceptación:
+1. Dado un archivo CSV válido, cuando lo cargo, entonces veo la cantidad de movimientos.
+```
+
+```yaml
+spec_ids:
+  test_name_prefixes: [REQ, RF, HU]     # so test_rf_002_… links to RF-002 (ad2v init proposes this)
+```
+
+Requirements get a short title: a `Título` column, a story heading or `- [REQ-001] (Título) …`
+wins. Otherwise ad2v derives one from the text. The map labels them `RF-001 · Iniciar
+conciliación`.
 
 **Free prose** (design notes, Word exports): bootstrap it. `--from` paths are relative to
 `--repo`:

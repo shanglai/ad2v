@@ -33,8 +33,8 @@ from ad2v import (
 )
 from ad2v.extract import files as filewalk
 from ad2v.extract.code.base import CodeFacts, Layout
-from ad2v.extract.spec import extract_specs, spec_tree_hash
-from ad2v.manifest import Config
+from ad2v.extract.spec import extract_specs, spec_tree_hash, titles
+from ad2v.manifest import Config, code_excluded
 from ad2v.manifest import load as load_manifest
 
 # (effective rules hash, extractor cache version) -> {(path, content_hash): payload}
@@ -204,6 +204,7 @@ def build(
         config.exclude,
         include=lambda p: plugins.matches(p, patterns) or scope.language(p) is not None,
     )
+    rel = [p for p in rel if not code_excluded(p)]  # P9 (ADR-0068): migrations' code, not their SQL
     cli_specs = None if spec is None else [Path(spec)] if isinstance(spec, (str, Path)) else list(spec)
     sroots = specroots.resolve(
         repo, cli_specs, list(config.spec_roots), config.exclude, spec_autodetect, config.spec_markdown
@@ -283,6 +284,7 @@ def build(
             graph, sroots.roots[0], config.exclude, root_name=system_name, files=specs, choices=sroots.choices
         )
     resolve_spec_refs(graph)
+    nonfunctional = titles.apply_types(graph, config.nonfunctional_prefixes)  # P9 (ADR-0069)
     graph.link_contains()
     graph.compute_subtree_hashes()
     t = lap("specs_refs_hashes", t)
@@ -359,6 +361,7 @@ def build(
             (n.span_end_line or 0) for n in graph.nodes.values() if n.kind == "module" and n.side == "code"
         ),
         "unextracted": scope_counts,
+        "nonfunctional_requirements": nonfunctional,
         "cache_hits": ran.stats["cache_hits"],
         "cache_misses": ran.stats["cache_misses"],
     }

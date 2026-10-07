@@ -145,6 +145,17 @@ Problems found during P1–P4, with severity (high / medium / low).
 | # | severity | issue | state |
 |---|---|---|---|
 | 94 | medium | Code in a language no active extractor reads was invisible: requirements implemented there showed `specified`/`missing` and their containers `orphan` (seen on a Java-only middleware during dogfood preparation). | **fixed** (ADR-0066): status `not_evaluable`, language-scope inventory, legend |
-| 95 | low | Requirements of a spec component mapped to an all-unextracted container stay `specified` unless annotated with `ad2v:` comments; test names in unextracted test files are not read. | open (ADR-0066 "not done") |
+| 95 | low | Requirements of a spec component mapped to an all-unextracted container stay `specified` unless annotated with `ad2v:` comments; test names in unextracted test files are not read. | **fixed** (P9, ADR-0070): `component_out_of_scope` and test titles (`test_in_unread_language`) |
 | 96 | low | New container markers (`package.json`, `go.mod`, `Cargo.toml`, `pom.xml`, `build.gradle`) can change container inference for repositories that have such directories at the top level. | accepted (documented; fixtures unchanged) |
+
+## P9
+
+| # | severity | issue | state |
+|---|---|---|---|
+| 97 | medium | CI failed on its first runs (P8.1 push): a fresh checkout has no `viewer/dist`, so `pip install -e .` stopped on setuptools `package-dir`; any fresh clone failed the same way. | **fixed** (ADR-0067): viewer packages optional in `setup.py`, required for release builds (`AD2V_REQUIRE_VIEWER=1`); verified on a fresh copy; CI re-runs on the P9 push |
+| 98 | low | Files written before P9 keep layout rows for `scenario_step` nodes, so the viewer still draws steps for them until they are re-extracted (or `ad2v layout` is run). | accepted (format spec "Additions within v0.6") |
+| 99 | low | Derived titles are a heuristic (first six words of the response, function words trimmed); some read awkwardly (`Conciliar 100.000 movimientos`). An explicit title always wins. | open: measure on the dogfood repositories |
+| 100 | info | Infrastructure as code (Terraform, Pulumi, CloudFormation, Kubernetes, Helm) is detected and reported by `ad2v init` but not mapped. | open (P10) |
+| 101 | low | Test titles in unread languages are references only: without a runner mapping for those languages they are never `verified`. | accepted (ADR-0070) |
+| 102 | low | `ad2v init` proposes containers from project manifests at depth ≤ 3; deeper monorepo packages need manual entries. Route prefixes are detected for Python routes only. | open |
 

@@ -1,0 +1,27 @@
+# P9 golden: `table` preset (ADR-0069). Spanish and English requirement tables; headers matched
+# without case or accents; the heading above a table is its component.
+spec_roots: [specs]
+presets: {requirements-en.md: table, requisitos.md: table}
+counts: {spec_doc: 2, spec_component: 3, requirement: 11}
+requirements:   # [qualified name, status, ears]
+  - [RF-001, implemented, event]      # test_rf_001_… (prefix RF in ad2v.yaml); explicit Título
+  - [RF-002, specified, ubiquitous]   # "El sistema deberá …"
+  - [RF-003, specified, unwanted]     # "Si …, entonces el sistema deberá …"
+  - [RF-004, specified, null]         # not EARS; `\|` and a pipe inside `code` stay in the cell
+  - [RF-005, specified, state]        # "Mientras …"; the row continues on the next line
+  - [RNF-001, specified, ubiquitous]  # non-functional by prefix
+  - [RNF-002, specified, ubiquitous]
+  - [CAL-001, specified, ubiquitous]  # non-functional by its Tipo cell
+  - [EXP-1, implemented, event]       # English table, `Req` / `Requirement` headers
+  - [EXP-2, specified, ubiquitous]
+  - [EXP-3, specified, ubiquitous]    # non-functional by its Type cell
+parents: {RF-001: "requisitos.md::Conciliación", RNF-001: "requisitos.md::Calidad", EXP-1: "requirements-en.md::Export"}
+titles:
+  RF-001: Iniciar conciliación                 # explicit (Título column)
+  RF-002: Emparejar cada movimiento bancario   # derived: the EARS response, system phrase removed
+  RF-003: Clasificarlo con una causa probable
+  RF-005: Reintentar con espera exponencial
+  EXP-2: Include every unmatched transaction
+nonfunctional: [CAL-001, EXP-3, RNF-001, RNF-002]
+docs:
+  requisitos.md: {skipped_ids: [RF-X], table_notes: ["line 14: continues the row of line 13"]}

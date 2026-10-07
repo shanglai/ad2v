@@ -46,3 +46,7 @@ node_modules/
 viewer/test-results/
 viewer/playwright-report/
 viewer/src/generated/
+
+# P9: the brownfield fixture ships a node_modules/ and a dist/ that ad2v must exclude
+!fixtures/brownfield-es/src/frontend/node_modules/
+!fixtures/brownfield-es/src/frontend/dist/

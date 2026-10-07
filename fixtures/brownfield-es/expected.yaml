@@ -1,0 +1,48 @@
+# P9 golden: the brownfield fixture, zero-config `extract` vs `extract` with the manifest `ad2v init`
+# proposes (the test fills the one empty path_constants value, as a human would: /api/v1).
+spec_counts: {requirement: 22, scenario: 4, scenario_step: 11, spec_component: 5, spec_doc: 5, spec_endpoint: 3}
+presets: {historias.md: stories, requerimientos.md: table}
+nonfunctional: [RNF-001, RNF-002, RNF-003, RNF-004]
+unextracted: {typescript: 3}   # node_modules/ and dist/ (incl. *.min.js) are excluded
+zero_config:
+  spec_roots: "spec roots (auto-detected): sdd/"
+  containers: [container:brownfield-es]  # no top-level project manifest: one fallback container
+  status:
+    RF-001: specified
+    RF-002: specified          # test_rf_002_… does not link: RF is not a default test-name prefix
+    RF-003: specified
+    RF-004: specified
+    RF-005: specified
+    RF-006: specified
+    RF-007: not_evaluable      # Frontend (Componente column) pairs by name with the src/frontend component: all TypeScript
+    RF-008: not_evaluable
+    RF-009: not_evaluable
+    RF-010: specified
+    RNF-001: specified
+    HU-001: specified
+    HU-002.1: specified
+    POST /api/v1/conciliaciones: missing          # imports do not resolve without containers: the prefix is lost
+    GET /api/v1/conciliaciones/{id}: missing
+    GET /api/v1/conciliaciones/{id}/exportar: missing
+init:
+  spec_roots: "spec roots (ad2v.yaml spec_root): sdd/"
+  containers: [container:backend, container:frontend]
+  status:
+    RF-001: specified          # referenced by its endpoint (x-ad2v-refs), but no code names it
+    RF-002: implemented        # test_rf_002_… (RF proposed as a test-name prefix)
+    RF-003: implemented
+    RF-004: specified
+    RF-005: specified
+    RF-006: specified
+    RF-007: not_evaluable      # component_out_of_scope (Frontend -> container frontend, TypeScript)
+    RF-008: not_evaluable
+    RF-009: not_evaluable
+    RF-010: specified
+    RNF-001: specified         # non-functional: never expected to pair with code
+    HU-001: specified
+    HU-002.1: specified
+    POST /api/v1/conciliaciones: implemented      # the prefix filled in path_constants
+    GET /api/v1/conciliaciones/{id}: implemented
+    GET /api/v1/conciliaciones/{id}/exportar: implemented
+    # P9 M4: a scenario rolls up the requirements its tags reference (RF-001 specified, RF-002 implemented)
+    "features/conciliacion.feature::Conciliación de un extracto::Conciliar un extracto completo": implemented

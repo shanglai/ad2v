@@ -44,6 +44,50 @@ EARS: list[tuple[str, re.Pattern[str]]] = [
     ("ubiquitous", re.compile(r"^The\s+(?P<system>.+?)\s+shall\s+(?P<response>.+?)\.?$", re.I)),
 ]
 
+# P9 (ADR-0069): Spanish EARS. Same pattern names and groups; the system loses its article.
+_DEBE = r"(?:deber[aá]n?|debe(?:n)?|tendr[aá]n?\s+que)"
+_SYS = r"(?:el|la|los|las)\s+(?P<system>.+?)"
+EARS_ES: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "unwanted",
+        re.compile(
+            r"^Si\s+(?P<trigger>.+?),\s*(?:entonces\s+)?"
+            + _SYS
+            + r"\s+"
+            + _DEBE
+            + r"\s+(?P<response>.+?)\.?$",
+            re.I,
+        ),
+    ),
+    (
+        "event",
+        re.compile(
+            r"^(?:Mientras\s+(?P<precondition>.+?),\s*)?Cuando\s+(?P<trigger>.+?),\s*"
+            + _SYS
+            + r"\s+"
+            + _DEBE
+            + r"\s+(?P<response>.+?)\.?$",
+            re.I,
+        ),
+    ),
+    (
+        "state",
+        re.compile(
+            r"^Mientras\s+(?P<precondition>.+?),\s*" + _SYS + r"\s+" + _DEBE + r"\s+(?P<response>.+?)\.?$",
+            re.I,
+        ),
+    ),
+    (
+        "optional",
+        re.compile(
+            r"^Donde\s+(?P<precondition>.+?),\s*" + _SYS + r"\s+" + _DEBE + r"\s+(?P<response>.+?)\.?$", re.I
+        ),
+    ),
+    ("ubiquitous", re.compile(r"^" + _SYS + r"\s+" + _DEBE + r"\s+(?P<response>.+?)\.?$", re.I)),
+]
+# `- [REQ-001] (Título corto) Cuando …`: an explicit short title (P9)
+TITLE_PREFIX_RE = re.compile(r"^\((?P<title>[^()]{1,80})\)\s+(?P<text>.+)$")
+
 
 def detect(rel: str, text: str) -> str | None:
     """The Markdown preset that recognizes this file, or None (prose only). P6.1 M3 adds presets."""
@@ -53,11 +97,12 @@ def detect(rel: str, text: str) -> str | None:
 
 
 def parse_ears(text: str) -> dict[str, Any]:
-    for name, pat in EARS:
-        m = pat.match(text.strip())
-        if m:
-            d = {k: v for k, v in m.groupdict().items() if v is not None}
-            return {"ears": name, **d}
+    for table in (EARS, EARS_ES):
+        for name, pat in table:
+            m = pat.match(text.strip())
+            if m:
+                d = {k: v for k, v in m.groupdict().items() if v is not None}
+                return {"ears": name, **d}
     return {"ears": None}
 
 
@@ -122,7 +167,13 @@ def extract(graph: ir.Graph, rel: str, text: str) -> None:
         rm = None if in_fence else REQ_RE.match(line)
         if rm:
             req_text = rm.group("text")
+            tm = TITLE_PREFIX_RE.match(req_text)
+            title = None
+            if tm:
+                title, req_text = tm.group("title").strip(), tm.group("text")
             attrs = {"text": req_text, **parse_ears(req_text)}
+            if title:
+                attrs["title"] = title
             graph.add_node(
                 ir.Node(
                     "spec",

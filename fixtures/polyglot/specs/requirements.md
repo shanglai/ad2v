@@ -3,6 +3,7 @@
 ## Component: API {#CMP-001}
 
 - [REQ-001] The API shall list the items for sale.
+- [REQ-004] If the item list is unavailable, then the API shall return an error the client can show.
 
 ## Component: Web {#CMP-002}
 

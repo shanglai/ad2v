@@ -16,12 +16,21 @@ DEFAULT_EXCLUDES = (
     ".hg",
     ".svn",
     ".venv",
+    ".venv*",  # P9 (ADR-0068): .venv-dogfood, .venv-plugins, ...
     "venv",
     "env",
     "node_modules",
     "__pycache__",
     "build",
     "dist",
+    # P9 (ADR-0068): vendored or generated output of other ecosystems
+    ".next",
+    "out",
+    "target",
+    "vendor",
+    "coverage",
+    "*.min.js",
+    "*.map",
     ".tox",
     ".nox",
     ".mypy_cache",
@@ -30,6 +39,17 @@ DEFAULT_EXCLUDES = (
     "site-packages",
     ".ad2v-extracted",  # proposed prose-spec extractions: ingested only once a human moves them (P4)
 )
+# P9 (ADR-0068): directories whose code is generated schema history. Their code is not extracted
+# (it crowded app code out of retrieval, issue 79), but their `*.sql` files stay inputs of the
+# datastore schema digests (ADR-0059).
+CODE_ONLY_EXCLUDES = ("migrations", "alembic")
+
+
+def code_excluded(rel: str) -> bool:
+    """True for a non-SQL file under a CODE_ONLY_EXCLUDES directory."""
+    if rel.endswith(".sql"):
+        return False
+    return any(part in CODE_ONLY_EXCLUDES for part in rel.split("/")[:-1])
 
 
 @dataclass(frozen=True)
@@ -50,6 +70,8 @@ class Config:
     workflow_max_depth: int = 12
     workflow_max_steps: int = 5000
     test_ref_prefixes: tuple[str, ...] = ("REQ", "CMP", "FR")  # FR: spec-kit (P6.1)
+    # P9 (ADR-0069): ids whose prefix marks a non-functional requirement
+    nonfunctional_prefixes: tuple[str, ...] = ("RNF", "NFR", "NF")
     manifest_path: str | None = None
     # pairing (format spec §6.1)
     pairing_components: dict[str, str] = field(default_factory=dict)  # spec id -> container/component
@@ -208,6 +230,8 @@ def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
     spec_ids = data.get("spec_ids") or {}
     if "test_name_prefixes" in spec_ids:
         cfg.test_ref_prefixes = tuple(str(p).upper() for p in spec_ids["test_name_prefixes"])
+    if "nonfunctional_prefixes" in spec_ids:
+        cfg.nonfunctional_prefixes = tuple(str(p).upper() for p in spec_ids["nonfunctional_prefixes"] or [])
     pairing = data.get("pairing") or {}
     if not isinstance(pairing, dict):
         raise ManifestError("pairing must be a mapping")
@@ -222,7 +246,10 @@ def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
     consts = pairing.get("path_constants") or {}
     if not isinstance(consts, dict):
         raise ManifestError("pairing.path_constants must map expressions to path strings")
-    cfg.path_constants = {re.sub(r"\s+", "", str(k)): str(v or "") for k, v in consts.items()}
+    # an empty value is a placeholder `ad2v init` proposes for a human to fill in: not a value (P9)
+    cfg.path_constants = {
+        re.sub(r"\s+", "", str(k)): str(v) for k, v in consts.items() if v not in (None, "")
+    }
     cfg.resolve_settings_defaults = bool(pairing.get("resolve_settings_defaults", False))
     cfg.case_insensitive = bool(pairing.get("case_insensitive", False))
     raw_policy = pairing.get("orphan_policy", "auto")

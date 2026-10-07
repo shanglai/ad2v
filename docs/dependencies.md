@@ -139,6 +139,11 @@ The CI workflows install `build` and `twine` inside the job, never into the proj
 P8 adds **no dependencies** (Python or npm). New stdlib-only scripts: `scripts/check_python_licenses.py`
 (the Python license gate) and `scripts/determinism_check.py`.
 
+P8.1 and P9 add **no dependencies** (Python or npm). P9 ran `build` once more in a throwaway
+virtual environment, on a fresh copy of the tree, to check the optional viewer packages
+(ADR-0067). The environment was deleted afterwards. Playwright's Chromium was installed for the
+P9 screenshots and removed at the end of the phase.
+
 ## Rejected
 
 | package | license | reason |
@@ -155,7 +160,10 @@ P8 adds **no dependencies** (Python or npm). New stdlib-only scripts: `scripts/c
 ## Fixture-only names
 
 `fixtures/payments-recon` *mentions* fastapi, sqlalchemy, httpx, tenacity, litellm, mcp, typer and
-google-cloud-pubsub. `fixtures/sdd-presets` imports only the standard library. That code is only parsed, never installed or run, so these packages are **not**
+google-cloud-pubsub. `fixtures/brownfield-es` (P9) *mentions* fastapi, pydantic-settings and
+sqlalchemy, and holds a two-line stand-in for a vendored `node_modules/left-pad` written for the
+fixture (not the npm package). `fixtures/polyglot` *mentions* fastapi. `fixtures/sdd-presets` imports only the
+standard library and the fixture's own modules. That code is only parsed, never installed or run, so these packages are **not**
 dependencies.
 
 ## Benchmarks

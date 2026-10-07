@@ -60,10 +60,26 @@ def _node(r: sqlite3.Row) -> dict[str, Any]:
         "path": _opt(r["path"]),
         "spanStart": None if r["span_start_line"] is None else js_num(r["span_start_line"]),
         "spanEnd": None if r["span_end_line"] is None else js_num(r["span_end_line"]),
+        **_display(r),
     }
 
 
-NODE_COLS = "id, side, kind, name, qualified_name, parent_id, path, span_start_line, span_end_line"
+def _display(r: sqlite3.Row) -> dict[str, Any]:
+    """P9 (ADR-0072): title, referenced ids, non-functional flag, step keyword (LocalFileSource too)."""
+    attrs = json.loads(r["attrs_json"]) if r["attrs_json"] else {}
+    refs = json.loads(r["spec_ref_json"]) if r["spec_ref_json"] else []
+    return {
+        "title": js_str(attrs["title"]) if isinstance(attrs.get("title"), str) else None,
+        "refs": sorted({js_str(x) for x in refs}),
+        "nfr": attrs.get("requirement_type") == "nonfunctional",
+        "keyword": js_str(attrs["keyword"]) if isinstance(attrs.get("keyword"), str) else None,
+    }
+
+
+NODE_COLS = (
+    "id, side, kind, name, qualified_name, parent_id, path, span_start_line, span_end_line,"
+    " attrs_json, spec_ref_json"
+)
 
 
 # -- DataSource methods ------------------------------------------------------------------------

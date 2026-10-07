@@ -1,0 +1,28 @@
+# P9 golden: `stories` preset (ADR-0069). User stories (HU-/US-) with acceptance criteria as
+# child requirements HU-001.1 …; Spanish and English; numbered, bulleted and Given/When/Then.
+spec_roots: [specs]
+presets: {historias.md: stories, stories-en.md: stories}
+counts: {spec_doc: 2, requirement: 10}
+requirements:   # [qualified name, status, ears]
+  - [HU-001, implemented, null]       # test_hu_001_…
+  - [HU-001.1, specified, ubiquitous] # "El archivo exportado deberá …"
+  - [HU-001.2, specified, event]      # "Cuando …, el sistema deberá …"
+  - [HU-002, specified, null]
+  - [HU-002.1, specified, null]       # Dado / Cuando / Entonces / Y lines: one criterion
+  - [HU-002.2, specified, null]       # a second Dado after an Entonces starts a new one
+  - [HU-003, specified, null]         # a list-item story with no criteria
+  - [US-001, implemented, null]
+  - [US-001.1, specified, null]       # inline "Given …, when …, then …"
+  - [US-001.2, specified, ubiquitous]
+parents: {HU-001.1: HU-001, HU-002.2: HU-002, US-001.2: US-001}
+titles:
+  HU-001: Exportar una conciliación      # the heading after the id
+  HU-002.1: Ve la lista de movimientos   # the Then part of a Given/When/Then criterion
+  HU-003: Reintentar una corrida fallida # derived from the story's action
+  US-001.1: A PDF is returned
+actors: {HU-001: analista de finanzas, HU-002: revisor, HU-003: operador del turno noche, US-001: finance manager}
+gwt:
+  HU-002.1:
+    given: una corrida con movimientos sin pareja
+    when: el revisor abre la corrida
+    then: ve la lista de movimientos sin pareja y cada movimiento muestra su causa probable

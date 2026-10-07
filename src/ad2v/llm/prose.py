@@ -22,7 +22,14 @@ from ad2v.llm.runner import Executor, Job, Result
 
 EXTRACTED_DIR = ".ad2v-extracted"
 EARS = ("event", "state", "unwanted", "optional", "ubiquitous")
-EARS_START = {"event": ("when ",), "state": ("while ",), "unwanted": ("if ",), "optional": ("where ",)}
+# P9 (ADR-0069): Spanish EARS is accepted too ("Cuando …, el sistema deberá …")
+EARS_START = {
+    "event": ("when ", "cuando ", "mientras "),
+    "state": ("while ", "mientras "),
+    "unwanted": ("if ", "si "),
+    "optional": ("where ", "donde "),
+}
+MODAL_RE = re.compile(r"\b(?:shall|deber[aá]n?|debe(?:n)?|tendr[aá]n?\s+que)\b", re.I)
 MIN_PROSE_CHARS = 40
 
 # Flat on purpose: Vertex rejected the nested form (an array of objects inside an array of
@@ -97,9 +104,13 @@ def job(view: EpochView, doc: ir.Node) -> Job:
                 rng = range(r["source_start_line"], r["source_end_line"] + 1)
                 if not rng or any(x not in present for x in rng):
                     errs.append({"code": "source_out_of_doc", "message": text[:80], "severity": "error"})
-                if " shall " not in f" {text.lower()} ":
+                if not MODAL_RE.search(text):
                     errs.append(
-                        {"code": "not_ears", "message": f"no 'shall': {text[:80]}", "severity": "error"}
+                        {
+                            "code": "not_ears",
+                            "message": f"no 'shall' / 'deberá': {text[:80]}",
+                            "severity": "error",
+                        }
                     )
                 starts = EARS_START.get(r["ears"])
                 if starts and not text.lower().startswith(starts):
