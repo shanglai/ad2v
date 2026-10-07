@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ad2v.dev/schema/ir-v0.5.schema.json",
-  "title": "ad2v IR v0.5",
+  "$id": "https://ad2v.dev/schema/ir-v0.6.schema.json",
+  "title": "ad2v IR v0.6",
   "description": "Intermediate representation of an ad2v extraction: nodes (code and spec items), edges, glyphs, workflows. Normative.",
   "type": "object",
   "required": [
@@ -11,7 +11,7 @@
   ],
   "properties": {
     "format_version": {
-      "const": "0.5"
+      "const": "0.6"
     },
     "nodes": {
       "type": "array",
@@ -523,7 +523,8 @@
             "orphan",
             "stale",
             "needs_review",
-            "missing"
+            "missing",
+            "not_evaluable"
           ]
         },
         "method": {
@@ -597,6 +598,7 @@
             "stale",
             "verified",
             "implemented",
+            "not_evaluable",
             "specified",
             "none"
           ]

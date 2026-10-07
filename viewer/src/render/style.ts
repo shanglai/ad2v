@@ -36,7 +36,9 @@ export function outlineFor(theme: Theme, name: ThemeName, status: string, detail
       ? { glyph: "!", bg: theme.badge.warning, fg: theme.badge.warning_text, shape: "triangle" as const }
       : style.decoration === "clock_badge"
         ? { glyph: "◷", bg: theme.badge.clock, fg: theme.background, shape: "round" as const }
-        : null;
+        : style.decoration === "scope_badge"
+          ? { glyph: "∅", bg: theme.badge.scope, fg: theme.badge.scope_text, shape: "round" as const }
+          : null;
   return { color: colors.stroke, line: style.line, widthPx, hollow: style.fill === "hollow", emphasis, badge };
 }
 

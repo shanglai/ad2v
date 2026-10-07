@@ -355,6 +355,9 @@ def _compute_rules(act: ActiveSet, config: Config, base_rules_path: Path | None)
     # severity and retrieval sections live there, ADR-0065)
     top = copy.deepcopy(act.effective.get("python", {}))
     top["plugins"] = records
+    from ad2v import scope  # P8.1 (ADR-0066): the language-scope table is an epoch input
+
+    top["scope"] = scope.rules()
     if plugin_rules:
         top["plugin_rules"] = plugin_rules
     top["_hash"] = rules_mod.rules_hash(top)

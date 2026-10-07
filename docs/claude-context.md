@@ -15,7 +15,7 @@ Snapshot: 2026-10-04, after the P8 commit (see `git log -1`). P6.1 (`b7e1726`) i
 
 **Comprehension debt** builds up when agents merge code faster than people can understand it.
 ad2v (agent development to viz) compares a **repository** with its **SDD specs** (spec-driven
-development) and writes **one SQLite file** (`*.ad2v`, format v0.5). The file describes both sides
+development) and writes **one SQLite file** (`*.ad2v`, format v0.6). The file describes both sides
 as one graph across a history of epochs (commits). Readers:
 
 - the **viewer**: a three.js isometric 2.5D map (like C4 with more levels), in dark and light
@@ -69,7 +69,7 @@ Principles:
    used once, and scratch files. `node_modules/` stays gitignored.
 9. If context runs low, finish the current milestone, skip the rest, and mark them "not done" in
    the report.
-10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0066**.
+10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0067**.
 11. **Environment:** Windows 11, Python 3.12 (`.venv`), Node 24 / npm 11, git; everything must be
     cross-platform. Python 3.11 is the declared minimum (CI runs it).
 12. **Sanitization:** no local absolute paths, usernames, emails or the GCP project id in tracked
@@ -107,7 +107,8 @@ Principles:
 
 | P7 | `27c24c6` | verified quickstart, settings prefixes, retrieval v2 (70-question eval), the viewer's own chat (`ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, nestgrid-v2 (flag), format v0.5 | template 23 -> 0 unresolved; MRR P6-25 0.89 -> 0.98; live judge catches REQ-009 (low: acc 0.9, k 0.81, $0.0017/call); summaries -60%/call; dispatch 59.9 fps |
 
-| P8 | `git log -1` | extractor plug-in API (`ad2v.api` 1.0, entry points, opt-in, identity in the epoch, built-ins as plug-ins, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (0.7.0.dev0, not published), CI workflows (written, not run), security review, sanitization inventory, dogfood procedure | 9 fixture dump scenarios identical with epoch id / rules hash masked; examples pass the kit in a temp venv; wheel verified in a clean venv; 11 security fixes; 382 pytest |
+| P8 | `4d5740b` | extractor plug-in API (`ad2v.api` 1.0, entry points, opt-in, identity in the epoch, built-ins as plug-ins, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (0.7.0.dev0, not published), CI workflows (written, not run), security review, sanitization inventory, dogfood procedure | 9 fixture dump scenarios identical with epoch id / rules hash masked; examples pass the kit in a temp venv; wheel verified in a clean venv; 11 security fixes; 382 pytest |
+| P8.1 | `git log -1` (or uncommitted) | status `not_evaluable` for code in a language no active extractor reads (language-scope inventory, `ad2v:` comment markers, legend in the viewer), format v0.6 + upgrade | polyglot fixture; Python-only dumps unchanged except epoch id / rules hash / format version / recorded precedence; 388 pytest |
 
 **Next, as planned by the owner:** **P9: the TypeScript extractor as a plug-in**, after the
 owner's dogfood results (docs/dogfood.md) and the employer agreement. Do not start it without the
@@ -167,9 +168,9 @@ owner's prompt.
   have `chat()` with function calling (Gemini thought signatures kept verbatim).
 - **P7 extraction:** `extract/code/schema_digest.py` (SQLAlchemy / SQL DDL / Pydantic →
   `datastore.attrs.schema_digest`, `route.attrs.schema_models`); settings prefixes in
-  `extract/code/python.py` (`path_constants`, opt-in Settings defaults); `upgrade.py` (v0.4 → v0.5).
+  `extract/code/python.py` (`path_constants`, opt-in Settings defaults); `upgrade.py` (v0.4 → v0.5 → v0.6).
 
-### 4.2 The file (format v0.5; v0.4 readable, upgraded in place on write)
+### 4.2 The file (format v0.6; v0.4 and v0.5 readable, upgraded in place on write)
 
 - **Column classes:** N (normative), I (informative: LLM, wall clock, pins), V (volatile line
   numbers).
@@ -181,7 +182,7 @@ owner's prompt.
 - **LLM tables:** `llm_results` (tasks incl. `chat`), `llm_runs`, `link_judgments`,
   `judge_rollups` (v0.5), `link_suggestions`, `summaries`, `narrations`; the
   `node_status_effective` view (judged drift or a roll-up drift).
-- The spec is `docs/spec/ad2v-format-v0.5.md`: §11 the LLM layer, §12 layout and viewer, §13 MCP
+- The spec is `docs/spec/ad2v-format-v0.6.md`: §11 the LLM layer, §12 layout and viewer, §13 MCP
   and retrieval rules.
 
 ### 4.3 Viewer (`viewer/`: Vite 7, TypeScript strict, three 0.180, sql.js)
@@ -328,6 +329,7 @@ owner's prompt.
     what did not fit cleanly;
   - 0064: discovery, opt-in, trust and isolation (timeouts, `--strict`);
   - 0065: plug-in identity in the epoch rules (additive within v0.5), parse-cache key, GC.
+- **0066 (P8.1):** `not_evaluable` and the language-scope inventory; format v0.6.
 
 ## 6. Findings worth knowing
 
@@ -402,7 +404,10 @@ owner's prompt.
 - **Plug-ins / security (P8):** #89 core rules still in `python.yaml`; #90 no tree-level framework
   hook; #91 the viewer does not check a file's schema before querying; #92 `braces` advisory in the
   build chain; #93 actionlint / gitleaks not run yet.
-- **Language support:** code extraction is **Python only** (TypeScript is P9, as a plug-in).
+- **Language support:** code extraction is **Python only** (TypeScript is P9, as a plug-in). Since
+  P8.1, code in other languages is inventoried (`ad2v.scope`) and shown as **`not_evaluable`**
+  (dotted, hollow, thin, "∅" badge; Legend in the viewer); `// ad2v: REQ-001` comments link it.
+  #95 (component-mapped requirements, test titles in other languages) is open.
 
 ## 8. How inputs are found (P6.1, P7)
 

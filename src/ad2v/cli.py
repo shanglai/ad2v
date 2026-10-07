@@ -58,8 +58,12 @@ def summary(res: pipeline.Result, target: str) -> str:
     out = [
         f"ad2v {__version__}: wrote epoch #{e.seq} {e.epoch_id} ({e.change_kind}) to {target}\n",
         f"parse cache: {res.stats['cache_hits']} hits, {res.stats['cache_misses']} misses",
-        f" ({_rate(res.stats['cache_hits'], res.stats['cache_misses'])})\n\n",
+        f" ({_rate(res.stats['cache_hits'], res.stats['cache_misses'])})\n",
     ]
+    if res.stats.get("unextracted"):  # P8.1 (ADR-0066)
+        langs = ", ".join(f"{k} {v}" for k, v in res.stats["unextracted"].items())
+        out.append(f"not extracted (no active extractor reads it): {langs} file(s); shown as not_evaluable\n")
+    out.append("\n")
     out.append(_table([(k, str(counts[k])) for k in ir.NODE_KINDS if counts[k]], ("kind", "count")))
     ports = sorted((n for n in g.nodes.values() if n.kind in ir.PORT_KINDS), key=lambda n: n.qualified_name)
     if ports:

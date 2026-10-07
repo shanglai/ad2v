@@ -1,0 +1,3 @@
+system: polyglot-shop
+pairing:
+  components: {CMP-001: api, CMP-002: web}

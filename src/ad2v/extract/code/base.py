@@ -10,7 +10,19 @@ from ad2v import ids, ir
 from ad2v.extract.files import SourceFile
 from ad2v.manifest import Config, ContainerDecl
 
-CONTAINER_MARKERS = ("pyproject.toml", "setup.py", "Dockerfile")
+# P8.1 (ADR-0066): manifests of other ecosystems mark containers too, so code in a language no
+# extractor reads lands in its own container instead of the system's
+CONTAINER_MARKERS = (
+    "pyproject.toml",
+    "setup.py",
+    "Dockerfile",
+    "package.json",
+    "go.mod",
+    "Cargo.toml",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+)
 
 
 @dataclass(frozen=True)

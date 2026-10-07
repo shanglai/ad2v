@@ -11,8 +11,8 @@ from typing import Any
 
 from ad2v import ids
 
-FORMAT_VERSION = "0.5"
-SUPPORTED_FORMAT_VERSIONS = ("0.4", "0.5")  # 0.4 files are upgraded in place on write (ADR-0055)
+FORMAT_VERSION = "0.6"
+SUPPORTED_FORMAT_VERSIONS = ("0.4", "0.5", "0.6")  # older files are upgraded on write (ADR-0055, 0066)
 
 SIDES = ("code", "spec")
 
@@ -66,6 +66,8 @@ LINK_STATUSES = (
     "stale",
     "needs_review",
     "missing",
+    # P8.1 (ADR-0066): specified and implemented, but in a language no active extractor reads
+    "not_evaluable",
 )
 # Effective node status: link statuses plus `none` (no spec coverage applies, e.g. a function
 # inside an unmapped container). Precedence, highest first (format spec §6.4):
@@ -77,6 +79,7 @@ STATUS_PRECEDENCE = (
     "stale",
     "verified",
     "implemented",
+    "not_evaluable",
     "specified",
     "none",
 )

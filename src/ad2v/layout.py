@@ -401,7 +401,7 @@ def density(g: ir.Graph, boxes: dict[str, Box]) -> dict[str, float]:
 
 
 # -- storage ------------------------------------------------------------------------------------
-# The same table as in schema/ad2v-v0.5.sql, for v0.4 files created before P5 (additive).
+# The same table as in schema/ad2v-v0.6.sql, for v0.4 files created before P5 (additive).
 DDL = """
 CREATE TABLE IF NOT EXISTS layout_grids (
     epoch_id  TEXT NOT NULL REFERENCES epochs(epoch_id),

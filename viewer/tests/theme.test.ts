@@ -96,3 +96,24 @@ describe("tokens", () => {
     });
   }
 });
+
+// P8.1 (ADR-0066): the not_evaluable status and the legend
+import { LEGEND_ORDER, STATUS_MEANINGS, notEvaluableNote } from "../src/ui/legend";
+
+describe("not_evaluable and the status legend", () => {
+  it("draws not_evaluable hollow, thin and dotted with a ∅ badge in both themes", () => {
+    for (const name of ["dark", "light"] as ThemeName[]) {
+      const r = outlineFor(THEMES[name], name, "not_evaluable", true);
+      expect(r.hollow).toBe(true);
+      expect(r.line).toBe("dotted");
+      expect(r.badge?.glyph).toBe("∅");
+      expect(r.badge?.bg).toBe(THEMES[name].badge.scope);
+    }
+  });
+  it("explains every status, and names the language for not_evaluable", () => {
+    expect([...LEGEND_ORDER].sort()).toEqual(Object.keys(STATUS_STYLES).sort());
+    for (const s of LEGEND_ORDER) expect(STATUS_MEANINGS[s]?.length).toBeGreaterThan(10);
+    expect(notEvaluableNote("typescript")).toContain("in typescript, which no active extractor reads");
+    expect(notEvaluableNote(undefined)).toContain("in a language which no active extractor reads");
+  });
+});

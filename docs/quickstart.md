@@ -341,7 +341,9 @@ you the CLI command. More hosts: [docs/mcp.md](mcp.md).
 
 ## 10. Limits
 
-- **Code extraction is Python only.**
+- **Code extraction is Python only.** Code in other languages (TypeScript, Java, Go, …) is listed
+  but not read: it shows as `not_evaluable` (thin, dotted, hollow, "∅" badge; see **Legend** in the
+  viewer). Add `// ad2v: REQ-001` comments there so the spec item still points at the right file.
 - **Spec formats:** OpenAPI 3, Gherkin, the ad2v convention, spec-kit `spec.md`, Kiro
   `requirements.md`, custom regexes. Not yet parsed: Kiro `design.md`/`tasks.md`, spec-kit
   `plan.md`/`tasks.md`, requirement tables.

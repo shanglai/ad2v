@@ -1,5 +1,5 @@
 -- ad2v file format v0.5 -- SQLite DDL
--- Normative reference: docs/spec/ad2v-format-v0.5.md
+-- Normative reference: docs/spec/ad2v-format-v0.6.md
 -- Column classes: N = normative (deterministic), I = informative (LLM/runtime/wall-clock/file
 -- management), V = volatile (deterministic, but moves with unrelated edits: ignored by `ad2v diff`
 -- and excluded from version keys).
@@ -296,7 +296,7 @@ CREATE TABLE links (
                   CHECK (method IN ('annotation','route_match','manifest','manifest_link','name_match','none','llm')),
     status        TEXT NOT NULL -- N/I (I when provenance='llm')
                   CHECK (status IN ('specified','implemented','verified','drift',
-                  'orphan','stale','needs_review','missing')),
+                  'orphan','stale','needs_review','missing','not_evaluable')),
     provenance    TEXT NOT NULL CHECK (provenance IN ('deterministic','runtime','llm')), -- N
     evidence_json TEXT NOT NULL DEFAULT '[]',   -- N/I
     confidence    REAL NOT NULL,                -- N/I  1.0 for deterministic links
@@ -319,7 +319,7 @@ CREATE TABLE node_status (
     node_id      TEXT NOT NULL,                 -- N
     status       TEXT NOT NULL                  -- N
                  CHECK (status IN ('drift','needs_review','missing','orphan','stale','verified',
-                 'implemented','specified','none')),
+                 'implemented','not_evaluable','specified','none')),
     reasons_json TEXT NOT NULL,                 -- N  {precedence: [...], reasons: [...]} (spec §6.4)
     PRIMARY KEY (epoch_id, node_id)
 );

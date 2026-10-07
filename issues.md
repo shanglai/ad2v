@@ -140,3 +140,11 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 92 | low | `braces` advisory (GHSA-vfj7-8cjw-p6xm) in the build-only chain via `vite-plugin-singlefile`; no patched release. | open (S14) |
 | 93 | info | actionlint and gitleaks were not installed; workflows are checked statically by tests and history was scanned with regex patterns instead. | open: run both once on the public repository |
 
+## P8.1
+
+| # | severity | issue | state |
+|---|---|---|---|
+| 94 | medium | Code in a language no active extractor reads was invisible: requirements implemented there showed `specified`/`missing` and their containers `orphan` (seen on a Java-only middleware during dogfood preparation). | **fixed** (ADR-0066): status `not_evaluable`, language-scope inventory, legend |
+| 95 | low | Requirements of a spec component mapped to an all-unextracted container stay `specified` unless annotated with `ad2v:` comments; test names in unextracted test files are not read. | open (ADR-0066 "not done") |
+| 96 | low | New container markers (`package.json`, `go.mod`, `Cargo.toml`, `pom.xml`, `build.gradle`) can change container inference for repositories that have such directories at the top level. | accepted (documented; fixtures unchanged) |
+

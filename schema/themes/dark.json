@@ -44,6 +44,10 @@
     "none": {
       "stroke": "#8792A6",
       "fill": "#111722"
+    },
+    "not_evaluable": {
+      "stroke": "#A9B67C",
+      "fill": "#13160C"
     }
   },
   "emphasis": {
@@ -59,7 +63,9 @@
     "ai": "#2EC4B6",
     "ai_text": "#0A0E16",
     "suggestion": "#FF8FC8",
-    "suggestion_text": "#0A0E16"
+    "suggestion_text": "#0A0E16",
+    "scope": "#A9B67C",
+    "scope_text": "#0A0E16"
   },
   "severity_ramp": [
     "#7F93B3",

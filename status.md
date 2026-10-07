@@ -1,5 +1,24 @@
 # Status
 
+## P8.1 (done): `not_evaluable`, a status and legend for code no active extractor reads
+
+Requested after P8 (2026-10-07): a category for "specified and developed, but not evaluable
+because the language is outside the comprehended scope" (TypeScript today). ADR-0066, format v0.6.
+Report: REPORT.md §13 (copy docs/reports/P8.md). Not committed yet (P8 is `4d5740b`).
+
+| step | state |
+|---|---|
+| status `not_evaluable` (ir, DDL CHECKs, IR schema, tokens, themes, preview) | done; precedence implemented > not_evaluable > specified |
+| format v0.6 + in-place upgrade 0.5 -> 0.6 (links, node_status rebuilt; 0.4 -> 0.5 -> 0.6) | done; test with a rebuilt v0.5 file |
+| language scope inventory (`ad2v.scope`): unextracted modules, `ad2v:` comment markers, epoch inputs, `scope` in epoch rules | done |
+| pairing: implemented -> not_evaluable for unextracted code; never orphan; containers from package.json/go.mod/Cargo.toml/pom.xml/build.gradle | done |
+| CLI summary line, `status --status not_evaluable`, MCP status words, dogfood_counts by language | done |
+| viewer: style (dotted, hollow, thin, ∅ badge), Legend button, card note with the language | done; e2e scope.spec.ts 2/2, P8.1-screens 4 |
+| fixtures/polyglot (Python API + TypeScript web), tests/test_scope.py 5, upgrade test, vitest +2 | done |
+| docs: ADR-0066, format spec v0.6 (§4.1, §6.2, §6.4), visual tokens, README, quickstart, dogfood | done |
+| proof: P8 vs P8.1 dumps of 5 Python-only scenarios identical except epoch id, rules hash, format version, recorded precedence | done |
+| gates: pytest 388 (386 + 2 skips), vitest 51, Playwright 26 (25 + 1 skip), test:mcp (Inspector 38/38, App 10/10), ruff, eslint, tsc, builds, license gates, determinism (5 fixtures) | done |
+
 ## P8 (done): release readiness without release, plus the extractor plug-in API
 
 Single final commit at the end. P8 report: REPORT.md (copy docs/reports/P8.md); P7 report: docs/reports/P7.md. Context: docs/claude-context.md.

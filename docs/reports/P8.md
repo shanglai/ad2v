@@ -1,6 +1,7 @@
 # P8 report: release readiness without release, plus the extractor plug-in API
 
 ad2v 0.7.0.dev0, format v0.5 (plug-in identity added within v0.5). Phase dates: 2026-10-04.
+**Addendum P8.1 (2026-10-07): `not_evaluable` and format v0.6, see §13.**
 Previous report: [docs/reports/P7.md](docs/reports/P7.md). This report is also at
 [docs/reports/P8.md](docs/reports/P8.md).
 
@@ -365,7 +366,7 @@ Changed files, grouped:
   `tests/test_history.py`, `tests/test_p3_units.py`, `tests/test_llm.py`;
   `viewer/e2e/hostile.spec.ts` (new); `viewer/tests/fixtures/projections.json` (regenerated: epoch id).
 - **Docs and tracking:** ADR-0063, 0064, 0065 (new), `docs/plugins.md` (new),
-  `docs/spec/ad2v-format-v0.5.md`, `docs/dependencies.md`, `README.md`, `docs/claude-context.md`,
+  `docs/spec/ad2v-format-v0.5.md` (now v0.6), `docs/dependencies.md`, `README.md`, `docs/claude-context.md`,
   `issues.md` (84–93), `pending.md`, `status.md`, `REPORT.md`, `docs/reports/P8.md` (new).
 - **Sanitized:** `docs/reports/P4.md`, `docs/reports/P6.md`, `docs/reports/P7.md`,
   `fixtures/payments-recon/llm-vertex.yaml`; `docs/reports/P5-demo.html` rebuilt with the current
@@ -376,3 +377,75 @@ used for test counts, build artifacts in `examples/` and `build/`, the Playwrigh
 for this session, the MCP Inspector's npx cache entry created by `test:mcp`, the regenerated
 screenshots of earlier phases (restored to their committed versions) and `viewer/test-results` were
 deleted. Scratch files lived in the session scratchpad only.
+
+## 13. Addendum P8.1: `not_evaluable`, code in a language ad2v cannot read (ADR-0066)
+
+**Why.** While preparing the dogfood run, the first candidate (a middleware whose services are
+Java, with prose specs in another repository) showed the gap: ad2v walked only Python, so
+everything built in another language was invisible. Requirements implemented there showed as
+`specified` or `missing`, and their containers as `orphan`, which is false. The owner asked for a
+legend or category for "specified and developed, but not evaluable because the language is outside
+the comprehended scope", with TypeScript as the example for an upcoming Python + TypeScript test
+project.
+
+**What it is.** A ninth status, **`not_evaluable`**: there is code for this in a language no active
+extractor reads, so ad2v neither confirms nor contradicts the spec there.
+
+| aspect | definition |
+|---|---|
+| what is read | every file whose extension is in the scope table (TypeScript, JavaScript, Vue, Svelte, Java, Kotlin, Scala, Go, Rust, C#, F#, Ruby, PHP, Swift, Objective-C, Dart, Elixir, C, C++; `*.d.ts` skipped) that no active plug-in claims becomes a `module` node with `attrs.extracted = false` and `attrs.language`; its content is an epoch input; the table is in the epoch rules (`scope`) |
+| links | `ad2v: REQ-001` in a comment (`//`, `#`, `/*`, `*`, `--`, `<!--`) is a spec reference; a link that would be `implemented` with an unextracted module (or an all-unextracted container/component) on the code side becomes `not_evaluable` with evidence `language_out_of_scope` |
+| no orphans | unextracted code with no spec link is `not_evaluable`, never `orphan` |
+| precedence | `drift > needs_review > missing > orphan > stale > verified > implemented > not_evaluable > specified > none`: any evaluated evidence wins; a component with Python and TypeScript is judged on its Python |
+| containers | `package.json`, `go.mod`, `Cargo.toml`, `pom.xml`, `build.gradle(.kts)` now mark containers (a TypeScript client lands in its own container) |
+| goes away by itself | when an extractor plug-in for the language is enabled, it claims those files (tested with a toy TypeScript plug-in) |
+| legend | **viewer:** a **Legend** toolbar button lists every status with its non-color signature and meaning; `not_evaluable` is thin, dotted, hollow, with a "∅" badge, olive-sage (dark 8.9:1, light 5.6:1); a node card says "written in typescript, which no active extractor reads" and what to do. **CLI:** `extract` prints `not extracted (no active extractor reads it): typescript 2 file(s); shown as not_evaluable`; `ad2v status --status not_evaluable`. **MCP:** "unevaluated", "evaluable", "unsupported" find it. **Dogfood:** `dogfood_counts.py` reports `unextracted_files_by_language`, and the results table has a row for it |
+
+**Format v0.6.** The status is in the CHECK constraints of `links.status` and `node_status.status`;
+a v0.5 file is upgraded in place when opened for writing (both tables rebuilt, rows copied), v0.4
+files go 0.4 → 0.5 → 0.6, readers accept 0.4–0.6. Schema, IR schema and spec renamed to v0.6.
+
+**Proof that Python-only repositories are unaffected.** Normative dumps (every epoch) from the P8
+commit (`4d5740b`, temporary worktree) and from P8.1, for payments-recon (with test results),
+the 3 SDD presets and the 8-epoch history scenario: identical after normalizing four expected
+differences: epoch id and rules hash (the `scope` table is in the epoch rules), the
+`format_version` row, and the precedence list that each `node_status` row records. All P7/P8 goldens
+pass unchanged.
+
+**The fixture** `fixtures/polyglot` (Python API + TypeScript web client + one spec):
+
+| node | status |
+|---|---|
+| REQ-001, CMP-001 (Python API) | implemented |
+| REQ-002 (annotated in `cart.ts`), CMP-002 (mapped to the TypeScript container) | not_evaluable |
+| REQ-003 (referenced nowhere) | specified |
+| `cart.ts`, `format.ts`, `web/src`, `container:web` | not_evaluable (no orphans) |
+| `types.d.ts` | not a node |
+
+Screenshots: `docs/reports/P8.1-screens/` (legend and a TypeScript module's card, both themes).
+
+**Tests.** pytest 382 → **388** collected (386 passed, 2 skipped): `tests/test_scope.py` 5 new, and
+1 new upgrade test (v0.5 → v0.6). Vitest 49 → **51**. Playwright 24 → **26** (25 passed, 1
+on-demand skip): `e2e/scope.spec.ts` 2. `test:mcp`: Inspector 38/38, App e2e 10/10, parity 6/6.
+Changed tests: `test_pairing.py::test_precedence_order_is_the_documented_one` (the new precedence),
+`test_upgrade.py` v0.4 test (now ends at 0.6), `viewer/tests/datasource.test.ts` (format 0.6).
+Determinism (LF vs CRLF+BOM) now also covers the polyglot fixture.
+
+**Not done** (issue 95, pending): requirements under a spec component mapped to an all-unextracted
+container stay `specified` unless annotated; test titles in other languages (`it("REQ-001 …")`) are
+not read.
+
+**Cost:** $0 (no cloud, no LLM). Total still **$0.977**.
+
+**Files (P8.1):** `src/ad2v/scope.py` (new), `src/ad2v/{ir,pairing,pipeline,plugins,tokens,preview,
+upgrade,store,cli}.py`, `src/ad2v/extract/code/base.py`, `src/ad2v/mcp/locate.py`;
+`schema/ad2v-v0.6.sql`, `schema/ir-v0.6.schema.json` (renamed from v0.5), `schema/themes/*.json`;
+`viewer/src/{theme.ts,render/style.ts,render/scene.ts,ui/app.ts,ui/legend.ts (new),style.css,
+data/types.ts}`, `viewer/e2e/scope.spec.ts` (new), `viewer/tests/{theme,datasource}.test.ts`;
+`fixtures/polyglot/` (new); `tests/test_scope.py` (new), `tests/test_upgrade.py`,
+`tests/test_pairing.py`; `scripts/dogfood_counts.py`, `scripts/determinism_check.py`;
+`docs/adr/0066-not-evaluable-language-scope.md` (new), `docs/spec/ad2v-format-v0.6.md` (renamed),
+`docs/spec/visual-tokens-v0.2.md`, `README.md`, `docs/quickstart.md`, `docs/dogfood.md`,
+`docs/claude-context.md`, `status.md`, `issues.md` (94–96), `pending.md`,
+`docs/reports/P8.1-screens/` (new), `docs/reports/P5-demo.html` (rebuilt).
+

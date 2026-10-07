@@ -47,6 +47,10 @@ STATUS_WORDS = {
     "verified": "verified",
     "tested": "verified",
     "review": "needs_review",
+    # P8.1 (ADR-0066)
+    "unevaluated": "not_evaluable",
+    "evaluable": "not_evaluable",
+    "unsupported": "not_evaluable",
 }
 STATUS_STEMS = {stem(w): s for w, s in STATUS_WORDS.items()}  # "drifts", "drifting" -> drift
 

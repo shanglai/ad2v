@@ -11,7 +11,7 @@ export interface StatusStyle {
   token: string;
   line: LineStyle;
   fill: "tinted" | "hollow";
-  decoration: "none" | "emphasis" | "warning_badge" | "clock_badge";
+  decoration: "none" | "emphasis" | "warning_badge" | "clock_badge" | "scope_badge";
   weight: "regular" | "thin";
 }
 
@@ -25,6 +25,8 @@ export const STATUS_STYLES: Record<string, StatusStyle> = {
   needs_review: { token: "status.needs_review", line: "dash_dot", fill: "tinted", decoration: "none", weight: "regular" },
   stale: { token: "status.stale", line: "solid", fill: "tinted", decoration: "clock_badge", weight: "regular" },
   none: { token: "status.none", line: "solid", fill: "tinted", decoration: "none", weight: "thin" },
+  // P8.1 (ADR-0066): specified and implemented in a language no active extractor reads
+  not_evaluable: { token: "status.not_evaluable", line: "dotted", fill: "hollow", decoration: "scope_badge", weight: "thin" },
 };
 
 /** Overlay badges: the glyph is the non-color signature (visual tokens §6, tokens.OVERLAY_BADGES). */

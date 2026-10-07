@@ -50,8 +50,17 @@ def counts(path: Path) -> dict:
             " WHERE epoch_id = ? AND kind = 'module' AND side = 'code'",
             (head,),
         ).fetchone()[0]
+        # P8.1 (ADR-0066): code no active extractor reads, by language (status not_evaluable)
+        unextracted: collections.Counter[str] = collections.Counter()
+        for (raw,) in q(
+            "SELECT attrs_json FROM nodes WHERE epoch_id = ? AND kind = 'module'"
+            " AND attrs_json LIKE '%\"extracted\":false%'",
+            (head,),
+        ):
+            unextracted[str(json.loads(raw).get("language"))] += 1
         return {
             "format_version": meta.get("format_version"),
+            "unextracted_files_by_language": dict(sorted(unextracted.items())),
             "epochs": epochs,
             "code_files": modules,
             "code_lines": loc,

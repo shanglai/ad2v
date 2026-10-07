@@ -94,6 +94,7 @@ Measure-Command { .venv-dogfood\Scripts\ad2v extract --repo $REPO --manifest C:\
 .venv-dogfood\Scripts\ad2v status  $MAP --status orphan
 .venv-dogfood\Scripts\ad2v status  $MAP --status needs_review
 .venv-dogfood\Scripts\ad2v status  $MAP --status specified --side spec
+.venv-dogfood\Scripts\ad2v status  $MAP --status not_evaluable
 .venv-dogfood\Scripts\ad2v inspect $MAP --top-risk 10
 .venv-dogfood\Scripts\ad2v inspect $MAP --kind http_route
 
@@ -133,6 +134,9 @@ Notes:
 8. **Extractor gaps**: things in the code that ad2v did not see at all: routes of an unsupported
    framework, jobs, CLIs, queues, datastores, or files skipped. Describe the *kind* of construct,
    never the code.
+9. **Languages out of scope**: `unextracted_files_by_language` from the counts. Code in those
+   languages is shown as `not_evaluable` (format v0.6): ad2v saw it but cannot judge it. Count the
+   spec items that are `not_evaluable` and how many of them you would expect to be implemented.
 
 ## 4. Clean up
 
@@ -151,8 +155,9 @@ do not need it again. Nothing was written inside the private repositories.
 | `history` time (s) / commits | | |
 | viewer first render (s) / fluid? | | |
 | nodes (total) | | |
-| spec items: verified / implemented / specified / missing / drift / needs_review / stale | | |
-| code nodes: verified / implemented / orphan / drift / needs_review | | |
+| spec items: verified / implemented / not_evaluable / specified / missing / drift / needs_review / stale | | |
+| code nodes: verified / implemented / not_evaluable / orphan / drift / needs_review | | |
+| languages not read (files per language) | | |
 | drift rows checked / real / false | | |
 | missing + specified checked / actually implemented (missed pairings) | | |
 | orphans checked / actually specified (false orphans) | | |

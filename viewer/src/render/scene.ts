@@ -995,7 +995,7 @@ function wallPoint(b: Box, inner: THREE.Vector3, outer: THREE.Vector3): THREE.Ve
 }
 
 function rollupKey(r: Record<string, number>, th: Theme): string | null {
-  const order = ["drift", "needs_review", "missing", "orphan", "stale", "verified", "implemented", "specified"];
+  const order = ["drift", "needs_review", "missing", "orphan", "stale", "verified", "implemented", "not_evaluable", "specified"];
   const parts = order.filter((s) => (r[s] ?? 0) > 0).map((s) => `${s}:${r[s]}`);
   void th;
   return parts.length ? `rollup:${parts.join(",")}` : null;

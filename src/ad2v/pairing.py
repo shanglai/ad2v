@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from ad2v import ids, ir
+from ad2v import ids, ir, scope
 from ad2v.manifest import Config
 
 PORT_KINDS = frozenset(ir.PORT_KINDS)
@@ -300,6 +300,13 @@ def pair_links(
                         )
                     )
 
+    # code ad2v cannot read (P8.1, ADR-0066): implemented there means "not evaluable" -----------
+    out_of_scope = _out_of_scope(graph)
+    for lk in links.all():
+        if lk.code_node_id in out_of_scope and lk.status == "implemented":
+            lk.status = "not_evaluable"
+            lk.evidence.append(out_of_scope[lk.code_node_id])
+
     # unpaired spec items ----------------------------------------------------------------------
     paired_spec = {lk.spec_node_id for lk in links.all() if lk.spec_node_id}
     for nid in by_kind["spec_endpoint"]:
@@ -317,9 +324,11 @@ def pair_links(
     orphan_candidates = (
         sorted(n for k in ORPHAN_KINDS for n in by_kind[k]) if assigns_orphans(graph, config) else []
     )
+    for nid in sorted(n for n in out_of_scope if n not in code_linked):  # never an orphan
+        links.add(ir.Link(None, nid, "not_evaluable", "none", [out_of_scope[nid]]))
     for nid in orphan_candidates:
         node = nodes[nid]
-        if nid in code_linked:
+        if nid in code_linked or nid in out_of_scope:
             continue
         if node.kind in PORT_KINDS and _handler(graph, node) in code_linked:
             continue
@@ -340,6 +349,31 @@ def finalize(
     links = sorted(links, key=lambda lk: lk.link_id)
     statuses = _node_statuses(graph, links, _ancestors(graph), extra_reasons or {})
     return PairingResult(links, statuses, _rollup(graph, statuses), list(warnings or []))
+
+
+def _out_of_scope(graph: ir.Graph) -> dict[str, dict[str, Any]]:
+    """Unextracted modules, and containers/components whose modules are all unextracted, with the
+    evidence that says why (the languages)."""
+    nodes = graph.nodes
+    out: dict[str, dict[str, Any]] = {}
+    langs: dict[str, set[str]] = defaultdict(set)  # structural node -> languages below it
+    evaluable: set[str] = set()  # structural nodes with at least one extracted module below
+    anc = _ancestors(graph)
+    for nid in sorted(nodes):
+        n = nodes[nid]
+        if n.kind != "module" or n.side != "code":
+            continue
+        if scope.is_unextracted(n):
+            lang = str(n.attrs.get("language"))
+            out[nid] = {"kind": "language_out_of_scope", "languages": [lang]}
+            for a in anc[nid]:
+                langs[a].add(lang)
+        else:
+            evaluable.update(anc[nid])
+    for nid, ls in sorted(langs.items()):
+        if nid not in evaluable and nodes[nid].kind in STRUCTURAL_ORPHAN_KINDS:
+            out[nid] = {"kind": "language_out_of_scope", "languages": sorted(ls)}
+    return out
 
 
 def _handler(graph: ir.Graph, port: ir.Node) -> str | None:

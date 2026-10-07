@@ -39,6 +39,7 @@ STATUS_ORDER = [
         "missing",
         "needs_review",
         "stale",
+        "not_evaluable",
         "none",
     )
 ]
@@ -85,6 +86,12 @@ def glyph_svg(base: str, status: str, theme: dict[str, Any]) -> str:
         parts.append(
             f'<circle cx="72" cy="12" r="7" fill="none" stroke="{badge["clock"]}" stroke-width="1.6"/>'
             f'<path d="M72 8 v4 l3 2" fill="none" stroke="{badge["clock"]}" stroke-width="1.6" stroke-linecap="round"/>'
+        )
+    elif st.decoration == "scope_badge":  # P8.1 (ADR-0066): not evaluated, language out of scope
+        parts.append(
+            f'<circle cx="72" cy="12" r="7" fill="{badge["scope"]}"/>'
+            f'<text x="72" y="16" text-anchor="middle" font-size="11" font-weight="700" '
+            f'fill="{badge["scope_text"]}" font-family="system-ui,sans-serif">\u2205</text>'
         )
     label = f"{base} / {status}"
     return (
@@ -160,9 +167,12 @@ def _describe(status: str) -> str:
         bits.append("hollow")
     if st.decoration != "none":
         bits.append(
-            {"emphasis": "glow/halo", "warning_badge": "warning badge", "clock_badge": "clock badge"}[
-                st.decoration
-            ]
+            {
+                "emphasis": "glow/halo",
+                "warning_badge": "warning badge",
+                "clock_badge": "clock badge",
+                "scope_badge": "\u2205 badge",
+            }[st.decoration]
         )
     if st.weight == "thin":
         bits.append("thin")

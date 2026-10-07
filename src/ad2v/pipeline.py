@@ -25,6 +25,7 @@ from ad2v import (
     materialize,
     pairing,
     plugins,
+    scope,
     severity,
     specroots,
     store,
@@ -197,7 +198,12 @@ def build(
     rules = active.epoch_rules
     system_name = config.system_name or name_hint or repo.name
     patterns = active.all_patterns()
-    rel = filewalk.walk(repo, config.exclude, include=lambda p: plugins.matches(p, patterns))
+    # P8.1 (ADR-0066): code in languages no active plug-in reads is inventoried too
+    rel = filewalk.walk(
+        repo,
+        config.exclude,
+        include=lambda p: plugins.matches(p, patterns) or scope.language(p) is not None,
+    )
     cli_specs = None if spec is None else [Path(spec)] if isinstance(spec, (str, Path)) else list(spec)
     sroots = specroots.resolve(
         repo, cli_specs, list(config.spec_roots), config.exclude, spec_autodetect, config.spec_markdown
@@ -255,7 +261,7 @@ def build(
         return res
 
     graph = ir.Graph()
-    Layout(graph, config, repo, system_name)  # the system node comes first, whatever runs
+    main_layout = Layout(graph, config, repo, system_name)  # the system node comes first
     ran = plugins.run(
         active,
         graph=graph,
@@ -268,6 +274,8 @@ def build(
         timeout_s=plugin_timeout_s,
     )
     facts = ran.facts
+    unextracted = [f for f in files if not plugins.matches(f.path, patterns)]
+    scope_counts = scope.add_unextracted(graph, main_layout, unextracted)
     t = lap("code_extraction", t)
     timings.update(ran.timings)
     if sroots.roots:
@@ -350,6 +358,7 @@ def build(
         "loc_code": sum(
             (n.span_end_line or 0) for n in graph.nodes.values() if n.kind == "module" and n.side == "code"
         ),
+        "unextracted": scope_counts,
         "cache_hits": ran.stats["cache_hits"],
         "cache_misses": ran.stats["cache_misses"],
     }

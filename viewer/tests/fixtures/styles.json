@@ -62,6 +62,13 @@
    "fill": "tinted",
    "decoration": "none",
    "weight": "thin"
+  },
+  "not_evaluable": {
+   "token": "status.not_evaluable",
+   "line": "dotted",
+   "fill": "hollow",
+   "decoration": "scope_badge",
+   "weight": "thin"
   }
  },
  "overlays": {
@@ -110,6 +117,7 @@
   "stale",
   "verified",
   "implemented",
+  "not_evaluable",
   "specified",
   "none"
  ]

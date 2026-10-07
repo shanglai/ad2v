@@ -44,6 +44,7 @@ import {
 import { copyText, h } from "./dom";
 import { EDGE_MODES, type EdgeMode } from "../model/declutter";
 import { ChatPanel } from "./chat";
+import { legendPanel, notEvaluableNote } from "./legend";
 import { Replay } from "./replay";
 
 const RESOURCE_KINDS = new Set(["datastore", "queue", "external_service", "llm_endpoint", "ui"]);
@@ -120,6 +121,7 @@ export class App {
   private cur!: EpochData;
   private effective = false;
   private showSuggestions = false;
+  private legendEl: HTMLElement | null = null; // P8.1: the status legend overlay
   private compareFrom: string | null = null;
   private diffMap: Map<string, DiffEntry> | null = null;
   private ghosts: MapModel["ghosts"] = [];
@@ -422,7 +424,21 @@ export class App {
       edgeSel,
       wfSel,
       h("button", { id: "toggle-theme", title: "theme: system / dark / light", onclick: () => this.cycleTheme() }, `Theme: ${this.themeChoice}`),
+      h("button", { id: "toggle-legend", class: this.legendEl ? "on" : "", "aria-pressed": String(!!this.legendEl),
+        title: "what each status and line style means", onclick: () => this.toggleLegend() }, "Legend"),
     );
+  }
+
+  /** P8.1 (ADR-0066): the status legend, including `not_evaluable`. */
+  toggleLegend(): void {
+    if (this.legendEl) {
+      this.legendEl.remove();
+      this.legendEl = null;
+    } else {
+      this.legendEl = legendPanel(() => this.toggleLegend());
+      this.root.append(this.legendEl);
+    }
+    this.renderToolbarState();
   }
 
   private openSuggestions(): number {
@@ -799,7 +815,11 @@ export class App {
       h("div", { class: "statuses" },
         statusChip("normative", sn?.status ?? "none"),
         se && se.status !== se.normative ? statusChip(`effective${se.provenance === "llm" ? " (AI)" : ""}`, se.status) : null),
-      reasons.length ? h("ul", { class: "reasons" }, ...reasons) : null);
+      reasons.length ? h("ul", { class: "reasons" }, ...reasons) : null,
+      (se?.status ?? sn?.status) === "not_evaluable"
+        ? h("p", { class: "scope-note", id: "scope-note" },
+            notEvaluableNote(typeof detail?.attrs?.language === "string" ? detail.attrs.language : undefined))
+        : null);
     // P7 (ADR-0061): what is inside, with statuses; click to fly (labels on the map are culled)
     const kids = d.tree.nodes.get(id)?.children ?? [];
     const kidsEl = kids.length

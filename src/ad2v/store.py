@@ -223,10 +223,10 @@ def open_rw(path: Path) -> sqlite3.Connection:
     except sqlite3.DatabaseError as e:
         conn.close()
         raise NotAnAd2vFile(f"not an ad2v file: {path} ({e})") from e
-    if version is not None and version[0] == "0.4":  # P7: upgraded in place (ADR-0055)
-        from ad2v.upgrade import upgrade_v04
+    if version is not None and version[0] in ("0.4", "0.5"):  # upgraded in place (ADR-0055, ADR-0066)
+        from ad2v.upgrade import upgrade
 
-        upgrade_v04(conn)
+        upgrade(conn)
         version = (ir.FORMAT_VERSION,)
     if version is None or version[0] != ir.FORMAT_VERSION:
         conn.close()

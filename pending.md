@@ -95,6 +95,11 @@ Items consciously left out so far, grouped by the phase that should pick them up
 
 ## After P8: P9 (TypeScript extractor as a plug-in) and later
 
+- P8.1 follow-ups (ADR-0066): read test titles in unextracted test files (`it("REQ-001 …")`),
+  let spec items under a component mapped to an all-unextracted container become `not_evaluable`,
+  and drop `not_evaluable` automatically once the TypeScript plug-in claims `*.ts` (works already;
+  keep a test when P9 lands).
+
 - P9: the TypeScript extractor as the second real plug-in (after the owner's dogfood results and
   the employer agreement); move `severity:` / `retrieval:` out of `python.yaml` into core rules first
   (issue 89); decide whether a tree-level framework hook is needed (issue 90).

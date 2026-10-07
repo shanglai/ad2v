@@ -7,7 +7,9 @@ how the spec items and the code pair up. Readers of that file:
 
 - a **viewer**: a zoomable isometric 2.5D map (like C4, with more levels) in dark and light themes.
   Glyph shape = node kind. Line style = status: spec-only items are dotted, implemented solid,
-  verified glowing (dark) or haloed (light), drift carries a warning badge, orphan code is dashed.
+  verified glowing (dark) or haloed (light), drift carries a warning badge, orphan code is dashed,
+  and code in a language no active extractor reads is thin, dotted and hollow with a "∅" badge
+  (`not_evaluable`). A **Legend** button explains every status.
   Workflows replay step by step with a detail slider that follows the zoom.
 - **any MCP host's model** (Claude, ChatGPT, VS Code, …) through `ad2v mcp`: read-only tools that
   find components and explain them, with answers that point at node ids. Hosts with MCP Apps show
@@ -33,7 +35,8 @@ opt-in ([plug-in guide](docs/plugins.md)).
 | P6 | MCP server (stdlib, protocol 2026-07-28) + the map as an MCP App; deterministic retrieval | done ([report](docs/reports/P6.md), [setup](docs/mcp.md)) |
 | P6.1 | real-repo readiness: route recall (factories, `add_api_route`, Starlette, Flask), spec discovery, spec-kit / Kiro / custom presets, `ad2v specs` bootstrap, replay camera, opaque "dim the rest" | done ([report](docs/reports/P6.1.md)) |
 | P7 | verified quickstart, settings prefixes, retrieval v2, the viewer's own chat agent (BYOM, `ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, format v0.5 | done ([report](docs/reports/P7.md), [quickstart](docs/quickstart.md)) |
-| **P8** | extractor plug-in API (`ad2v.api`, entry points, opt-in, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (not published), CI workflows, security review, sanitization, dogfood procedure | **done** ([report](REPORT.md), [plug-ins](docs/plugins.md), [security](docs/security.md)) |
+| P8 | extractor plug-in API (`ad2v.api`, entry points, opt-in, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (not published), CI workflows, security review, sanitization, dogfood procedure | done ([report](REPORT.md), [plug-ins](docs/plugins.md), [security](docs/security.md)) |
+| **P8.1** | `not_evaluable`: a status and legend for code in a language no active extractor reads; format v0.6 | **done** ([report](REPORT.md) §13, ADR-0066) |
 
 Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
 line numbers): the same inputs (code, specs, rules, manifest, test results) give the same normative
@@ -160,10 +163,13 @@ ad2v specs approve <proposal> [--to specs/sub] [--force-stale]
   (including `stale`), risk changes, spec changes and workflow changes. `--format md` fits a PR
   comment (≤ 60 lines); see [`examples/github-action/ad2v-diff.yml`](examples/github-action/ad2v-diff.yml).
 - `status` lists effective statuses (`drift`, `needs_review`, `missing`, `orphan`, `stale`,
-  `verified`, `implemented`, `specified`) with their reasons.
+  `verified`, `implemented`, `not_evaluable`, `specified`) with their reasons. `not_evaluable`
+  (format v0.6): specified and built in a language no active extractor reads (TypeScript, Java, Go,
+  …); annotate such code with `// ad2v: REQ-001` comments so the pairing still shows. `extract`
+  prints which languages were not read.
 - `prune` keeps the last N epochs (and pinned ones), garbage-collects and vacuums.
 - `dump --normative-only` is the determinism contract: sorted JSONL, UTF-8, LF on every OS.
-- `validate` checks the format version (0.4 or 0.5), schema objects (no triggers, no foreign
+- `validate` checks the format version (0.4 to 0.6), schema objects (no triggers, no foreign
   tables or views), text sizes and JSON depth, foreign keys and node references, version keys, the
   epoch chain, glyph and status coverage, the IR JSON Schema, and that ids, link ids, Merkle hashes
   and roll-ups recompute.
@@ -186,10 +192,10 @@ repository code or tests.
 
 ## Documents
 
-- [Format spec v0.5](docs/spec/ad2v-format-v0.5.md) (normative: the product; §11 the LLM layer, §12 layout and viewer, §13 MCP, retrieval and chat)
+- [Format spec v0.6](docs/spec/ad2v-format-v0.6.md) (normative: the product; §11 the LLM layer, §12 layout and viewer, §13 MCP, retrieval and chat)
 - [Glyph grammar v0.2](docs/spec/glyph-grammar-v0.2.md) and [visual tokens v0.2](docs/spec/visual-tokens-v0.2.md)
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
-- [DDL](schema/ad2v-v0.5.sql), [IR JSON Schema](schema/ir-v0.5.schema.json), [themes](schema/themes/)
+- [DDL](schema/ad2v-v0.6.sql), [IR JSON Schema](schema/ir-v0.6.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
 - [REPORT.md](REPORT.md) (P8), [P7 report](docs/reports/P7.md), [plug-in guide](docs/plugins.md), [security](docs/security.md), [blind eval](docs/blind-eval.md), [dogfood procedure](docs/dogfood.md), [releasing (not for now)](docs/RELEASING.md), [quickstart](docs/quickstart.md), [MCP setup](docs/mcp.md), [P6.1 report](docs/reports/P6.1.md), [P6 report](docs/reports/P6.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
@@ -267,5 +273,5 @@ test (the viewer's data over the real stdio server), protocol conformance with t
 retrieval eval also runs standalone:
 `python -m ad2v.mcp.evaluate <file> fixtures/payments-recon/expected-questions.yaml [--tune]`.
 
-After editing `schema/ad2v-v0.5.sql`, regenerate the spec's column table with
+After editing `schema/ad2v-v0.6.sql`, regenerate the spec's column table with
 `python -m ad2v.ddl`. A test fails if you forget.

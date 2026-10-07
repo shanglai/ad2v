@@ -1,4 +1,4 @@
-# The ad2v file format, version 0.5
+# The ad2v file format, version 0.6
 
 Status: **draft, normative**. The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
@@ -16,8 +16,22 @@ Companion documents:
 - [`visual-tokens-v0.2.md`](visual-tokens-v0.2.md): how statuses become line styles and colors
   (status → style normative, palettes informative; unchanged in v0.3 and v0.4).
 - [`spec-markdown-convention.md`](spec-markdown-convention.md): the Markdown spec convention (normative for extractors).
-- [`../../schema/ad2v-v0.5.sql`](../../schema/ad2v-v0.5.sql): DDL (normative).
-- [`../../schema/ir-v0.5.schema.json`](../../schema/ir-v0.5.schema.json): JSON Schema of the IR (normative).
+- [`../../schema/ad2v-v0.6.sql`](../../schema/ad2v-v0.6.sql): DDL (normative).
+- [`../../schema/ir-v0.6.schema.json`](../../schema/ir-v0.6.schema.json): JSON Schema of the IR (normative).
+
+### Changes from v0.5 (P8.1, ADR-0066)
+
+- New status **`not_evaluable`** (links and nodes, §6.2, §6.4): specified and implemented in a
+  language no active extractor reads. The CHECK constraints of `links.status` and
+  `node_status.status` include it; a v0.5 file is upgraded in place when opened for writing
+  (both tables rebuilt, rows copied unchanged); v0.4 files go 0.4 → 0.5 → 0.6. Readers accept
+  0.4, 0.5 and 0.6.
+- **Language scope** (§4.1): code files in a language no active extractor reads become `module`
+  nodes with `attrs.extracted = false` and `attrs.language`; they are epoch inputs, and the scope
+  table is stored in the epoch rules under `scope`.
+- Containers are also inferred from `package.json`, `go.mod`, `Cargo.toml`, `pom.xml` and
+  `build.gradle(.kts)` (§4).
+- Visual tokens: `status.not_evaluable`, `badge.scope`, decoration `scope_badge` (visual tokens).
 
 ### Changes from v0.4
 
@@ -149,7 +163,7 @@ given and their hash differs from the parent's (§6.7).
 
 ## 3. The IR
 
-The IR is the logical model of one epoch. `schema/ir-v0.5.schema.json` defines its JSON form, and
+The IR is the logical model of one epoch. `schema/ir-v0.6.schema.json` defines its JSON form, and
 the views and tables in §5 store it.
 
 ### 3.1 Node
@@ -380,9 +394,23 @@ slow_io_in_transaction 3, fan_out 2}, `nesting_bonus` = {nested_loop_io 2}, and 
 
 If a manifest declares `containers`, a file belongs to the container with the longest path prefix
 that matches its path. Without declared containers, every top-level directory that contains
-`pyproject.toml`, `setup.py` or `Dockerfile` is a container named after the directory. Files that
+`pyproject.toml`, `setup.py` or `Dockerfile` (since v0.6 also `package.json`, `go.mod`,
+`Cargo.toml`, `pom.xml`, `build.gradle` or `build.gradle.kts`) is a container named after the
+directory. Files that
 match no container go to a fallback container named after the system, with `paths: ["."]`. It is
 created only if such files exist. When no container is found, this fallback is the repo root.
+
+### 4.1 Language scope (v0.6, ADR-0066)
+
+A producer only evaluates code its extractors read. Every other file whose extension is in the
+scope table (TypeScript, JavaScript, Vue, Svelte, Java, Kotlin, Scala, Go, Rust, C#, F#, Ruby,
+PHP, Swift, Objective-C, Dart, Elixir, C, C++; `*.d.ts` excluded), that no active extractor or
+framework pack claims and that is outside the excludes and the spec roots, MUST be recorded as a
+`module` node (side `code`, qualified name = path, `content_hash` of the normalized file) with
+`attrs.extracted = false` and `attrs.language`. Its content enters `repo_tree_hash`. `ad2v: <ids>`
+markers in comments (`//`, `#`, `/*`, `*`, `--`, `<!--`) are spec references
+(`attrs.spec_ref_sources[id] = ["comment"]`). The table (with a version) is stored in the epoch
+rules under `scope`, so it is covered by `rules_hash`.
 
 ## 5. Storage
 
@@ -512,6 +540,7 @@ for P4.
 | `orphan` | only for ports, containers and components with no link, no linked ancestor container/component and, for ports, no linked handler, **and only when the orphan policy assigns orphans** (below). Functions, classes and modules are never orphan |
 | `needs_review` | ambiguous pairing; ambiguous lineage (§6.6); or (node-level only) a node that carries an unresolved reference |
 | `stale` | a previously agreed link whose spec or code changed since (§6.7) |
+| `not_evaluable` | v0.6: a link that would be `implemented` whose code side is an unextracted module (§4.1), or a container/component whose modules are all unextracted; and every unextracted module or such container/component without a spec link (instead of `orphan`, whatever the orphan policy). Evidence `{kind: language_out_of_scope, languages}`. `verified`, `drift` and `needs_review` are not changed |
 
 **Orphan policy** (`pairing.orphan_policy` in `ad2v.yaml`, ADR-0022; recorded in `config_hash`):
 
@@ -551,7 +580,8 @@ columns and `confidence < 1`.
    takes its handler's links (`via_handler`). A node with an unresolved reference gets
    `needs_review`, and so does a node with an ambiguous lineage candidate (`lineage_ambiguous`).
 2. If there are own reasons, the status with the highest precedence wins:
-   **`drift` > `needs_review` > `missing` > `orphan` > `stale` > `verified` > `implemented` > `specified` > `none`**.
+   **`drift` > `needs_review` > `missing` > `orphan` > `stale` > `verified` > `implemented` >
+   `not_evaluable` > `specified` > `none`** (`not_evaluable` since v0.6: any evaluated evidence wins).
 3. Otherwise the node **inherits** its parent's effective status if that is `verified`,
    `implemented` or `specified` (reason `inherited`). Otherwise its status is `none` (no coverage
    applies; rendered neutrally, never red).
@@ -718,7 +748,7 @@ A conforming v0.4 file:
 - has `version_key` values that recompute from their payloads, no version row unreferenced by any
   membership row, and at most one version per id per epoch;
 - has the head materialized, and `epochs.materialized` consistent with `epoch_materialized`;
-- for every epoch: rows that validate against `ir-v0.5.schema.json`, `id = node_id(side, kind,
+- for every epoch: rows that validate against `ir-v0.6.schema.json`, `id = node_id(side, kind,
   qualified_name)` for every node, `subtree_hash` values that recompute (§2), a matching
   `contains`/`declares` edge for every `parent_id`, and lineage rows whose new ids are nodes of the
   epoch (and whose old ids are nodes of the parent, when the parent is the immediately preceding

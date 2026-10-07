@@ -28,6 +28,7 @@ fails if two statuses share a signature.
 | `needs_review` | `status.needs_review` | dash-dot | tinted | none | regular |
 | `stale` | `status.stale` | solid | tinted | clock badge | regular |
 | `none` (no coverage applies) | `status.none` | solid | tinted | none | **thin** |
+| `not_evaluable` (format v0.6, ADR-0066: built in a language no active extractor reads) | `status.not_evaluable` | dotted | **hollow** | **scope badge** (circle with "∅") | **thin** |
 
 Reference dash patterns at 2.2 px stroke: dotted `1.5 4.5` (round caps), dashed `7 5`,
 dash-dot `9 4 1.5 4`. A viewer MAY scale them with zoom, but MUST keep the four patterns
@@ -35,7 +36,8 @@ distinguishable. "Tinted" fills use the status's `fill` color from the theme. "H
 
 A theme is a JSON object with at least: `background`, `surface`, `grid`, `text`, `text_muted`,
 `edge`, `status.<status>.{stroke, fill}` for every status, `emphasis` (`kind`: `glow` or `halo`, plus
-its parameters), `badge.{warning, warning_text, clock}`, and `severity_ramp` (5 colors, low → high,
+its parameters), `badge.{warning, warning_text, clock}` (since format v0.6 also
+`badge.{scope, scope_text}`), and `severity_ramp` (5 colors, low → high,
 for `attrs.severity` buckets).
 
 **Contrast requirements (normative, tested for every shipped theme):** every status stroke, edge
@@ -48,6 +50,7 @@ Near-black background (`#0A0E16`). The spec/implemented/verified family is blue:
 muted blue, `implemented` a clear blue, and `verified` the brightest blue plus a **bloom glow** (a
 Gaussian blur of the outline, flooded with `#6FC3FF`, drawn under the stroke). `drift` is amber,
 `orphan` red, `needs_review` violet, `missing` blue-gray, and `stale` and `none` are neutral grays.
+`not_evaluable` (v0.6) is olive-sage, a hue no other status or overlay uses (the AI badge is teal).
 
 ## 4. Light theme (informative): verified without glow
 
@@ -72,6 +75,7 @@ warning badge uses a darker amber (`#9A5800`) so that its white "!" reaches 5.6:
 | needs_review | 7.72 | 5.92 |
 | stale | 7.50 | 4.49 |
 | none | 4.21 | 3.41 |
+| not_evaluable (v0.6) | 8.89 | 5.58 |
 | text / text_muted | 16.26 / 8.71 | 16.18 / 6.76 |
 
 ## 6. Overlay badges, links and diff tokens (P5)

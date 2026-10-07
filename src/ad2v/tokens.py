@@ -17,7 +17,7 @@ from ad2v.resources import schema_dir
 
 LINE_STYLES = ("solid", "dotted", "dashed", "dash_dot")
 FILLS = ("tinted", "hollow")
-DECORATIONS = ("none", "emphasis", "warning_badge", "clock_badge")
+DECORATIONS = ("none", "emphasis", "warning_badge", "clock_badge", "scope_badge")
 WEIGHTS = ("regular", "thin")
 THEMES = ("dark", "light")
 
@@ -46,6 +46,8 @@ STATUS_STYLES: dict[str, StatusStyle] = {
     "needs_review": StatusStyle("status.needs_review", "dash_dot", "tinted", "none"),
     "stale": StatusStyle("status.stale", "solid", "tinted", "clock_badge"),
     "none": StatusStyle("status.none", "solid", "tinted", "none", "thin"),
+    # P8.1 (ADR-0066): nothing was evaluated: hollow, thin dotted, with a "∅" badge
+    "not_evaluable": StatusStyle("status.not_evaluable", "dotted", "hollow", "scope_badge", "thin"),
 }
 assert set(STATUS_STYLES) == set(ir.NODE_STATUSES)
 

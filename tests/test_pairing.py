@@ -280,7 +280,16 @@ def test_unresolved_ref_is_needs_review_and_precedence(tmp_path):
 
 def test_precedence_order_is_the_documented_one():
     order = [s for s in ir.STATUS_PRECEDENCE if s not in ("stale", "none")]
-    assert order == ["drift", "needs_review", "missing", "orphan", "verified", "implemented", "specified"]
+    assert order == [
+        "drift",
+        "needs_review",
+        "missing",
+        "orphan",
+        "verified",
+        "implemented",
+        "not_evaluable",
+        "specified",
+    ]  # P8.1: not_evaluable (ADR-0066)
     assert ir.STATUS_PRECEDENCE[-1] == "none"
 
 

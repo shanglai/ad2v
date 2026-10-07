@@ -124,3 +124,14 @@ body.mcp-app #app { height: var(--app-h, 560px); grid-template-rows: auto 1fr au
 .card .children { margin: 4px 0 0 0; padding: 0 0 0 16px; font-size: 13px; }
 .card .children li { margin: 2px 0; }
 .card.step .inside { display: flex; gap: 6px; align-items: baseline; }
+
+/* P8.1 (ADR-0066): status legend and the not-evaluable note */
+.legend { position: absolute; top: 48px; right: 16px; z-index: 20; max-width: min(520px, calc(100vw - 32px));
+  max-height: 70vh; overflow: auto; background: var(--surface); color: var(--text); border: 1px solid var(--grid);
+  border-radius: 8px; padding: 8px 12px; font-size: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); }
+.legend-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.legend ul { list-style: none; margin: 0; padding: 0; }
+.legend li { padding: 3px 0; line-height: 1.4; }
+.legend .sig { color: var(--muted); }
+.scope-note { font-size: 12px; color: var(--muted); border-left: 3px dotted var(--muted); padding-left: 8px; margin: 6px 0; }
+
