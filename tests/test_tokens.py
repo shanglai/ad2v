@@ -143,3 +143,14 @@ def test_dim_the_rest_is_opaque_and_the_step_still_reads_p61(theme_name):
     assert tokens.contrast(hi, tokens.dimmed(t, t["edge"])) >= NON_TEXT_MIN
     assert tokens.mix("#000000", "#FFFFFF", 0.0) == "#000000"
     assert tokens.mix("#000000", "#FFFFFF", 1.0) == "#FFFFFF"
+
+
+@pytest.mark.parametrize("theme_name", tokens.THEMES)
+def test_infra_status_strokes_meet_non_text_contrast(theme_name):
+    """P10 (ADR-0078): the Architecture view styles infra statuses with these tokens (and a line style)."""
+    t = tokens.load_theme(theme_name)
+    assert set(t["infra"]) == set(ir.INFRA_STATUSES)
+    for status, c in t["infra"].items():
+        for bg in (t["background"], t["surface"], c["fill"]):
+            ratio = tokens.contrast(c["stroke"], bg)
+            assert ratio >= NON_TEXT_MIN, f"{theme_name}/{status}: {c['stroke']} on {bg} = {ratio:.2f}"

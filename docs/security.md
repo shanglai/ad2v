@@ -108,8 +108,8 @@ shared:
 
 ## 8. Supply chain
 
-- Runtime closure (Python): 10 dependencies, all MIT except `typing_extensions` (PSF-2.0); no
-  `certifi`. `scripts/check_python_licenses.py` gates it in CI; npm has its own gate
+- Runtime closure (Python): 13 dependencies, all MIT except `typing_extensions` (PSF-2.0) and,
+  since P10, `regex` (Apache-2.0 AND CNRI-Python, via python-hcl2); no `certifi`. `scripts/check_python_licenses.py` gates it in CI; npm has its own gate
   (`viewer/scripts/check-licenses.mjs`).
 - `pip-audit` 2.10.1 (run from a throwaway virtual environment, outside the tree) on the runtime
   closure and on the dev environment: **no known vulnerabilities**.
@@ -123,6 +123,21 @@ shared:
   disabled (`docs/RELEASING.md`).
 - Tools used but not depended on (build, twine, pip-audit, the MCP Inspector) run outside the tree
   (`docs/dependencies.md`).
+
+## 8b. Infrastructure inputs (P10)
+
+A plan JSON and `.tf` files are untrusted input: a repository (or whoever hands you a plan) controls
+them.
+
+| risk | defense | test |
+|---|---|---|
+| running repository code | ad2v never runs `terraform`, `tofu`, `terragrunt` or providers; it reads the JSON the human produced and parses `.tf` statically (nothing evaluated) | by construction; `docs/infra.md` |
+| secrets in plans and tfvars | allowlist per resource type; env var values reduced to a source; `sensitive_values`, `variables`, `prior_state` and outputs never read; module URLs reduced to `remote: true` (ADR-0076) | `test_infra.py::test_planted_secrets_never_reach_the_file_or_its_dump` |
+| huge files | plan ≤ 256 MB and ≤ 200,000 resources (refused beyond); `.tf` ≤ 4 MB per file, ≤ 2,000 per root (skipped and reported); strings stored ≤ 200 characters | `test_size_limits_for_hostile_inputs` |
+| deep nesting | JSON nesting errors are refused cleanly (`InfraInputError`, exit 2); trees are walked with depth bounds (16 for modules, 32 for HCL bodies, 8 for reference resolution) | `test_unsupported_and_hostile_plans` |
+| a `.tf` that crashes the parser | each file is parsed alone; a failure is a warning, never fatal | `test_static_limits` |
+| reading outside the repository | `infra_root` must be relative and stay inside the repository; local module sources that climb out are not followed | `test_manifest_rejects_infra_roots_outside_the_repo`, `test_static_limits` |
+| hostile names in the C4 view, MCP or chat | element names are stored as text, drawn as SVG text nodes (never HTML), wrapped as untrusted text by the MCP tools | by construction (DOM text only); MCP: `clean_name` |
 
 ## 9. Findings of the P8 review
 
@@ -144,3 +159,6 @@ shared:
 | S14 | `braces` advisory in the build-only dependency chain | §8 | low | open (no fix available) |
 | S15 | prompt injection can bias informative LLM output | §4 | medium | open (inherent; informative only, no write tools) |
 | S16 | a timed-out plug-in thread keeps running until the process exits | §6 | low | open |
+| S17 | (P10) plan JSON and `.tf` are a new untrusted input: secrets, size, nesting, paths | §8b | medium | fixed (allowlist, limits, containment; tests) |
+| S18 | (P10) a hostile plan can still make a map claim a deployment that does not exist (it is the plan's word) | §8b | low | open (by design: the plan is the human's input) |
+| S19 | (P10) python-hcl2/lark parse untrusted `.tf`; a parser bug could hang the process on a crafted file | §8b, §8 | low | open (size limits; per-file isolation of errors, not of time) |

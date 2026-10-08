@@ -1,0 +1,110 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "timestamp": "2026-10-01T09:30:00Z",
+  "variables": {
+    "db_password": {"value": "PLANTED-aws-var-db-pw-3141"},
+    "stage": {"value": "prod"}
+  },
+  "planned_values": {
+    "outputs": {"db_endpoint": {"sensitive": true, "value": "PLANTED-aws-output-endpoint-2718"}},
+    "root_module": {
+      "resources": [
+        {"address": "aws_cloudwatch_event_rule.nightly", "mode": "managed", "type": "aws_cloudwatch_event_rule", "name": "nightly",
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 1,
+         "values": {"name": "ingest-nightly", "schedule_expression": "cron(0 5 * * ? *)"}, "sensitive_values": {}},
+        {"address": "aws_db_instance.main", "mode": "managed", "type": "aws_db_instance", "name": "main",
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 2,
+         "values": {"identifier": "ingest-db", "engine": "postgres", "engine_version": "16.4", "instance_class": "db.t4g.medium", "storage_encrypted": true, "username": "app"},
+         "sensitive_values": {"password": true}},
+        {"address": "aws_dynamodb_table.runs", "mode": "managed", "type": "aws_dynamodb_table", "name": "runs",
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 1,
+         "values": {"name": "ingest-runs", "billing_mode": "PAY_PER_REQUEST", "server_side_encryption": [{"enabled": true}]},
+         "sensitive_values": {"server_side_encryption": [{}]}},
+        {"address": "aws_ecs_service.worker", "mode": "managed", "type": "aws_ecs_service", "name": "worker",
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 1,
+         "values": {"name": "ingest-worker", "launch_type": "FARGATE", "desired_count": 2}, "sensitive_values": {}},
+        {"address": "aws_ecs_task_definition.worker", "mode": "managed", "type": "aws_ecs_task_definition", "name": "worker",
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 1,
+         "values": {"family": "ingest-worker",
+           "container_definitions": "[{\"name\":\"worker\",\"image\":\"123456789012.dkr.ecr.eu-west-1.amazonaws.com/ingest-worker:2.0.1\",\"environment\":[{\"name\":\"MODE\",\"value\":\"batch\"},{\"name\":\"DB_PASSWORD\",\"value\":\"PLANTED-ecs-literal-pw-1618\"}],\"secrets\":[{\"name\":\"API_KEY\",\"valueFrom\":\"arn:aws:secretsmanager:eu-west-1:123456789012:secret:ingest-api-AbCdEf\"}]}]"},
+         "sensitive_values": {}},
+        {"address": "aws_lambda_function.ingest", "mode": "managed", "type": "aws_lambda_function", "name": "ingest",
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 0,
+         "values": {"function_name": "ingest", "runtime": "python3.12", "memory_size": 512,
+           "environment": [{"variables": {"STAGE": "prod", "DB_PASSWORD": "PLANTED-lambda-literal-pw-1414"}}]},
+         "sensitive_values": {"environment": [{"variables": {}}]}},
+        {"address": "aws_s3_bucket.site[0]", "mode": "managed", "type": "aws_s3_bucket", "name": "site", "index": 0,
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 0,
+         "values": {"bucket": "ingest-web"}, "sensitive_values": {}},
+        {"address": "aws_s3_bucket_website_configuration.site[0]", "mode": "managed", "type": "aws_s3_bucket_website_configuration", "name": "site", "index": 0,
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 0,
+         "values": {"index_document": [{"suffix": "index.html"}]}, "sensitive_values": {"index_document": [{}]}},
+        {"address": "aws_secretsmanager_secret.api", "mode": "managed", "type": "aws_secretsmanager_secret", "name": "api",
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 0,
+         "values": {"name": "ingest-api"}, "sensitive_values": {}},
+        {"address": "aws_sqs_queue.jobs", "mode": "managed", "type": "aws_sqs_queue", "name": "jobs",
+         "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 0,
+         "values": {"name": "ingest-jobs", "fifo_queue": false, "sqs_managed_sse_enabled": true}, "sensitive_values": {}}
+      ],
+      "child_modules": [
+        {"address": "module.alerts[0]", "resources": [
+          {"address": "module.alerts[0].aws_sns_topic.this", "mode": "managed", "type": "aws_sns_topic", "name": "this",
+           "provider_name": "registry.terraform.io/hashicorp/aws", "schema_version": 0,
+           "values": {"name": "ingest-alerts", "fifo_topic": false}, "sensitive_values": {}}
+        ]}
+      ]
+    }
+  },
+  "resource_changes": [
+    {"address": "aws_lambda_function.ingest", "mode": "managed", "type": "aws_lambda_function", "name": "ingest", "provider_name": "registry.terraform.io/hashicorp/aws",
+     "change": {"actions": ["update"], "before": {"function_name": "ingest"}, "after": {"function_name": "ingest"},
+       "after_unknown": {"environment": [{"variables": {"QUEUE_URL": true, "TABLE": true}}]}, "before_sensitive": {}, "after_sensitive": {}}},
+    {"address": "aws_db_instance.main", "mode": "managed", "type": "aws_db_instance", "name": "main", "provider_name": "registry.terraform.io/hashicorp/aws",
+     "change": {"actions": ["no-op"], "before": {"identifier": "ingest-db", "password": "PLANTED-aws-before-pw-1732"}, "after": {"identifier": "ingest-db", "password": "PLANTED-aws-after-pw-1733"},
+       "after_unknown": {}, "before_sensitive": {"password": true}, "after_sensitive": {"password": true}}},
+    {"address": "aws_ecs_service.worker", "mode": "managed", "type": "aws_ecs_service", "name": "worker", "provider_name": "registry.terraform.io/hashicorp/aws",
+     "change": {"actions": ["create"], "before": null, "after": {"name": "ingest-worker"}, "after_unknown": {"id": true}, "before_sensitive": false, "after_sensitive": {}}}
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {"address": "aws_cloudwatch_event_rule.nightly", "mode": "managed", "type": "aws_cloudwatch_event_rule", "name": "nightly", "provider_config_key": "aws",
+         "expressions": {"name": {"constant_value": "ingest-nightly"}, "schedule_expression": {"constant_value": "cron(0 5 * * ? *)"}}, "schema_version": 1},
+        {"address": "aws_db_instance.main", "mode": "managed", "type": "aws_db_instance", "name": "main", "provider_config_key": "aws",
+         "expressions": {"identifier": {"constant_value": "ingest-db"}, "password": {"references": ["var.db_password"]}, "storage_encrypted": {"constant_value": true}}, "schema_version": 2},
+        {"address": "aws_dynamodb_table.runs", "mode": "managed", "type": "aws_dynamodb_table", "name": "runs", "provider_config_key": "aws",
+         "expressions": {"name": {"constant_value": "ingest-runs"}}, "schema_version": 1},
+        {"address": "aws_ecs_service.worker", "mode": "managed", "type": "aws_ecs_service", "name": "worker", "provider_config_key": "aws",
+         "expressions": {"name": {"constant_value": "ingest-worker"}, "task_definition": {"references": ["aws_ecs_task_definition.worker.arn", "aws_ecs_task_definition.worker"]}}, "schema_version": 1},
+        {"address": "aws_ecs_task_definition.worker", "mode": "managed", "type": "aws_ecs_task_definition", "name": "worker", "provider_config_key": "aws",
+         "expressions": {"family": {"constant_value": "ingest-worker"}, "container_definitions": {"references": ["aws_secretsmanager_secret.api.arn", "aws_secretsmanager_secret.api"]}}, "schema_version": 1},
+        {"address": "aws_lambda_function.ingest", "mode": "managed", "type": "aws_lambda_function", "name": "ingest", "provider_config_key": "aws",
+         "expressions": {"function_name": {"constant_value": "ingest"},
+           "environment": [{"variables": {"references": ["aws_sqs_queue.jobs.url", "aws_sqs_queue.jobs", "aws_dynamodb_table.runs.name", "aws_dynamodb_table.runs", "var.stage"]}}]},
+         "schema_version": 0},
+        {"address": "aws_s3_bucket.site", "mode": "managed", "type": "aws_s3_bucket", "name": "site", "provider_config_key": "aws",
+         "expressions": {"bucket": {"constant_value": "ingest-web"}}, "schema_version": 0, "count_expression": {"constant_value": 1}},
+        {"address": "aws_s3_bucket_website_configuration.site", "mode": "managed", "type": "aws_s3_bucket_website_configuration", "name": "site", "provider_config_key": "aws",
+         "expressions": {"bucket": {"references": ["aws_s3_bucket.site[0].id", "aws_s3_bucket.site[0]", "aws_s3_bucket.site"]}}, "schema_version": 0, "count_expression": {"constant_value": 1}},
+        {"address": "aws_secretsmanager_secret.api", "mode": "managed", "type": "aws_secretsmanager_secret", "name": "api", "provider_config_key": "aws",
+         "expressions": {"name": {"constant_value": "ingest-api"}}, "schema_version": 0},
+        {"address": "aws_sqs_queue.jobs", "mode": "managed", "type": "aws_sqs_queue", "name": "jobs", "provider_config_key": "aws",
+         "expressions": {"name": {"constant_value": "ingest-jobs"}}, "schema_version": 0}
+      ],
+      "module_calls": {
+        "alerts": {
+          "source": "git::https://deploy:PLANTED-module-url-token-6611@git.example.com/infra/sns.git?ref=v1",
+          "count_expression": {"constant_value": 1},
+          "expressions": {"name": {"constant_value": "ingest-alerts"}},
+          "module": {"resources": [
+            {"address": "aws_sns_topic.this", "mode": "managed", "type": "aws_sns_topic", "name": "this", "provider_config_key": "aws",
+             "expressions": {"name": {"references": ["var.name"]}}, "schema_version": 0}
+          ], "variables": {"name": {}}}
+        }
+      },
+      "variables": {"db_password": {"sensitive": true}, "stage": {"default": "prod"}}
+    }
+  },
+  "errored": false
+}

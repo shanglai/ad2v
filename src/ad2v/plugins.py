@@ -46,6 +46,7 @@ from ad2v.api import (
 )
 from ad2v.extract.code.base import CodeFacts, Layout
 from ad2v.extract.files import SourceFile
+from ad2v.infra import model as infra_model
 from ad2v.manifest import Config
 
 DEFAULT_TIMEOUT_S = 600.0
@@ -358,6 +359,7 @@ def _compute_rules(act: ActiveSet, config: Config, base_rules_path: Path | None)
     from ad2v import scope  # P8.1 (ADR-0066): the language-scope table is an epoch input
 
     top["scope"] = scope.rules()
+    top["infra"] = infra_model.rules()  # P10 (ADR-0074): typing + allowlist, covered by rules_hash
     if plugin_rules:
         top["plugin_rules"] = plugin_rules
     top["_hash"] = rules_mod.rules_hash(top)
@@ -459,6 +461,8 @@ def merge_facts(main: CodeFacts, part: CodeFacts) -> None:
         main.wrappers.setdefault(k, []).extend(w)
     main.entry_ports = sorted(set(main.entry_ports) | set(part.entry_ports))
     main.files_read.update(part.files_read)
+    for k, vals in part.diagnostics.items():
+        main.diagnostics[k] = sorted(set(main.diagnostics.get(k, [])) | set(vals))
 
 
 def run(

@@ -135,7 +135,10 @@ def run_history(
     extractors: tuple[str, ...] | list[str] = (),
     strict: bool = False,
     plugin_timeout_s: float | None = None,
+    infra_plans: list[tuple[str, Path]] | None = None,
 ) -> list[tuple[str, pipeline.Result]]:
+    """`infra_plans` (P10): given to the first commit's epoch only; later epochs carry the plan
+    forward (a plan describes one deployment, not a commit) and re-read the static `.tf` each time."""
     repo = Path(repo).resolve()
     out = []
     tmp = Path(tempfile.mkdtemp(prefix="ad2v-history-"))
@@ -171,6 +174,7 @@ def run_history(
                 spec_autodetect=spec_autodetect,
                 extractors=extractors,
                 strict=strict,
+                infra_plans=infra_plans if not out else None,
                 **({} if plugin_timeout_s is None else {"plugin_timeout_s": plugin_timeout_s}),
             )
             out.append((commit, res))

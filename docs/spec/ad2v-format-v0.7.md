@@ -1,4 +1,4 @@
-# The ad2v file format, version 0.6
+# The ad2v file format, version 0.7
 
 Status: **draft, normative**. The key words MUST, MUST NOT, SHOULD, and MAY are used as in RFC 2119.
 
@@ -16,8 +16,29 @@ Companion documents:
 - [`visual-tokens-v0.2.md`](visual-tokens-v0.2.md): how statuses become line styles and colors
   (status → style normative, palettes informative; unchanged in v0.3 and v0.4).
 - [`spec-markdown-convention.md`](spec-markdown-convention.md): the Markdown spec convention (normative for extractors).
-- [`../../schema/ad2v-v0.6.sql`](../../schema/ad2v-v0.6.sql): DDL (normative).
-- [`../../schema/ir-v0.6.schema.json`](../../schema/ir-v0.6.schema.json): JSON Schema of the IR (normative).
+- [`../../schema/ad2v-v0.7.sql`](../../schema/ad2v-v0.7.sql): DDL (normative).
+- [`../../schema/ir-v0.7.schema.json`](../../schema/ir-v0.7.schema.json): JSON Schema of the IR (normative).
+
+### Changes from v0.6 (P10, ADR-0073..0081)
+
+- **A third side, `infra`** (§14): kinds `deployment_unit`, `managed_datastore`, `managed_queue`,
+  `bucket`, `secret_store`, `network`, `scheduler`, `infra_other`, `infra_module`;
+  `node_versions.side` CHECK includes `infra`. Infra nodes have glyphs and `node_status = none`,
+  but no `layout` row (they are drawn in the C4 view).
+- **Edge kinds** `references`, `wires`, `deploys`, `provides_env` (§14.3).
+- **Epochs**: column `infra_hash` (`''` when the epoch has no infra input; it enters the epoch id
+  only when set) and `change_kind` value `infra` (§5.1).
+- **Derived tables** `infra_status` (§14.4), `c4_elements`, `c4_relations` (§14.5); presentation
+  table `c4_layout` (kept per epoch like `layout`).
+- **Rules**: the epoch rules gain the key `infra` (the typing and allowlist of
+  `src/ad2v/infra/infra.yaml`), covered by `rules_hash`.
+- **Config**: `infra_root`, `infra.deploys`; `config_json.effective.derived_test_prefixes` when the
+  specs add test-name prefixes (ADR-0073).
+- **Upgrade**: a v0.6 file is upgraded in place when opened for writing (`epochs` and
+  `node_versions` rebuilt, rows copied with `infra_hash = ''`, views recreated, new tables created);
+  v0.4 and v0.5 files chain through. Readers accept 0.4–0.7.
+- Without infra input nothing infra-related is written except `c4_*` rows of the code-only view
+  (`env = ''`); normative dumps of such epochs are otherwise unchanged (ADR-0077 §6).
 
 ### Additions within v0.6 (P9, ADR-0068..0072)
 
@@ -183,7 +204,7 @@ given and their hash differs from the parent's (§6.7).
 
 ## 3. The IR
 
-The IR is the logical model of one epoch. `schema/ir-v0.6.schema.json` defines its JSON form, and
+The IR is the logical model of one epoch. `schema/ir-v0.7.schema.json` defines its JSON form, and
 the views and tables in §5 store it.
 
 ### 3.1 Node
@@ -770,7 +791,7 @@ A conforming v0.4 file:
 - has `version_key` values that recompute from their payloads, no version row unreferenced by any
   membership row, and at most one version per id per epoch;
 - has the head materialized, and `epochs.materialized` consistent with `epoch_materialized`;
-- for every epoch: rows that validate against `ir-v0.6.schema.json`, `id = node_id(side, kind,
+- for every epoch: rows that validate against `ir-v0.7.schema.json`, `id = node_id(side, kind,
   qualified_name)` for every node, `subtree_hash` values that recompute (§2), a matching
   `contains`/`declares` edge for every `parent_id`, and lineage rows whose new ids are nodes of the
   epoch (and whose old ids are nodes of the parent, when the parent is the immediately preceding
@@ -1085,6 +1106,61 @@ tools except `ad2v_files` and `ad2v_llm_plan`, through the MCP dispatcher). Each
 `llm_runs` row with `tasks_json = ["chat"]`. Answers cite node ids, checked against the turn's
 tool results (ADR-0056, ADR-0057).
 
+## 14. The infra layer (normative, P10)
+
+### 14.1 Inputs
+
+An extractor MUST NOT execute infrastructure tools. It reads (a) plan JSON files supplied by the
+user (`terraform show -json`, `format_version` 1.x), one per named environment, and (b) `.tf` files
+under the configured `infra_root` folders, parsed without evaluation. `infra_hash` is the SHA-256 of
+the canonical JSON `{"plans": {env: plan_hash}, "static": {root: {path: content_hash}}}`, where a
+plan hash is computed over the parsed document without `timestamp`. An epoch without plans
+carries the parent's plan-derived nodes forward. For one environment the plan's resources win; a
+static resource fills a gap only when the plan's configuration does not declare its address.
+
+### 14.2 Nodes
+
+- One root per environment: `infra_module`, qualified name `infra:<env>`, `attrs = {env, root: true,
+  source, …}`.
+- Module instances: `infra_module`, `infra:<env>:<module address>`.
+- Resource instances: kind by `infra.yaml`, qualified name `infra:<env>:<instance address>`,
+  `attrs` = `env`, `type`, `provider`, `address`, `source` (`plan`|`static`), optional `action`,
+  `multiplicity`, `gap_fill`, the allowlisted attributes, and `env_vars = {NAME: {source, ref?,
+  candidates?}}` with `source ∈ {reference, secret, literal, unknown}`.
+
+Values that could be secrets MUST NOT be stored (ADR-0076): only allowlisted attributes, env var
+names and sources, never env var values, passwords, connection strings, keys, outputs,
+`variables` or `prior_state`; anything the plan marks sensitive is dropped.
+
+### 14.3 Edges
+
+| kind | from → to | attrs | rule |
+|---|---|---|---|
+| `references` | infra → infra | | a configuration expression references the target resource (through module variables and outputs) |
+| `wires` | deployment unit → infra resource | `env_vars` | an env var's value references the resource |
+| `deploys` | deployment unit or website bucket → code container | `method`, `env` | manifest `infra.deploys` > name match > env-var overlap (ADR-0080); ties produce no edge |
+| `provides_env` | deployment unit → code node | `env_vars`, `env` | the unit sets env vars the node reads (`attrs.env_reads`) |
+
+`attrs.env_reads` (code nodes and containers) is written only in epochs with infra input.
+
+### 14.4 `infra_status`
+
+One row per (node, environment), sorted, a pure function of the graph:
+- code container: `deployed` (a `deploys` edge), `ambiguous` (tied candidates), else `undeployed`;
+- code node with `env_reads` inside a deployed container: `unwired` if any name is not provided
+  (reasons `{kind: not_provided, env_var, units}`), else `wired`;
+- infra resource other than modules: `in_use` if any `references`, `wires` or `deploys` edge touches
+  it, else `infra_orphan`.
+An epoch without infra nodes has no rows. These statuses are not part of the §6.4 precedence.
+
+### 14.5 C4 elements, relations and layout
+
+`c4_elements` / `c4_relations` are a pure function of the graph and the pairing, per environment
+(`''` without infra): element ids are `c4_` + sha256(kind|key)[:20]. Levels, kinds and relation
+kinds as in ADR-0079. `c4_layout` places elements in rows (`persons`, `system`, `units`, `data`,
+`external`); an element keeps its row and slot from the parent epoch while it exists, new elements
+take the lowest free slot, removed elements leave a gap.
+
 ## Appendix A: column classes (normative)
 
 Every column in the DDL is marked **N** (normative), **I** (informative), **V** (volatile: deterministic, ignored by `ad2v diff`) or **N/I** (depends on the row, e.g. `provenance`). This appendix is generated from the DDL comments and a test keeps it in sync.
@@ -1118,6 +1194,7 @@ Every column in the DDL is marked **N** (normative), **I** (informative), **V** 
 | `materialized` | I | file-management state: derived rows present |
 | `attrs_json` | N | config echo, pairing warnings, unmatched tests, cache stats |
 | `created_at` | I | excluded from canonical dump |
+| `infra_hash` | N | v0.7: tree hash of the infra inputs (plans, .tf); '' when none |
 
 **rules_versions**
 
@@ -1147,7 +1224,7 @@ Every column in the DDL is marked **N** (normative), **I** (informative), **V** 
 | `vid` | I | storage surrogate, file-local |
 | `version_key` | N | v_ + sha256(canonical normative payload)[:20] |
 | `node_id` | N | n_ + sha256(side\|kind\|qualified_name)[:20] |
-| `side` | N |  |
+| `side` | N | infra: v0.7 |
 | `kind` | N | closed enum, see spec §3.2 |
 | `name` | N |  |
 | `qualified_name` | N |  |
@@ -1366,6 +1443,54 @@ Every column in the DDL is marked **N** (normative), **I** (informative), **V** 
 | `epoch_id` | N |  |
 | `node_id` | N |  |
 | `counts_json` | N | {status: count}, zero counts omitted |
+
+**infra_status**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `node_id` | N |  |
+| `env` | N | infra environment ('default', 'prod', ...) |
+| `status` | N |  |
+| `reasons_json` | N | [{kind, ...}] sorted |
+
+**c4_elements**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `env` | N |  |
+| `element_id` | N | c4_ + sha256(kind\|key)[:20] |
+| `level` | N |  |
+| `kind` | N | person, system, external_system, deployment_unit, ... |
+| `name` | N |  |
+| `node_ids_json` | N | the map nodes it stands for (click-through) |
+| `attrs_json` | N | coverage roll-up, infra status, NFRs, ... |
+
+**c4_relations**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `env` | N |  |
+| `src` | N | element_id |
+| `dst` | N | element_id |
+| `kind` | N | uses, calls, reads, writes, publishes, wires, references, ... |
+| `attrs_json` | N | weight, env var names (wires) |
+
+**c4_layout**
+
+| column | class | note |
+|---|---|---|
+| `epoch_id` | N |  |
+| `env` | N |  |
+| `element_id` | N |  |
+| `row` | N | persons, system, units, data, external |
+| `slot` | N | position in its row (kept while the element exists) |
+| `x` | N |  |
+| `y` | N |  |
+| `w` | N |  |
+| `h` | N |  |
 
 **summaries**
 

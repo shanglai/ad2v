@@ -120,6 +120,8 @@ def make_app_tools(ctx: Ctx) -> list[Tool]:
         mk("viewer_suggestions", "suggestions", ep, ["epoch"], lambda c, e, a: slices.suggestions(c, e)),
         mk("viewer_summaries", "summaries", ep, ["epoch"], lambda c, e, a: slices.summaries(c, e)),
         mk("viewer_workflows", "workflows", ep, ["epoch"], lambda c, e, a: slices.workflows(c, e)),
+        mk("viewer_c4", "c4", ep, ["epoch"], lambda c, e, a: slices.c4(c, e), paged=False),
+        mk("viewer_infra_status", "infraStatus", ep, ["epoch"], lambda c, e, a: slices.infra_status(c, e)),
         mk(
             "viewer_steps",
             "steps",

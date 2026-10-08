@@ -1,0 +1,76 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "timestamp": "2026-10-02T12:00:00Z",
+  "variables": {"region": {"value": "southamerica-east1"}},
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {"address": "google_cloud_run_v2_service.backend", "mode": "managed", "type": "google_cloud_run_v2_service", "name": "backend",
+         "provider_name": "registry.terraform.io/hashicorp/google", "schema_version": 0,
+         "values": {"name": "conciliacion-backend", "location": "southamerica-east1", "ingress": "INGRESS_TRAFFIC_ALL",
+           "template": [{"scaling": [{"min_instance_count": 1, "max_instance_count": 3}],
+             "containers": [{"image": "southamerica-east1-docker.pkg.dev/acme/apps/backend:0.3.0",
+               "env": [
+                 {"name": "API_PREFIX", "value": "/api/v1", "value_source": []},
+                 {"name": "DATABASE_URL", "value_source": []},
+                 {"name": "EVENTS_TOPIC", "value": "conciliacion-eventos", "value_source": []},
+                 {"name": "BANK_TOKEN", "value": null, "value_source": [{"secret_key_ref": [{"secret": "token-banco", "version": "latest"}]}]}
+               ]}]}]},
+         "sensitive_values": {"template": [{"scaling": [{}], "containers": [{"env": [{"value_source": []}, {"value_source": []}, {"value_source": []}, {"value_source": [{"secret_key_ref": [{}]}]}]}]}]}},
+        {"address": "google_pubsub_topic.eventos", "mode": "managed", "type": "google_pubsub_topic", "name": "eventos",
+         "provider_name": "registry.terraform.io/hashicorp/google", "schema_version": 0,
+         "values": {"name": "conciliacion-eventos"}, "sensitive_values": {}},
+        {"address": "google_secret_manager_secret.banco", "mode": "managed", "type": "google_secret_manager_secret", "name": "banco",
+         "provider_name": "registry.terraform.io/hashicorp/google", "schema_version": 0,
+         "values": {"secret_id": "token-banco", "replication": [{"auto": [{}]}]}, "sensitive_values": {"replication": [{"auto": [{}]}]}},
+        {"address": "google_sql_database_instance.conciliacion", "mode": "managed", "type": "google_sql_database_instance", "name": "conciliacion",
+         "provider_name": "registry.terraform.io/hashicorp/google", "schema_version": 0,
+         "values": {"name": "conciliacion-db", "database_version": "POSTGRES_16", "region": "southamerica-east1"}, "sensitive_values": {}},
+        {"address": "google_storage_bucket.archivo", "mode": "managed", "type": "google_storage_bucket", "name": "archivo",
+         "provider_name": "registry.terraform.io/hashicorp/google", "schema_version": 1,
+         "values": {"name": "conciliacion-archivo", "location": "SOUTHAMERICA-EAST1"}, "sensitive_values": {}},
+        {"address": "google_storage_bucket.frontend", "mode": "managed", "type": "google_storage_bucket", "name": "frontend",
+         "provider_name": "registry.terraform.io/hashicorp/google", "schema_version": 1,
+         "values": {"name": "conciliacion-frontend", "location": "SOUTHAMERICA-EAST1", "website": [{"main_page_suffix": "index.html", "not_found_page": null}]},
+         "sensitive_values": {"website": [{}]}}
+      ]
+    }
+  },
+  "resource_changes": [
+    {"address": "google_cloud_run_v2_service.backend", "mode": "managed", "type": "google_cloud_run_v2_service", "name": "backend", "provider_name": "registry.terraform.io/hashicorp/google",
+     "change": {"actions": ["update"], "before": {"name": "conciliacion-backend"}, "after": {"name": "conciliacion-backend"},
+       "after_unknown": {"template": [{"containers": [{"env": [{}, {"value": true}, {}, {}]}]}]}, "before_sensitive": {}, "after_sensitive": {}}},
+    {"address": "google_storage_bucket.archivo", "mode": "managed", "type": "google_storage_bucket", "name": "archivo", "provider_name": "registry.terraform.io/hashicorp/google",
+     "change": {"actions": ["no-op"], "before": {"name": "conciliacion-archivo"}, "after": {"name": "conciliacion-archivo"}, "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {}}}
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {"address": "google_cloud_run_v2_service.backend", "mode": "managed", "type": "google_cloud_run_v2_service", "name": "backend", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "conciliacion-backend"}, "location": {"references": ["var.region"]},
+           "template": [{"scaling": [{"min_instance_count": {"constant_value": 1}, "max_instance_count": {"constant_value": 3}}],
+             "containers": [{"image": {"constant_value": "southamerica-east1-docker.pkg.dev/acme/apps/backend:0.3.0"},
+               "env": [
+                 {"name": {"constant_value": "API_PREFIX"}, "value": {"constant_value": "/api/v1"}},
+                 {"name": {"constant_value": "DATABASE_URL"}, "value": {"references": ["google_sql_database_instance.conciliacion.connection_name", "google_sql_database_instance.conciliacion"]}},
+                 {"name": {"constant_value": "EVENTS_TOPIC"}, "value": {"references": ["google_pubsub_topic.eventos.name", "google_pubsub_topic.eventos"]}},
+                 {"name": {"constant_value": "BANK_TOKEN"}, "value_source": [{"secret_key_ref": [{"secret": {"references": ["google_secret_manager_secret.banco.secret_id", "google_secret_manager_secret.banco"]}, "version": {"constant_value": "latest"}}]}]}
+               ]}]}]},
+         "schema_version": 0},
+        {"address": "google_pubsub_topic.eventos", "mode": "managed", "type": "google_pubsub_topic", "name": "eventos", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "conciliacion-eventos"}}, "schema_version": 0},
+        {"address": "google_secret_manager_secret.banco", "mode": "managed", "type": "google_secret_manager_secret", "name": "banco", "provider_config_key": "google",
+         "expressions": {"secret_id": {"constant_value": "token-banco"}, "replication": [{"auto": [{}]}]}, "schema_version": 0},
+        {"address": "google_sql_database_instance.conciliacion", "mode": "managed", "type": "google_sql_database_instance", "name": "conciliacion", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "conciliacion-db"}, "database_version": {"constant_value": "POSTGRES_16"}, "region": {"references": ["var.region"]}}, "schema_version": 0},
+        {"address": "google_storage_bucket.archivo", "mode": "managed", "type": "google_storage_bucket", "name": "archivo", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "conciliacion-archivo"}, "location": {"constant_value": "SOUTHAMERICA-EAST1"}}, "schema_version": 1},
+        {"address": "google_storage_bucket.frontend", "mode": "managed", "type": "google_storage_bucket", "name": "frontend", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "conciliacion-frontend"}, "location": {"constant_value": "SOUTHAMERICA-EAST1"}, "website": [{"main_page_suffix": {"constant_value": "index.html"}}]}, "schema_version": 1}
+      ],
+      "variables": {"region": {"default": "southamerica-east1"}}
+    }
+  },
+  "errored": false
+}

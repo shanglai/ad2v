@@ -20,6 +20,9 @@ as resolved in the development environment.
 | ↳ referencing | 0.37.0 | MIT | transitive |
 | ↳ rpds-py | 2026.6.3 | MIT | transitive |
 | ↳ typing_extensions | 4.16.0 | PSF-2.0 | transitive |
+| python-hcl2 (P10) | 8.1.4 (pinned) | MIT | static `.tf` reader (ADR-0075); imported only for a static read |
+| ↳ lark | 1.3.1 (pinned) | MIT | python-hcl2's parser generator |
+| ↳ regex | 2026.9.29 | Apache-2.0 AND CNRI-Python | transitive (python-hcl2); both permissive, not copyleft |
 
 Standard library: `sqlite3`, `hashlib`, `json`, `argparse`, `pathlib`, `urllib.parse`,
 `xml.etree.ElementTree` (JUnit ingestion, P2), `html` (token preview, P2).
@@ -129,6 +132,7 @@ deleted afterwards. AGPL tools (e.g. trufflehog) are not used.
 | build | 1.6.1 | MIT | throwaway venv / CI job | sdist + wheel (M3, `release.yml`) |
 | twine | 7.0.0 | Apache-2.0 | throwaway venv / CI job | `twine check` (M3) |
 | pip-audit | 2.10.1 | Apache-2.0 | throwaway venv | Python advisories (M5) |
+| OpenTofu (P10) | 1.13.1 | MPL-2.0 | standalone binary in a scratch folder, deleted | one real plan JSON for the parser test (`fixtures/infra/tofu-real`) |
 | npm audit | npm 11.17.0 | Artistic-2.0 (npm) | built into npm | npm advisories (M5) |
 | @modelcontextprotocol/inspector | 2.8.0 | Apache-2.0 / MIT | `npx` | MCP conformance (P6) |
 | actionlint | — | MIT | standalone binary | **not available in P8**; `tests/test_ci_workflows.py` checks the workflows statically instead |
@@ -143,6 +147,16 @@ P8.1 and P9 add **no dependencies** (Python or npm). P9 ran `build` once more in
 virtual environment, on a fresh copy of the tree, to check the optional viewer packages
 (ADR-0067). The environment was deleted afterwards. Playwright's Chromium was installed for the
 P9 screenshots and removed at the end of the phase.
+
+P10 adds **three Python dependencies** for the static `.tf` reader: python-hcl2 (MIT), lark (MIT)
+and regex (Apache-2.0 AND CNRI-Python). The full tree was checked with the license gate before
+use (14 distributions in the closure, green). No npm dependency. **OpenTofu 1.13.1** (MPL-2.0) was
+run once as a tool, never a dependency: the official standalone zip (SHA-256 checked against the
+release's `SHA256SUMS`) in a scratch folder, to produce one real plan offline from `null`/`random`
+providers and `terraform_data` (`-refresh=false`, no credentials). The binary, its provider cache
+and the empty `terraform.d` it created were deleted. Terraform itself (BSL) is never used: ad2v
+reads the JSON either tool writes. Playwright's Chromium was installed for the P10 screenshots and
+removed at the end of the phase.
 
 ## Rejected
 

@@ -96,5 +96,39 @@
   },
   "replay": {
     "highlight": "#1D4ED8"
+  },
+  "infra": {
+    "deployed": {
+      "stroke": "#1A7F37",
+      "fill": "#E6F4EA"
+    },
+    "in_use": {
+      "stroke": "#1A7F37",
+      "fill": "#E6F4EA"
+    },
+    "wired": {
+      "stroke": "#1A7F37",
+      "fill": "#E6F4EA"
+    },
+    "undeployed": {
+      "stroke": "#9A5800",
+      "fill": "#FFF4E0"
+    },
+    "unwired": {
+      "stroke": "#C9302C",
+      "fill": "#FDECEA"
+    },
+    "ambiguous": {
+      "stroke": "#8250DF",
+      "fill": "#F2ECFF"
+    },
+    "infra_orphan": {
+      "stroke": "#B35900",
+      "fill": "#FFF1E6"
+    },
+    "unknown": {
+      "stroke": "#57606A",
+      "fill": "#EEF0F3"
+    }
   }
 }

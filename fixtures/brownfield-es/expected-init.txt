@@ -14,14 +14,21 @@ Spec id prefixes: HU, RF, RNF
 Containers:
   backend (src/backend/, pyproject.toml): python, read by the python extractor
   frontend (src/frontend/, package.json): typescript, no active extractor: not_evaluable
+  worker (src/worker/, pyproject.toml): python, read by the python extractor
 Excluded folders (files dropped; code files of them):
   dist: 2 (2 code)  [default]
   node_modules: 1 (1 code)  [default]
 SQL files (schema digests):
   src/db/migrations/V2__indices.sql
   src/db/schema.sql
-Infrastructure as code (detected; not mapped until P10):
-  terraform: infra/
+Infrastructure as code:
+  terraform: infra/  (proposed infra_root)
+  backend is deployed by google_cloud_run_v2_service.backend (name match)
+  frontend is deployed by google_storage_bucket.frontend (name match)
+  For deployment facts per environment, produce a plan JSON yourself:
+    terraform init && terraform plan -refresh=false -out tfplan && terraform show -json tfplan > plan.json
+  That runs the providers and needs credentials and state. ad2v never runs it; it only
+  reads plan.json (--infra-plan prod=plan.json). Keep plan.json out of the repository.
 Test results:
   pytest config: src/backend/pyproject.toml (run `pytest --junitxml <file>`)
 Route prefixes the extractor cannot resolve (3 route(s)): settings.API_PREFIX; fill in pairing.path_constants
@@ -39,6 +46,9 @@ Next:
 containers:
   - {kind: service, name: backend, paths: [src/backend]}  # python, pyproject.toml; read
   - {kind: service, name: frontend, paths: [src/frontend]}  # typescript, package.json; not read: shown as not_evaluable
+  - {kind: service, name: worker, paths: [src/worker]}  # python, pyproject.toml; read
+# Terraform root modules, read statically every epoch (pass --infra-plan for the plan)
+infra_root: [infra]
 pairing:
   orphan_policy: auto  # auto | strict | off
   # route prefixes the extractor cannot resolve: fill in the values (empty = ignored)
@@ -53,4 +63,3 @@ spec_markdown:
   - {glob: sdd/requerimientos.md, preset: table}
 spec_root: [sdd]
 system: "brownfield-es"
-# infra: terraform in infra (detected; not mapped until P10)

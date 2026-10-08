@@ -150,5 +150,19 @@ for (const theme of ["dark", "light"] as const) {
       expect(parent).not.toBe(mod);
       await checkHost(page, leaks);
     });
+
+    test("6. the architecture (c4 intent, P10)", async ({ page }) => {
+      const leaks: string[] = [];
+      const f = await show(page, { intent: "c4", env: "prod", theme }, theme, leaks);
+      await expect(f.locator("#architecture svg.c4")).toBeVisible();
+      const unit = f.locator("#architecture g.c4-el[data-kind='deployment_unit']", { hasText: "recon-api" });
+      await expect(unit).toHaveAttribute("data-infra", "in_use");
+      await expect(f.locator("#architecture g.c4-el[data-infra='infra_orphan']").first()).toBeVisible();
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(600);
+      const chat = (await page.locator("#chat").boundingBox())!;
+      await page.screenshot({ path: path.resolve(SHOTS, "..", "P10-screens", `${theme}-5-app-c4-intent.png`), clip: chat });
+      await checkHost(page, leaks);
+    });
   });
 }

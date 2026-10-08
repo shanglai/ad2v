@@ -1,5 +1,5 @@
--- ad2v file format v0.5 -- SQLite DDL
--- Normative reference: docs/spec/ad2v-format-v0.6.md
+-- ad2v file format v0.7 -- SQLite DDL
+-- Normative reference: docs/spec/ad2v-format-v0.7.md
 -- Column classes: N = normative (deterministic), I = informative (LLM/runtime/wall-clock/file
 -- management), V = volatile (deterministic, but moves with unrelated edits: ignored by `ad2v diff`
 -- and excluded from version keys).
@@ -36,12 +36,14 @@ CREATE TABLE epochs (
     config_hash     TEXT NOT NULL REFERENCES config_versions(config_hash), -- N
     test_results_hash TEXT NOT NULL,            -- N  tree hash of the normalized test-result files in effect
     change_kind     TEXT NOT NULL -- N  which input hashes changed vs the parent
-                    CHECK (change_kind IN ('initial','code','spec','code+spec','rules','config','tests_only','mixed')),
+                    CHECK (change_kind IN ('initial','code','spec','code+spec','rules','config','tests_only',
+                    'infra','mixed')),
     pinned          INTEGER NOT NULL DEFAULT 0, -- I  file-management state: kept by prune, stays materialized
     label           TEXT,                       -- I  file-management state (e.g. a release tag)
     materialized    INTEGER NOT NULL DEFAULT 0, -- I  file-management state: derived rows present
     attrs_json      TEXT NOT NULL DEFAULT '{}', -- N  config echo, pairing warnings, unmatched tests, cache stats
-    created_at      TEXT                        -- I  excluded from canonical dump
+    created_at      TEXT,                       -- I  excluded from canonical dump
+    infra_hash      TEXT NOT NULL DEFAULT ''    -- N  v0.7: tree hash of the infra inputs (plans, .tf); '' when none
 );
 
 -- The extractor rules and the manifest in effect, by hash (needed to re-materialize an epoch).
@@ -72,7 +74,7 @@ CREATE TABLE node_versions (
     vid             INTEGER PRIMARY KEY,        -- I  storage surrogate, file-local
     version_key     TEXT NOT NULL UNIQUE,       -- N  v_ + sha256(canonical normative payload)[:20]
     node_id         TEXT NOT NULL,              -- N  n_ + sha256(side|kind|qualified_name)[:20]
-    side            TEXT NOT NULL CHECK (side IN ('code','spec')), -- N
+    side            TEXT NOT NULL CHECK (side IN ('code','spec','infra')), -- N  infra: v0.7
     kind            TEXT NOT NULL,              -- N  closed enum, see spec §3.2
     name            TEXT NOT NULL,              -- N
     qualified_name  TEXT NOT NULL,              -- N
@@ -331,6 +333,55 @@ CREATE TABLE status_rollup (
     node_id     TEXT NOT NULL,                  -- N
     counts_json TEXT NOT NULL,                  -- N  {status: count}, zero counts omitted
     PRIMARY KEY (epoch_id, node_id)
+);
+
+-- v0.7 (P10, ADR-0078): the infra dimension, separate from node_status. One row per (node, infra
+-- environment) for code containers, code nodes that read env vars, and infra resources.
+CREATE TABLE infra_status (
+    epoch_id     TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
+    node_id      TEXT NOT NULL,                 -- N
+    env          TEXT NOT NULL,                 -- N  infra environment ('default', 'prod', ...)
+    status       TEXT NOT NULL                  -- N
+                 CHECK (status IN ('deployed','undeployed','wired','unwired','in_use','infra_orphan',
+                 'ambiguous','unknown')),
+    reasons_json TEXT NOT NULL,                 -- N  [{kind, ...}] sorted
+    PRIMARY KEY (epoch_id, node_id, env)
+);
+
+-- v0.7 (P10, ADR-0079): the C4 view, a pure function of the epoch's graph, per infra environment
+-- ('' when the epoch has no infra input).
+CREATE TABLE c4_elements (
+    epoch_id      TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
+    env           TEXT NOT NULL,                -- N
+    element_id    TEXT NOT NULL,                -- N  c4_ + sha256(kind|key)[:20]
+    level         TEXT NOT NULL CHECK (level IN ('context','container')), -- N
+    kind          TEXT NOT NULL,                -- N  person, system, external_system, deployment_unit, ...
+    name          TEXT NOT NULL,                -- N
+    node_ids_json TEXT NOT NULL DEFAULT '[]',   -- N  the map nodes it stands for (click-through)
+    attrs_json    TEXT NOT NULL DEFAULT '{}',   -- N  coverage roll-up, infra status, NFRs, ...
+    PRIMARY KEY (epoch_id, env, element_id)
+);
+
+CREATE TABLE c4_relations (
+    epoch_id   TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
+    env        TEXT NOT NULL,                   -- N
+    src        TEXT NOT NULL,                   -- N  element_id
+    dst        TEXT NOT NULL,                   -- N  element_id
+    kind       TEXT NOT NULL,                   -- N  uses, calls, reads, writes, publishes, wires, references, ...
+    attrs_json TEXT NOT NULL DEFAULT '{}',      -- N  weight, env var names (wires)
+    PRIMARY KEY (epoch_id, env, src, dst, kind)
+);
+
+-- Deterministic C4 layout (row and slot persist across epochs, like nestgrid's slots).
+CREATE TABLE c4_layout (
+    epoch_id   TEXT NOT NULL REFERENCES epochs(epoch_id), -- N
+    env        TEXT NOT NULL,                   -- N
+    element_id TEXT NOT NULL,                   -- N
+    row        TEXT NOT NULL,                   -- N  persons, system, units, data, external
+    slot       INTEGER NOT NULL,                -- N  position in its row (kept while the element exists)
+    x REAL NOT NULL, y REAL NOT NULL,           -- N
+    w REAL NOT NULL, h REAL NOT NULL,           -- N
+    PRIMARY KEY (epoch_id, env, element_id)
 );
 
 -- ---------------------------------------------------------------------------------------------

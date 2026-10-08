@@ -5,6 +5,8 @@
 import type { DataSource } from "./DataSource";
 import type {
   Box,
+  C4Box,
+  C4View,
   EdgeRow,
   EpochInfo,
   GlyphRow,
@@ -118,6 +120,13 @@ export class RemoteSliceSource implements DataSource {
   }
   lineage(epoch: string): Promise<LineageRow[]> {
     return this.get<LineageRow[]>("viewer_lineage", { epoch });
+  }
+  async c4(epoch: string): Promise<C4View[]> {
+    const got = await this.get<Array<Omit<C4View, "layout"> & { layout: Obj<C4Box> }>>("viewer_c4", { epoch });
+    return got.map((v) => ({ ...v, layout: toMap(v.layout) }));
+  }
+  async infraStatus(epoch: string): Promise<Map<string, Record<string, string>>> {
+    return toMap(await this.get<Obj<Record<string, string>>>("viewer_infra_status", { epoch }));
   }
   async scene(epoch: string, rootId: string | null, depth: number): Promise<SceneSlice> {
     const s = await this.get<Record<string, unknown>>("viewer_scene", rootId === null ? { epoch, depth } : { epoch, root_id: rootId, depth });

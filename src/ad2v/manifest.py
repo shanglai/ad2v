@@ -73,6 +73,11 @@ class Config:
     # P9 (ADR-0069): ids whose prefix marks a non-functional requirement
     nonfunctional_prefixes: tuple[str, ...] = ("RNF", "NFR", "NF")
     manifest_path: str | None = None
+    # P10 (ADR-0073): spec id prefixes found in this epoch's specs and added to test_ref_prefixes
+    derived_test_prefixes: tuple[str, ...] = ()
+    # P10 (ADR-0075, ADR-0080): `infra_root: [infra]` (static .tf read) and `infra: {deploys: {...}}`
+    infra_roots: tuple[str, ...] = ()
+    infra_deploys: dict[str, tuple[str, ...]] = field(default_factory=dict)
     # pairing (format spec §6.1)
     pairing_components: dict[str, str] = field(default_factory=dict)  # spec id -> container/component
     path_prefix_map: dict[str, str] = field(default_factory=dict)
@@ -104,6 +109,8 @@ class Config:
         }
         if self.spec_presets:
             eff["spec_presets"] = dict(sorted(self.spec_presets.items()))
+        if self.derived_test_prefixes:
+            eff["derived_test_prefixes"] = list(self.derived_test_prefixes)
         return {"effective": eff, "manifest": self.manifest_data}
 
     @property
@@ -214,6 +221,34 @@ def from_data(data: dict[str, Any], base_dir: Path | None) -> Config:
         if not isinstance(roots, list) or not all(isinstance(r, str) and r for r in roots):
             raise ManifestError("spec_root must be a path or a list of paths (relative to the repo)")
         cfg.spec_roots = tuple(_norm_rel(r) for r in roots)
+    iroots = data.get("infra_root")
+    if iroots is not None:
+        if isinstance(iroots, str):
+            iroots = [iroots]
+        if not isinstance(iroots, list) or not all(isinstance(r, str) and r for r in iroots):
+            raise ManifestError("infra_root must be a path or a list of paths (relative to the repo)")
+        norm = [_norm_rel(r) for r in iroots]
+        for r in norm:
+            if r.startswith("/") or re.match(r"^[A-Za-z]:", r) or ".." in r.split("/"):
+                raise ManifestError(f"infra_root must stay inside the repository: {r}")
+        cfg.infra_roots = tuple(sorted(set(norm)))
+    infra = data.get("infra") or {}
+    if not isinstance(infra, dict):
+        raise ManifestError("infra must be a mapping (infra: {deploys: {<resource address>: <container>}})")
+    deploys = infra.get("deploys") or {}
+    if not isinstance(deploys, dict):
+        raise ManifestError("infra.deploys must map resource addresses to container names")
+    out_deploys: dict[str, tuple[str, ...]] = {}
+    for k, v in deploys.items():
+        names = [v] if isinstance(v, str) else v
+        if (
+            not isinstance(k, str)
+            or not isinstance(names, list)
+            or not all(isinstance(x, str) for x in names)
+        ):
+            raise ManifestError("infra.deploys values are a container name or a list of names")
+        out_deploys[k] = tuple(sorted(x for x in names if x))  # empty: a placeholder, ignored
+    cfg.infra_deploys = dict(sorted(out_deploys.items()))
     rules = data.get("spec_markdown") or []
     if not isinstance(rules, list) or not all(
         isinstance(r, dict) and r.get("glob") and r.get("preset") for r in rules

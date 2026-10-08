@@ -11,10 +11,11 @@ from typing import Any
 
 from ad2v import ids
 
-FORMAT_VERSION = "0.6"
-SUPPORTED_FORMAT_VERSIONS = ("0.4", "0.5", "0.6")  # older files are upgraded on write (ADR-0055, 0066)
+FORMAT_VERSION = "0.7"
+# older files are upgraded on write (ADR-0055, 0066, 0077)
+SUPPORTED_FORMAT_VERSIONS = ("0.4", "0.5", "0.6", "0.7")
 
-SIDES = ("code", "spec")
+SIDES = ("code", "spec", "infra")  # infra: P10 (ADR-0077)
 
 STRUCTURAL_KINDS = ("system", "container", "component", "module", "class", "function")
 PORT_KINDS = ("http_route", "mcp_tool", "cli_command", "event_consumer")
@@ -29,7 +30,19 @@ SPEC_KINDS = (
     "scenario_step",
     "spec_endpoint",
 )
-NODE_KINDS = STRUCTURAL_KINDS + PORT_KINDS + RESOURCE_KINDS + BEHAVIOR_KINDS + SPEC_KINDS
+# P10 (ADR-0074, ADR-0077): the infra side, read from a Terraform plan or `.tf` files
+INFRA_KINDS = (
+    "deployment_unit",
+    "managed_datastore",
+    "managed_queue",
+    "bucket",
+    "secret_store",
+    "network",
+    "scheduler",
+    "infra_other",
+    "infra_module",
+)
+NODE_KINDS = STRUCTURAL_KINDS + PORT_KINDS + RESOURCE_KINDS + BEHAVIOR_KINDS + SPEC_KINDS + INFRA_KINDS
 
 EDGE_KINDS = (
     "contains",
@@ -44,6 +57,23 @@ EDGE_KINDS = (
     "invokes_llm",
     "declares",
     "annotated_as",
+    # P10 (ADR-0077): infra -> infra (config expressions), unit -> resource (env var), unit -> code
+    # container, unit -> code resource (env var name)
+    "references",
+    "wires",
+    "deploys",
+    "provides_env",
+)
+# P10 (ADR-0078): the infra dimension, separate from the 10-status precedence
+INFRA_STATUSES = (
+    "deployed",
+    "undeployed",
+    "wired",
+    "unwired",
+    "in_use",
+    "infra_orphan",
+    "ambiguous",
+    "unknown",
 )
 
 RISK_FLAGS = (
@@ -98,10 +128,13 @@ LEVEL_HINTS: dict[str, str] = {
     **{k: "resource" for k in RESOURCE_KINDS},
     **{k: "behavior" for k in BEHAVIOR_KINDS},
     **{k: "spec" for k in SPEC_KINDS},
+    **{k: "infra" for k in INFRA_KINDS},
 }
 
 
 def side_of(kind: str) -> str:
+    if kind in INFRA_KINDS:
+        return "infra"
     return "spec" if kind in SPEC_KINDS else "code"
 
 

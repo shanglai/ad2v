@@ -480,6 +480,8 @@ class PythonExtractor:
         self._finalize_behaviors(facts)
         self._finalize_ports(facts)
         self.timings["global_walk"] += clock() - t1
+        if self.unresolved_prefix_exprs:  # P10 M1: for the zero-config warning
+            facts.diagnostics["unresolved_route_prefixes"] = sorted(self.unresolved_prefix_exprs)
         return facts
 
     def _sorted_modules(self) -> list[ModuleInfo]:
@@ -1658,6 +1660,14 @@ class PythonExtractor:
                         s, exact = self._rfold(kw[k], ctx)
                         prefix, src = s or "", self.last_src
                 self.mounts.setdefault(inner.origin, []).append((obj.origin, prefix, exact, src))
+            else:
+                # P10 M1 (ADR-0073): the router itself did not resolve (zero config, imports outside
+                # any container root); its prefix still names a setting the map will miss. Recorded
+                # for the zero-config warning only (run state, never in the graph).
+                for k in self.http_prefix_kw:
+                    pn = _unwrap(kw[k]) if k in kw else None
+                    if pn is not None and pn.type in ("identifier", "attribute"):
+                        self.unresolved_prefix_exprs.add(_text(pn))
         if method in self.http_mount_methods and obj.ctor in self.http_ctors:
             # Starlette sub-application mount: app.mount("/api/v1", app=api) (P6.1)
             r = self.http_mount_methods[method]

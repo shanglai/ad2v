@@ -98,7 +98,80 @@ def meta(conn: sqlite3.Connection) -> dict[str, Any]:
         "systemName": m.get("system_name", "system"),
         "specCoverage": m.get("spec_coverage", "present"),
         "llmProviders": providers,
+        "unconfigured": _unconfigured(m.get("unconfigured_warnings")),
     }
+
+
+def _unconfigured(raw: str | None) -> list[str]:
+    """P10 M1 (ADR-0073): the zero-config warning messages (LocalFileSource reads the same)."""
+    try:
+        got = json.loads(raw or "[]")
+    except ValueError:
+        return []
+    return [js_str(w.get("message", "")) for w in got if isinstance(w, dict)]
+
+
+def c4(conn: sqlite3.Connection, epoch: str) -> list[dict[str, Any]]:
+    """P10 (ADR-0079): the C4 view per infra environment, sorted by env (LocalFileSource `c4`)."""
+    if not _has_table(conn, "c4_elements"):
+        return []
+    envs: dict[str, dict[str, Any]] = {}
+    for r in conn.execute(
+        "SELECT env, element_id, level, kind, name, node_ids_json, attrs_json FROM c4_elements"
+        " WHERE epoch_id = ? ORDER BY env, element_id",
+        (epoch,),
+    ):
+        v = envs.setdefault(
+            js_str(r["env"]), {"env": js_str(r["env"]), "elements": [], "relations": [], "layout": {}}
+        )
+        v["elements"].append(
+            {
+                "id": js_str(r["element_id"]),
+                "level": js_str(r["level"]),
+                "kind": js_str(r["kind"]),
+                "name": js_str(r["name"]),
+                "nodeIds": json.loads(js_str(r["node_ids_json"])),
+                "attrs": json.loads(js_str(r["attrs_json"])),
+            }
+        )
+    for r in conn.execute(
+        "SELECT env, src, dst, kind, attrs_json FROM c4_relations WHERE epoch_id = ?"
+        " ORDER BY env, src, dst, kind",
+        (epoch,),
+    ):
+        if js_str(r["env"]) in envs:
+            envs[js_str(r["env"])]["relations"].append(
+                {
+                    "src": js_str(r["src"]),
+                    "dst": js_str(r["dst"]),
+                    "kind": js_str(r["kind"]),
+                    "attrs": json.loads(js_str(r["attrs_json"])),
+                }
+            )
+    for r in conn.execute(
+        "SELECT env, element_id, row, slot, x, y, w, h FROM c4_layout WHERE epoch_id = ?"
+        " ORDER BY env, element_id",
+        (epoch,),
+    ):
+        if js_str(r["env"]) in envs:
+            envs[js_str(r["env"])]["layout"][js_str(r["element_id"])] = {
+                "row": js_str(r["row"]),
+                "slot": js_num(r["slot"]),
+                **{k: js_num(r[k]) for k in ("x", "y", "w", "h")},
+            }
+    return [envs[k] for k in sorted(envs)]
+
+
+def infra_status(conn: sqlite3.Connection, epoch: str) -> dict[str, Any]:
+    """P10 (ADR-0078): {node id: {env: status}} (LocalFileSource `infraStatus`)."""
+    out: dict[str, dict[str, str]] = {}
+    if not _has_table(conn, "infra_status"):
+        return out
+    for r in conn.execute(
+        "SELECT node_id, env, status FROM infra_status WHERE epoch_id = ? ORDER BY node_id, env", (epoch,)
+    ):
+        out.setdefault(js_str(r["node_id"]), {})[js_str(r["env"])] = js_str(r["status"])
+    return out
 
 
 def epochs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -438,7 +511,10 @@ def scene_ids(conn: sqlite3.Connection, epoch: str, root_id: str | None, depth: 
         return None
     parent: dict[str, str | None] = {}
     kids: dict[str, list[str]] = {}
-    for r in conn.execute("SELECT id, parent_id FROM nodes WHERE epoch_id = ? ORDER BY id", (epoch,)):
+    # P10: infra nodes are drawn in the Architecture view, never in a map slice
+    for r in conn.execute(
+        "SELECT id, parent_id FROM nodes WHERE epoch_id = ? AND side <> 'infra' ORDER BY id", (epoch,)
+    ):
         parent[r["id"]] = r["parent_id"]
         if r["parent_id"] is not None:
             kids.setdefault(r["parent_id"], []).append(r["id"])
@@ -447,7 +523,7 @@ def scene_ids(conn: sqlite3.Connection, epoch: str, root_id: str | None, depth: 
     keep: set[str] = {n for n, p in parent.items() if p is None}
 
     def chain(n: str | None) -> None:
-        while n is not None and n not in keep:
+        while n is not None and n not in keep and n in parent:
             keep.add(n)
             n = parent.get(n)
 

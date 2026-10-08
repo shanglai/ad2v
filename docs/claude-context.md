@@ -1,13 +1,13 @@
 # ad2v: context for a new Claude session
 
-You are picking up **ad2v** after eleven phases of work (P1–P9, plus P6.1 and P8.1). This file brings you up to date:
+You are picking up **ad2v** after twelve phases of work (P1–P10, plus P6.1 and P8.1). This file brings you up to date:
 goals, standing rules, architecture, decisions, findings, open issues, and the developer's open
 questions (at the end). Read it fully before acting. Then read `status.md`, the latest
 `REPORT.md`, and any ADR you need (`docs/adr/`).
 
-Snapshot: 2026-10-07, after the P9 commit (see `git log -1`). Everything up to P8.1
-(`d5038d5`) is pushed to `origin/master` and `origin/main`, both fast-forward. P9 is pushed the
-same way at the end of the phase (REPORT.md §11).
+Snapshot: 2026-10-08, after the P10 commit (see `git log -1`). Everything up to P9
+(`8d817e3`) is on `origin/master` and `origin/main`. P10 is pushed the same way at the end of the
+phase, fast-forward only (REPORT.md §11).
 - Repo: `<repo-root>` (the working directory of every session; GitHub `<github-owner>/ad2v`, private).
 
 ---
@@ -44,7 +44,7 @@ Principles:
 3. **Every report includes an "Accrued cost per phase" table** (P1…Pn): cloud and LLM spend.
    Claude's own usage is not metered per phase; the account is on Max with extra usage disabled,
    so say so. Totals so far: P1–P3 $0, P4 $0.592 (Vertex AI, gemini-3.8-flash, 125 calls), P5 $0,
-   P6 $0, P6.1 $0, P7 $0.385 (Vertex, 163 calls), P8 $0, P8.1 $0, P9 $0, **total $0.977**.
+   P6 $0, P6.1 $0, P7 $0.385 (Vertex, 163 calls), P8 $0, P8.1 $0, P9 $0, P10 $0, **total $0.977**.
    Also count CI runs triggered by pushes (about 18 billed minutes each, ubuntu jobs). The developer explicitly asked for this at the end of each phase.
 4. **No copyleft dependencies**, transitive ones included, on both the Python and npm sides:
    GPL, LGPL, AGPL, MPL, EPL, CDDL, CC-BY-SA, OFL-only fonts.
@@ -71,7 +71,7 @@ Principles:
    used once, and scratch files. `node_modules/` stays gitignored.
 9. If context runs low, finish the current milestone, skip the rest, and mark them "not done" in
    the report.
-10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0073**.
+10. **Record every decision the prompt didn't fix as an ADR.** The next number is **0082**.
 11. **Environment:** Windows 11, Python 3.12 (`.venv`), Node 24 / npm 11, git; everything must be
     cross-platform. Python 3.11 is the declared minimum (CI runs it).
 12. **Sanitization:** no local absolute paths, usernames, emails or the GCP project id in tracked
@@ -112,11 +112,11 @@ Principles:
 | P8 | `4d5740b` | extractor plug-in API (`ad2v.api` 1.0, entry points, opt-in, identity in the epoch, built-ins as plug-ins, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (0.7.0.dev0, not published), CI workflows (written, not run), security review, sanitization inventory, dogfood procedure | 9 fixture dump scenarios identical with epoch id / rules hash masked; examples pass the kit in a temp venv; wheel verified in a clean venv; 11 security fixes; 382 pytest |
 | P8.1 | `d5038d5` | status `not_evaluable` for code in a language no active extractor reads (language-scope inventory, `ad2v:` comment markers, legend in the viewer), format v0.6 + upgrade | polyglot fixture; Python-only dumps unchanged except epoch id / rules hash / format version / recorded precedence; 388 pytest; first push, first CI runs (both failed: fresh-clone install, fixed in P9) |
 | P9 | `git log -1` | brownfield onboarding: `ad2v init` (deterministic manifest proposal), team SDD presets `table` and `stories` (Spanish and English), Spanish EARS and Gherkin, titles, non-functional requirements, issue 95 (`component_out_of_scope`, test titles in unread languages), spec side of the map (steps off the map, scenario roll-up, `id · title` labels, word-boundary truncation), wider default excludes with SQL kept under `migrations/`, optional viewer packages (fresh-clone install) | `fixtures/brownfield-es`: zero-config 1 command (endpoints missing, 5 orphans) vs init 2 commands + 1 edit (endpoints implemented, 0 orphans); layout stability 1.0000; 428 pytest, Vitest 53, Playwright 29 |
+| P10 | `git log -1` | infrastructure layer: Terraform plan JSON (`--infra-plan [ENV=]file`, format 1.x) and static `.tf` (python-hcl2, `infra_root`), secrets allowlist, the env-var bridge (`deploys`, `provides_env`, `wires`; `infra_status` deployed/undeployed/wired/unwired/in_use/infra_orphan/ambiguous per environment), a deterministic C4 view (Architecture tab, `ad2v c4` Structurizr/JSON, `ad2v_architecture`, `c4` intent), zero-config warning, test-name prefixes derived from spec ids, format v0.7 | brownfield-es: backend/frontend deployed, worker undeployed, EXPORT_BUCKET unwired, archive bucket orphan, dev differs; planted secrets absent from file and dump; 2,000-resource plan parsed in 0.14 s; dumps of no-infra fixtures unchanged after masking |
 
-**Next, as planned by the owner:** **P10: infrastructure** (a supplied `terraform show -json`
-plan plus a static `.tf` fallback, the env-var bridge between code and infra, a deterministic C4
-view in its own tab), after the developer's evaluation-project results. **P11** is the
-TypeScript extractor. Do not start either without the owner's prompt.
+**Next, as planned by the owner:** **P11: the TypeScript extractor**, after the developer's
+evaluation-project results. Do not start it without the owner's prompt. Open questions for P11
+and for a later NFR-vs-infra check are in REPORT.md §10.
 
 ## 4. Architecture
 
@@ -186,7 +186,7 @@ TypeScript extractor. Do not start either without the owner's prompt.
 - **LLM tables:** `llm_results` (tasks incl. `chat`), `llm_runs`, `link_judgments`,
   `judge_rollups` (v0.5), `link_suggestions`, `summaries`, `narrations`; the
   `node_status_effective` view (judged drift or a roll-up drift).
-- The spec is `docs/spec/ad2v-format-v0.6.md`: §11 the LLM layer, §12 layout and viewer, §13 MCP
+- The spec is `docs/spec/ad2v-format-v0.7.md`: §11 the LLM layer, §12 layout and viewer, §13 MCP
   and retrieval rules.
 
 ### 4.3 Viewer (`viewer/`: Vite 7, TypeScript strict, three 0.180, sql.js)
@@ -244,12 +244,16 @@ TypeScript extractor. Do not start either without the owner's prompt.
 
 ### 4.5 Tests and gates
 
-- `pytest`: 430 collected (428 pass + 1 cloud skip + 1 symlink skip on Windows); `-m mcp`, `-m slow`
-  (the quickstart guard, which runs step 2b `ad2v init` on a copy of `fixtures/brownfield-es`).
-- Viewer: Vitest 53; `npm run test:mcp` covers parity, Inspector conformance and the App e2e.
+- `pytest`: 462 collected (460 pass + 1 cloud skip + 1 symlink skip on Windows); `-m mcp`, `-m slow`
+  (the quickstart guard, which runs step 2b `ad2v init` and step 5b infra on copies of
+  `fixtures/brownfield-es`). P10: `test_infra.py` (plan/static readers, planted secrets, bridge,
+  C4, history), `test_unconfigured.py`, `test_envreads.py`.
+- Viewer: Vitest 56; `npm run test:mcp` covers parity (incl. `c4`, `infraStatus`), Inspector
+  conformance (38/38, 14 agent tools) and the App e2e (12, incl. the `c4` intent).
 - Playwright: the P5 tour (2), the App (10), replay camera (2), dim (3), chat (3, against a real
   `ad2v view --chat` with the fake provider), UX v2 (2), hostile file (2, P8: no script runs in
-  either viewer mode), scope (2, P8.1), spec side (4, P9: payments-recon and brownfield-es).
+  either viewer mode), scope (2, P8.1), spec side (4, P9: payments-recon and brownfield-es),
+  architecture (2, P10; plus `perf-c4.spec.ts`, which runs only with `AD2V_C4_PERF`).
 - CI (P8, written, never run): `.github/workflows/ci.yml` (ubuntu on push/PR; all OS on manual
   dispatch) and `release.yml` (disabled). Gates: `scripts/check_python_licenses.py`,
   `scripts/determinism_check.py`, npm license gate, ruff, ESLint, tsc, Vitest, conformance kit.
@@ -334,6 +338,18 @@ TypeScript extractor. Do not start either without the owner's prompt.
   - 0064: discovery, opt-in, trust and isolation (timeouts, `--strict`);
   - 0065: plug-in identity in the epoch rules (additive within v0.5), parse-cache key, GC.
 - **0066 (P8.1):** `not_evaluable` and the language-scope inventory; format v0.6.
+- **0073–0081 (P10):**
+  - 0073: zero-config warning (meta.unconfigured_warnings, banner) and test-name prefixes derived
+    from spec ids (config identity);
+  - 0074: infra from a plan JSON (never run terraform), typing by `infra.yaml` (in the rules),
+    carry-forward, `change_kind: infra`;
+  - 0075: static `.tf` fallback with python-hcl2, `infra_root`, limits, plan wins / gap fill;
+  - 0076: secrets policy (allowlist, env var sources only, planted-secrets test);
+  - 0077: format v0.7 (infra side, edges, `epochs.infra_hash`, upgrade 0.6 → 0.7);
+  - 0078: `infra_status` is a separate dimension (not in the 10-status precedence);
+  - 0079: the C4 view (derived, slot-persistent layout, Structurizr export, MCP);
+  - 0080: the env-var bridge (env reads, deploys priorities, website buckets as static hosts);
+  - 0081: `init` for infra (infra_root, plan command + warning, deploys placeholders).
 - **0067–0072 (P9):**
   - 0067: viewer packages optional in a source install (`setup.py`), required for release builds
     (`AD2V_REQUIRE_VIEWER=1`);
@@ -429,8 +445,16 @@ TypeScript extractor. Do not start either without the owner's prompt.
 
 ## 8. How inputs are found (P6.1, P7)
 
-`ad2v extract --repo <code dir> [--spec <dir> ...] [--manifest ad2v.yaml] --out x.ad2v`.
+`ad2v extract --repo <code dir> [--spec <dir> ...] [--manifest ad2v.yaml] [--infra-plan [ENV=]plan.json ...] --out x.ad2v`.
 No folder layout is required.
+
+- **Infra (P10, docs/infra.md):** plan JSON per environment (the human runs terraform; ad2v never
+  does) and/or `.tf` under `infra_root` (static, python-hcl2). Infra nodes form a third side
+  (`infra`), off the map; findings are `infra_status` per environment; the Architecture tab and
+  `ad2v c4` show the derived C4 view. Only allowlisted attributes and env var *names* are stored.
+- **Zero config (P10):** `extract` without a manifest warns (unresolved route prefixes, fallback
+  container, derived test prefixes, IaC) and recommends `ad2v init`; spec id prefixes are added
+  to the test-name prefixes automatically.
 
 - **Code:** every `*.py` under `--repo`, minus `exclude` globs (defaults plus `ad2v.yaml`), minus
   the spec roots.
@@ -458,10 +482,10 @@ No folder layout is required.
 
 ## 9. Where things are
 
-- Reports: `REPORT.md` (P9), `docs/reports/P1.md`–`P6.md`, `P6.1.md`, `P7.md`, `P8.md` (P8 + P8.1),
-  `P9.md`.
+- Reports: `REPORT.md` (P10), `docs/reports/P1.md`–`P6.md`, `P6.1.md`, `P7.md`, `P8.md` (P8 + P8.1),
+  `P9.md`, `P10.md`. Infra: `docs/infra.md`.
 - Screenshots: `docs/reports/P5-screens/`, `P6-screens/`, `P6.1-screens/`, `P7-screens/`,
-  `P8.1-screens/`, `P9-screens/`.
+  `P8.1-screens/`, `P9-screens/`, `P10-screens/`.
 - Demo: `docs/reports/P5-demo.html`, rebuilt in P7 with the current viewer.
 - Tracking: `status.md`, `issues.md`, `pending.md`.
 - Docs: `docs/adr/`, `docs/spec/`, `docs/dependencies.md`, `docs/mcp.md`,
@@ -492,6 +516,7 @@ P7 answered the remaining questions: the viewer now has its own chat (`ad2v view
 FastAPI settings prefixes resolve, and the quickstart is verified.
 
 P9 made ad2v usable on an existing project: `ad2v init`, Spanish team formats, and a readable
-spec side of the map. Next is **P10 (infrastructure)**, after the developer's evaluation-project
-results, then **P11 (the TypeScript extractor)**. Open questions for both are in REPORT.md §10.
-Do not start either without the owner's prompt.
+spec side of the map. P10 added infrastructure: Terraform read without running it, the env-var
+bridge between code and deployments, and the Architecture (C4) tab. Next is **P11 (the
+TypeScript extractor)**, after the developer's evaluation-project results. Do not start it
+without the owner's prompt.

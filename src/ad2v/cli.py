@@ -9,7 +9,22 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from ad2v import __version__, admin, diff, dump, gitsource, ir, layout, materialize, pipeline, plugins, store
+from ad2v import (
+    __version__,
+    admin,
+    c4,
+    diff,
+    dump,
+    gitsource,
+    infra,
+    ir,
+    layout,
+    materialize,
+    pipeline,
+    plugins,
+    store,
+    unconfigured,
+)
 from ad2v.cli_init import register as register_init
 from ad2v.cli_llm import register as register_llm
 from ad2v.cli_plugins import register as register_plugins
@@ -81,7 +96,8 @@ def summary(res: pipeline.Result, target: str) -> str:
         out.append(_table([_risk_row(n.kind, n.qualified_name, n.attrs) for n in risky[:10]], RISK_HEADER))
     by_side: dict[str, Counter[str]] = {"spec": Counter(), "code": Counter()}
     for nid, st in res.pairing.statuses.items():
-        by_side[g.nodes[nid].side][st.status] += 1
+        if g.nodes[nid].side in by_side:  # infra nodes have their own dimension (infra_status)
+            by_side[g.nodes[nid].side][st.status] += 1
     out.append(f"\nStatus counts (effective node status; spec coverage: {res.meta.get('spec_coverage')})\n")
     out.append(
         _table(
@@ -122,6 +138,16 @@ def summary(res: pipeline.Result, target: str) -> str:
             )
         )
     st = res.stats
+    inf = st.get("infra") or {}
+    if inf:
+        kinds = ", ".join(f"{k} {v}" for k, v in inf["kinds"].items()) or "no resources"
+        extra = f"; carried from the parent: {', '.join(inf['carried'])}" if inf.get("carried") else ""
+        filled = inf.get("filled_from_static") or {}
+        if filled:
+            extra += "; filled from .tf: " + ", ".join(f"{k} {v}" for k, v in filled.items())
+        out.append(f"\nInfra ({', '.join(inf['envs'])}): {kinds}{extra}\n")
+        for w in inf.get("warnings", [])[:10]:
+            out.append(f"  infra warning: {w}\n")
     out.append(
         f"\n{st['files_code']} code files ({st['loc_code']} lines), {st['files_spec']} spec files,"
         f" {len(g.nodes)} nodes, {len(g.edges)} edges, {len(res.workflows)} workflows"
@@ -149,6 +175,7 @@ def cmd_extract(a: argparse.Namespace) -> int:
         extractors=a.extractor or (),
         strict=a.strict,
         plugin_timeout_s=a.plugin_timeout,
+        infra_plans=infra.parse_plan_args(a.infra_plan or [], a.infra_env),
     )
     _out(res.spec_roots.describe() + "\n")
     _out(_plugin_lines(res))
@@ -156,7 +183,17 @@ def cmd_extract(a: argparse.Namespace) -> int:
         _out(f"no changes: inputs identical to head epoch {res.epoch.parent_epoch_id}; nothing written\n")
         return 0
     _out(summary(res, target))
+    _out(unconfigured_text(res.unconfigured))
     return 0
+
+
+def unconfigured_text(warnings: list[dict]) -> str:
+    """P10 M1 (ADR-0073): the zero-config warning, one line per condition."""
+    if not warnings:
+        return ""
+    lines = ["", "WARNING: " + unconfigured.banner(warnings)]
+    lines += [f"  - {w['message']}" for w in warnings]
+    return "\n".join(lines) + "\n"
 
 
 def _plugin_lines(res: pipeline.Result) -> str:
@@ -540,6 +577,30 @@ def cmd_layout(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_c4(a: argparse.Namespace) -> int:
+    """P10 (ADR-0079): the C4 view as a Structurizr DSL workspace or JSON (deterministic)."""
+    conn = store.open_readonly(Path(a.file))
+    try:
+        e = store.resolve_epoch(conn, a.epoch or "head")
+        view = c4.load(conn, e)
+        system = store.read_meta(conn).get("system_name", "system")
+    finally:
+        conn.close()
+    env = c4.pick_env(view, a.env)
+    v = view.get(env, {"elements": [], "relations": [], "layout": {}})
+    if a.format == "json":
+        text = json.dumps({"system": system, "env": env, "envs": sorted(view), **v}, indent=2, sort_keys=True)
+        text += "\n"
+    else:
+        text = c4.structurizr(system, env, v)
+    if a.out:
+        Path(a.out).write_text(text, encoding="utf-8", newline="\n")
+        _out(f"wrote {a.out} ({a.format}, environment {env or '(none)'})\n")
+    else:
+        _out(text)
+    return 0
+
+
 def cmd_diff(a: argparse.Namespace) -> int:
     conn = store.open_readonly(Path(a.file))
     try:
@@ -604,6 +665,16 @@ def parser() -> argparse.ArgumentParser:
         "--test-results", action="append", metavar="JUNIT_XML", help="JUnit XML results (repeatable)"
     )
     e.add_argument("--no-cache", action="store_true", help="ignore the file's parse cache")
+    e.add_argument(
+        "--infra-plan",
+        action="append",
+        metavar="[ENV=]PLAN_JSON",
+        help="a Terraform/OpenTofu plan as JSON (`terraform show -json tfplan`), repeatable, one per"
+        " environment (prod=plan-prod.json). ad2v only reads the file; it never runs terraform",
+    )
+    e.add_argument(
+        "--infra-env", help="environment name for a --infra-plan given without ENV= (default: default)"
+    )
     _plugin_args(e)
     e.set_defaults(func=cmd_extract)
 
@@ -723,6 +794,14 @@ def parser() -> argparse.ArgumentParser:
     mc.add_argument("--port", type=int, default=0, help="HTTP port (0 = any free port)")
     mc.add_argument("--no-warm", action="store_true", help="do not build search indexes at startup")
     mc.set_defaults(func=cmd_mcp)
+
+    c4p = sub.add_parser("c4", help="the C4 view (context + containers) as Structurizr DSL or JSON")
+    c4p.add_argument("file")
+    c4p.add_argument("--epoch", help=f"{epoch_help} (default: head)")
+    c4p.add_argument("--env", help="infra environment (default: default, else the first)")
+    c4p.add_argument("--format", choices=("structurizr", "json"), default="structurizr")
+    c4p.add_argument("--out", help="write to this file instead of stdout")
+    c4p.set_defaults(func=cmd_c4)
 
     ly = sub.add_parser("layout", help="deterministic layout (nestgrid-v1) of epochs that lack one")
     ly.add_argument("file")

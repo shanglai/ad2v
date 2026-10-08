@@ -50,6 +50,16 @@ KIND_SHAPES: dict[str, tuple[str, str]] = {
     "scenario": ("folded_sheet", "scenario"),
     "scenario_step": ("folded_sheet", "scenario_step"),
     "spec_endpoint": ("folded_sheet", "spec_endpoint"),
+    # P10 (ADR-0077): infra kinds (drawn in the Architecture view, not on the map)
+    "deployment_unit": ("rounded_box", "deployment_unit"),
+    "managed_datastore": ("cylinder", "managed_datastore"),
+    "managed_queue": ("tube", "managed_queue"),
+    "bucket": ("cylinder", "bucket"),
+    "secret_store": ("diamond", "secret_store"),
+    "network": ("cloud", "network"),
+    "scheduler": ("ring", "scheduler"),
+    "infra_other": ("rounded_box", "infra_other"),
+    "infra_module": ("rounded_box", "infra_module"),
 }
 
 # Container kinds (manifest `kind`) that render as a gateway/UI trapezoid instead of a box.

@@ -182,7 +182,9 @@ def build_demo(out: Path, tmp: Path) -> str:
     if out.exists():
         out.unlink()
     first = sc.commits[0][1]
-    gitsource.run_history(sc.repo, f"{first}^!", out, "specs", ["test-results/junit.xml"])
+    # P10: a GCP plan for the demo (recon-api / recon-worker on Cloud Run), carried through the history
+    plan = [("prod", REPO / "fixtures" / "infra" / "gcp" / "plan.json")]
+    gitsource.run_history(sc.repo, f"{first}^!", out, "specs", ["test-results/junit.xml"], infra_plans=plan)
     gitsource.run_history(sc.repo, f"{first}..HEAD", out, "specs", ["test-results/junit.xml"])
     conn = store.open_rw(out)
     with conn:

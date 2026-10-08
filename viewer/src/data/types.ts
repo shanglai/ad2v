@@ -1,6 +1,6 @@
 // Row types the viewer reads from an .ad2v file (format v0.6; reads v0.4 and v0.5 too). Everything here is read-only.
 
-export type Side = "code" | "spec";
+export type Side = "code" | "spec" | "infra";
 export type StatusMode = "normative" | "effective";
 
 export interface EpochInfo {
@@ -148,11 +148,43 @@ export interface LineageRow {
   score: number;
 }
 
+/** P10 (ADR-0079): one infra environment's C4 view ('' when the epoch has no infra input). */
+export interface C4Element {
+  id: string;
+  level: "context" | "container";
+  kind: string;
+  name: string;
+  nodeIds: string[];
+  attrs: Record<string, unknown>;
+}
+export interface C4Relation {
+  src: string;
+  dst: string;
+  kind: string;
+  attrs: Record<string, unknown>;
+}
+export interface C4Box {
+  row: string;
+  slot: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export interface C4View {
+  env: string;
+  elements: C4Element[];
+  relations: C4Relation[];
+  layout: Map<string, C4Box>;
+}
+
 export interface Meta {
   formatVersion: string;
   systemName: string;
   specCoverage: string;
   llmProviders: string[];
+  /** P10 M1: zero-config warning messages (empty when the file was built with a manifest) */
+  unconfigured: string[];
 }
 
 /** A slice of one epoch around a focus node (P6): what the map renders, fetched in one call.

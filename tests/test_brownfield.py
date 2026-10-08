@@ -95,11 +95,17 @@ def test_detectors_on_the_brownfield_fixture():
     assert [(c["name"], c["language"], c["read"]) for c in fd.containers] == [
         ("backend", "python", True),
         ("frontend", "typescript", False),
+        ("worker", "python", True),
     ]
     assert {e["pattern"]: e["code_files"] for e in fd.excludes} == {"dist": 2, "node_modules": 1}
     assert [s["path"] for s in fd.sql] == ["src/db/migrations/V2__indices.sql", "src/db/schema.sql"]
     assert all(s["dropped_by"] is None for s in fd.sql)
-    assert fd.infra == {"terraform": ["infra"]}
+    assert fd.infra == {"terraform": ["infra"]} and fd.infra_roots == ["infra"]
+    assert fd.infra_matches == {
+        "backend": ["google_cloud_run_v2_service.backend"],
+        "frontend": ["google_storage_bucket.frontend"],
+    }
+    assert fd.infra_ambiguous == {}
     assert fd.test_results == {"junit": [], "pytest_config": ["src/backend/pyproject.toml"]}
     assert fd.path_constants == ["settings.API_PREFIX"] and fd.unresolved_routes == 3
     assert fd.spec_id_prefixes == ["HU", "RF", "RNF"] and fd.nonfunctional_prefixes == ["RNF"]
@@ -275,3 +281,37 @@ def test_bootstrap_cycle_with_sdd_as_the_spec_root(tmp_path, capsys):
     assert main(["specs", "approve", "--repo", str(repo), "contexto.md", "--to", "sdd/aprobados"]) == 0
     st = _statuses(pipeline.build(repo))
     assert st["REQ-X001"] == "specified"  # approved prose now counts as a spec item
+
+
+def _infra_statuses(res: pipeline.Result) -> dict[str, dict[str, str]]:
+    from ad2v.infra import bridge
+
+    g = res.graph
+    out: dict[str, dict[str, str]] = {}
+    for nid, env, st, _ in bridge.statuses(g):
+        out.setdefault(env, {})[g.nodes[nid].qualified_name] = st
+    return out
+
+
+@pytest.mark.parametrize("mode", ["static", "plans"])
+def test_the_env_var_bridge_on_the_brownfield_fixture(tmp_path, mode):
+    """P10 M5 (ADR-0080): deploys, wired/unwired, undeployed, infra_orphan, per environment."""
+    plans = []
+    if mode == "plans":
+        plans = [(e, ROOT / "fixtures" / "infra" / "brownfield-es" / f"{e}.json") for e in ("prod", "dev")]
+    res = pipeline.build(BF, manifest=_filled(tmp_path), infra_plans=plans)
+    got = _infra_statuses(res)
+    for env, want in EXP["infra"][mode].items():
+        for q, st in want.items():
+            assert got[env][q] == st, (mode, env, q, got[env].get(q))
+    if mode == "plans":
+        from ad2v.infra import bridge
+
+        g = res.graph
+        dev = {
+            r["env_var"]
+            for nid, env, st, rs in bridge.statuses(g)
+            if env == "dev" and st == "unwired"
+            for r in rs
+        }
+        assert sorted(dev) == EXP["infra"]["unwired_dev"]

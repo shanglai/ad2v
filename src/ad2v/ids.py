@@ -69,8 +69,10 @@ def epoch_id(
     rules_hash: str,
     config_hash: str,
     test_results_hash: str,
+    infra_hash: str = "",
 ) -> str:
-    """Epoch identity covers every input that shapes the output (ADR-0010, ADR-0012)."""
+    """Epoch identity covers every input that shapes the output (ADR-0010, ADR-0012). The infra
+    inputs (P10, ADR-0077) enter only when there are any, so epochs without infra keep their form."""
     parts = [
         parent_epoch_id or "",
         repo_tree_hash,
@@ -79,6 +81,8 @@ def epoch_id(
         config_hash,
         test_results_hash,
     ]
+    if infra_hash:
+        parts.append("infra:" + infra_hash)
     return _short("e_", "|".join(parts))
 
 

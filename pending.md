@@ -99,10 +99,21 @@ Items consciously left out so far, grouped by the phase that should pick them up
   ADR-0070). Requirements as Markdown tables and user stories, in Spanish and English (ADR-0069).
   `ad2v init` (ADR-0071). Steps off the map and readable spec labels (ADR-0072).
 
-## After P9: P10 and later
+## Done in P10 (moved from this list)
 
-- P10: map infrastructure as code (Terraform, Pulumi, CloudFormation, Kubernetes, Helm), which
-  `ad2v init` already detects (issue 100).
+- Terraform infra (plan JSON + static `.tf`), the env-var bridge, the C4 Architecture view, the
+  zero-config warning and test-name prefixes from the specs (ADR-0073..0081; issue 100 for
+  Terraform).
+
+## After P10: P11 and later
+
+- P11: the TypeScript extractor (after the developer's evaluation-project results); then the
+  env-var bridge reads `process.env.X` on the TypeScript side too.
+- Infra: Azure (azurerm) types, Kubernetes manifests and Helm (issue 106); group large C4 views
+  (issue 107); persons through spec components (issue 108).
+- NFR vs infra: a deterministic catalog (availability → min instances, encryption at rest →
+  `encrypted`, retention → bucket lifecycle) first, the LLM judge only for what the catalog cannot
+  express (issue 109).
 - Run `ad2v init` first on the owner's dogfood repositories; record its edits and removals
   (docs/dogfood.md results table), and title quality (issue 99).
 - Keep a test that `not_evaluable` disappears once a TypeScript plug-in claims `*.ts`.

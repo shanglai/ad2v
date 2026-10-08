@@ -29,7 +29,16 @@ GENERATOR = "ad2v-reference"
 
 # Columns that never enter the canonical dump (wall-clock, environment-dependent).
 EXCLUDED_COLUMNS = frozenset({"created_at"})
-INFORMATIVE_META_KEYS = frozenset({"created_at", "generator", "generator_version", "repo_root_name"})
+INFORMATIVE_META_KEYS = frozenset(
+    {
+        "created_at",
+        "generator",
+        "generator_version",
+        "repo_root_name",
+        "unconfigured_warnings",  # P10 (ADR-0073)
+        "derived_test_name_prefixes",
+    }
+)
 # Physical storage tables: hidden from dumps (dedup is invisible), reached through views.
 PHYSICAL_TABLES = frozenset(
     {
@@ -73,6 +82,9 @@ DERIVED_TABLES = (
     "links",
     "node_status",
     "status_rollup",
+    "infra_status",  # v0.7 (P10): empty when the epoch has no infra input
+    "c4_elements",
+    "c4_relations",
 )
 # Delete order respecting foreign keys.
 DERIVED_DELETE_ORDER = (
@@ -83,8 +95,11 @@ DERIVED_DELETE_ORDER = (
     "links",
     "node_status",
     "status_rollup",
+    "infra_status",
+    "c4_relations",
+    "c4_elements",
 )
-CHANGE_KINDS = ("initial", "code", "spec", "code+spec", "rules", "config", "tests_only", "mixed")
+CHANGE_KINDS = ("initial", "code", "spec", "code+spec", "rules", "config", "tests_only", "infra", "mixed")
 
 
 @dataclass
@@ -100,15 +115,17 @@ class Epoch:
     change_kind: str = "initial"
     seq: int = 1
     attrs: dict[str, Any] = field(default_factory=dict)
+    infra_hash: str = ""  # P10 (ADR-0077): '' when the epoch has no infra input
 
     @property
-    def input_hashes(self) -> tuple[str, str, str, str, str]:
+    def input_hashes(self) -> tuple[str, str, str, str, str, str]:
         return (
             self.repo_tree_hash,
             self.spec_tree_hash,
             self.rules_hash,
             self.config_hash,
             self.test_results_hash,
+            self.infra_hash,
         )
 
 
@@ -116,7 +133,7 @@ def change_kind(parent: Epoch | None, e: Epoch) -> str:
     """Which inputs changed relative to the parent (format spec §5.1)."""
     if parent is None:
         return "initial"
-    names = ("code", "spec", "rules", "config", "tests")
+    names = ("code", "spec", "rules", "config", "tests", "infra")
     changed = {n for n, a, b in zip(names, parent.input_hashes, e.input_hashes, strict=True) if a != b}
     table = {
         frozenset({"code"}): "code",
@@ -125,6 +142,7 @@ def change_kind(parent: Epoch | None, e: Epoch) -> str:
         frozenset({"rules"}): "rules",
         frozenset({"config"}): "config",
         frozenset({"tests"}): "tests_only",
+        frozenset({"infra"}): "infra",
     }
     return table.get(frozenset(changed), "mixed")
 
@@ -223,7 +241,7 @@ def open_rw(path: Path) -> sqlite3.Connection:
     except sqlite3.DatabaseError as e:
         conn.close()
         raise NotAnAd2vFile(f"not an ad2v file: {path} ({e})") from e
-    if version is not None and version[0] in ("0.4", "0.5"):  # upgraded in place (ADR-0055, ADR-0066)
+    if version is not None and version[0] in ("0.4", "0.5", "0.6"):  # in place (ADR-0055, 0066, 0077)
         from ad2v.upgrade import upgrade
 
         upgrade(conn)
@@ -312,6 +330,7 @@ def _epoch_from_row(r: sqlite3.Row) -> Epoch:
         change_kind=r["change_kind"],
         seq=r["seq"],
         attrs=json.loads(r["attrs_json"]),
+        infra_hash=r["infra_hash"] if "infra_hash" in r.keys() else "",  # noqa: SIM118 (sqlite3.Row),
     )
 
 
@@ -379,8 +398,8 @@ def insert_epoch(
     )
     conn.execute(
         "INSERT INTO epochs(epoch_id, parent_epoch_id, seq, repo_commit, repo_tree_hash, spec_tree_hash,"
-        " rules_hash, config_hash, test_results_hash, change_kind, attrs_json, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " rules_hash, config_hash, test_results_hash, change_kind, attrs_json, created_at, infra_hash)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             e.epoch_id,
             e.parent_epoch_id,
@@ -394,6 +413,7 @@ def insert_epoch(
             e.change_kind,
             ids.canonical_json(e.attrs),
             datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            e.infra_hash,
         ),
     )
 
@@ -700,6 +720,7 @@ class Derived:
     glyphs: list[ir.Glyph]
     workflows: list[ir.Workflow]
     pairing: PairingResult
+    graph: ir.Graph | None = None  # P10: infra_status and the C4 view are derived from it
 
 
 def derived_rows(e: str, d: Derived) -> dict[str, list[dict[str, Any]]]:
@@ -769,6 +790,13 @@ def derived_rows(e: str, d: Derived) -> dict[str, list[dict[str, Any]]]:
         )
     for nid, c in sorted(res.rollup.items()):
         out["status_rollup"].append({"epoch_id": e, "node_id": nid, "counts_json": ids.canonical_json(c)})
+    if d.graph is not None:
+        from ad2v import c4
+        from ad2v.infra import bridge
+
+        out["infra_status"] = bridge.rows(e, d.graph)
+        els, rels = c4.rows(e, d.graph, d.pairing)
+        out["c4_elements"], out["c4_relations"] = els, rels
     return out
 
 
@@ -782,6 +810,9 @@ def write_derived(conn: sqlite3.Connection, e: str, d: Derived) -> None:
         "links",
         "node_status",
         "status_rollup",
+        "infra_status",
+        "c4_elements",
+        "c4_relations",
     ):
         if not rows[table]:
             continue

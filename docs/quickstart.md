@@ -280,6 +280,44 @@ ad2v validate C:\ad2v-maps\my-project.ad2v
 
 ---
 
+## 5b. Optional: infrastructure (Terraform)
+
+If the repository has Terraform, ad2v can tell which service runs which container, which env vars
+the code reads that no deployment provides, and which resources nobody uses. It shows all of this
+in an **Architecture** tab (a C4 view). ad2v reads files only: it never runs `terraform`.
+
+1. Point it at the Terraform root modules (`ad2v init` proposes this):
+
+   ```yaml
+   infra_root: [infra]
+   ```
+
+   That alone reads the `.tf` files statically, in every epoch and in `history`.
+
+2. For the deployed shape per environment, produce a plan JSON **yourself**. This runs the
+   providers and needs credentials and state; keep the file out of the repository:
+
+   ```powershell
+   terraform init; terraform plan -refresh=false -out tfplan; terraform show -json tfplan > C:\ad2v-maps\plan-prod.json
+   ```
+
+3. Pass one plan per environment:
+
+   ```powershell
+   ad2v extract --repo C:\path\to\my-project --out C:\ad2v-maps\my-project.ad2v --infra-plan prod=C:\ad2v-maps\plan-prod.json
+   ad2v c4 C:\ad2v-maps\my-project.ad2v --env prod --format structurizr > C:\ad2v-maps\workspace.dsl
+   ```
+
+The summary prints `Infra (prod): …`. In the viewer, **Architecture** shows the deployment units,
+the code containers they run, datastores, queues and buckets, with each one's infra status:
+- deployed, undeployed (dashed);
+- unwired env var (⚠);
+- orphan resource (dotted).
+**Infra badges** puts the same marks on the map. Only names of env vars are stored, never values;
+details in [docs/infra.md](infra.md).
+
+---
+
 ## 6. Add history (the "what changed while I wasn't looking" view)
 
 ```powershell
@@ -421,8 +459,10 @@ you the CLI command. More hosts: [docs/mcp.md](mcp.md).
   but not read: it shows as `not_evaluable` (thin, dotted, hollow, "∅" badge; see **Legend** in the
   viewer). Add `// ad2v: REQ-001` comments there so the spec item still points at the right file.
 - **Spec formats:** OpenAPI 3, Gherkin, the ad2v convention, spec-kit `spec.md`, Kiro
-  `requirements.md`, custom regexes. Not yet parsed: Kiro `design.md`/`tasks.md`, spec-kit
-  `plan.md`/`tasks.md`, requirement tables.
+  `requirements.md`, requirement tables, user stories, custom regexes. Not yet parsed: Kiro
+  `design.md`/`tasks.md`, spec-kit `plan.md`/`tasks.md`.
+- **Infra is Terraform only** (plan JSON or `.tf`), GCP and AWS core types; Azure, Pulumi,
+  CloudFormation and Kubernetes manifests are detected but not read. No NFR-vs-infra checks yet.
 - **Route prefixes from settings** (`settings.API_V1_STR`) are unresolved unless mapped (step 4);
   those routes link as `needs_review` by their path tail.
 - **`verified` needs a JUnit file.** Without one, the best status is `implemented`.

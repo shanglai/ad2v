@@ -16,9 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from ad2v import (
+    c4,
     glyphs,
     history,
     ids,
+    infra,
     ir,
     junit,
     layout,
@@ -29,11 +31,13 @@ from ad2v import (
     severity,
     specroots,
     store,
+    unconfigured,
     workflows,
 )
 from ad2v.extract import files as filewalk
 from ad2v.extract.code.base import CodeFacts, Layout
 from ad2v.extract.spec import extract_specs, spec_tree_hash, titles
+from ad2v.infra import bridge
 from ad2v.manifest import Config, code_excluded
 from ad2v.manifest import load as load_manifest
 
@@ -80,10 +84,11 @@ class Result:
     plugins: list[str] = field(default_factory=list)  # P8: active plug-ins, one line each
     plugin_runs: list[plugins.PluginRun] = field(default_factory=list)
     plugin_graphs: dict[str, ir.Graph] = field(default_factory=dict)  # per extractor (not persisted)
+    unconfigured: list[dict[str, Any]] = field(default_factory=list)  # P10 M1: zero-config warnings
 
     @property
     def derived(self) -> store.Derived:
-        return store.Derived(self.glyphs, self.workflows, self.pairing)
+        return store.Derived(self.glyphs, self.workflows, self.pairing, self.graph)
 
 
 def read_git_head(repo: Path) -> str | None:
@@ -180,8 +185,10 @@ def build(
     extractors: tuple[str, ...] | list[str] = (),
     strict: bool = False,
     plugin_timeout_s: float | None = plugins.DEFAULT_TIMEOUT_S,
+    infra_plans: list[tuple[str, Path]] | None = None,
 ) -> Result:
-    """`extractors`: third-party plug-ins enabled for this run in addition to `ad2v.yaml`'s
+    """`infra_plans`: (environment, plan JSON path) pairs (P10, ADR-0074).
+    `extractors`: third-party plug-ins enabled for this run in addition to `ad2v.yaml`'s
     `extractors.enabled` (ADR-0064). `strict`: a failing plug-in aborts the run instead of being
     reported and skipped."""
     t0 = time.perf_counter()
@@ -219,6 +226,24 @@ def build(
     specs = specroots.collect(sroots, config.exclude, config.spec_markdown)
     config.effective_spec_roots = tuple(sroots.labels)
     config.spec_presets = {p: ch.preset for p, ch in sroots.choices.items()}
+    # P10 M1 (ADR-0073): spec id prefixes found in the specs become test-name prefixes too (part of
+    # the config identity), so `test_rf_002_…` links to RF-002 without a manifest
+    found_prefixes: list[str] = []
+    if sroots.roots:
+        scratch = ir.Graph()
+        extract_specs(
+            scratch,
+            sroots.roots[0],
+            config.exclude,
+            root_name=system_name,
+            files=specs,
+            choices=sroots.choices,
+        )
+        found_prefixes = unconfigured.spec_id_prefixes(scratch)
+    derived = unconfigured.derived_test_prefixes(found_prefixes, config.test_ref_prefixes)
+    if derived:
+        config.derived_test_prefixes = tuple(derived)
+        config.test_ref_prefixes = tuple(config.test_ref_prefixes) + tuple(derived)
     tests_given = bool(test_results)
     tr_paths = [Path(t) for t in test_results or []]
     repo_tree = ids.tree_hash({f.path: f.content_hash for f in files})
@@ -227,10 +252,19 @@ def build(
         tests_hash = junit.files_hash(tr_paths, repo)
     else:
         tests_hash = parent.epoch.test_results_hash if parent else ids.tree_hash({})
+    # P10 (ADR-0074, ADR-0075): plan JSON per environment, static .tf under infra_root
+    infra_state = infra.collect(
+        repo,
+        config.infra_roots,
+        list(infra_plans or []),
+        parent.epoch.attrs if parent else None,
+        lambda rel: ids.read_normalized(repo / rel),
+    )
     t = lap("read_inputs", t0)
     hashes = (repo_tree, spec_tree, rules["_hash"], config.config_hash, tests_hash)
     epoch = store.Epoch(
-        epoch_id=ids.epoch_id(parent.epoch.epoch_id if parent else None, *hashes),
+        epoch_id=ids.epoch_id(parent.epoch.epoch_id if parent else None, *hashes, infra_state.hash),
+        infra_hash=infra_state.hash,
         repo_tree_hash=repo_tree,
         spec_tree_hash=spec_tree,
         rules_hash=rules["_hash"],
@@ -285,6 +319,9 @@ def build(
         )
     resolve_spec_refs(graph)
     nonfunctional = titles.apply_types(graph, config.nonfunctional_prefixes)  # P9 (ADR-0069)
+    infra_stats = infra.apply(graph, infra_state, parent.graph if parent else None)
+    if infra_stats:  # P10 M5 (ADR-0080): env reads, deploys, provides_env
+        infra_stats["deploys"] = bridge.link(graph, config, {f.path: f.text for f in files})
     graph.link_contains()
     graph.compute_subtree_hashes()
     t = lap("specs_refs_hashes", t)
@@ -321,9 +358,23 @@ def build(
         "tests_fresh": tests_fresh,
         "unmatched_tests": tests.unmatched,
     }
+    if infra_state.present:
+        epoch.attrs["infra_inputs"] = infra_state.inputs
     if ran.failures:  # ADR-0064: a skipped plug-in is visible in the epoch, never silent
         epoch.attrs["plugin_failures"] = ran.failures
+    warn: list[dict[str, Any]] = []
+    if config.manifest_path is None and manifest is None:
+        warn = unconfigured.check(
+            repo,
+            config.exclude,
+            tuple(sroots.labels),
+            graph,
+            facts.diagnostics.get("unresolved_route_prefixes", []),
+            derived,
+        )
     meta = {
+        "unconfigured_warnings": ids.canonical_json(warn),
+        "derived_test_name_prefixes": ids.canonical_json(derived),
         "repo_root_name": repo.name,
         "rules_version": str(rules["rules_version"]),
         "spec_coverage": coverage,
@@ -346,6 +397,7 @@ def build(
         ran.cache_entries,
     )
     res.timings = timings
+    res.unconfigured = warn
     res.plugins = plugins.describe(active)
     res.plugin_runs = ran.runs
     res.plugin_graphs = ran.graphs
@@ -362,6 +414,7 @@ def build(
         ),
         "unextracted": scope_counts,
         "nonfunctional_requirements": nonfunctional,
+        "infra": infra_stats,
         "cache_hits": ran.stats["cache_hits"],
         "cache_misses": ran.stats["cache_misses"],
     }
@@ -423,6 +476,7 @@ def extract_to_file(
     extractors: tuple[str, ...] | list[str] = (),
     strict: bool = False,
     plugin_timeout_s: float | None = plugins.DEFAULT_TIMEOUT_S,
+    infra_plans: list[tuple[str, Path]] | None = None,
 ) -> Result:
     """`--out` (into=False): fresh single-epoch file. `--into`: append an epoch if inputs changed."""
     out = Path(out)
@@ -454,6 +508,7 @@ def extract_to_file(
             extractors=extractors,
             strict=strict,
             plugin_timeout_s=plugin_timeout_s,
+            infra_plans=infra_plans,
         )
         res.timings["load_parent"] = t_parent
         if res.unchanged:
@@ -466,6 +521,7 @@ def extract_to_file(
         t2 = time.perf_counter()
         with conn:  # deterministic layout of the new epoch (inherits the parent's grid slots)
             layout.ensure(conn, [res.epoch.epoch_id])
+            c4.ensure_layout(conn, [res.epoch.epoch_id])  # P10: the Architecture view's layout
         res.timings["layout"] = time.perf_counter() - t2
         if into and conn.execute("SELECT 1 FROM llm_results LIMIT 1").fetchone():
             from ad2v.llm import api as llm_api  # informative rows of the new head, from the cache only
@@ -488,6 +544,8 @@ def materialize_epoch(path: Path, epoch_ref: str) -> tuple[str, bool]:
         with conn:
             did = materialize.materialize(conn, e)
             laid = layout.ensure(conn, [e])  # the viewer needs a layout for every materialized epoch
+            if not conn.execute("SELECT 1 FROM c4_layout WHERE epoch_id = ? LIMIT 1", (e,)).fetchone():
+                c4.ensure_layout(conn, [e])
         return e, did or bool(laid)
     finally:
         conn.close()

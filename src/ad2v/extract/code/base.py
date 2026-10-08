@@ -48,6 +48,8 @@ class CodeFacts:
     wrappers: dict[str, list[str]] = field(default_factory=dict)  # fn id -> emitted retry/transaction ids
     entry_ports: list[tuple[str, str]] = field(default_factory=list)  # (port id, handler node id)
     files_read: dict[str, str] = field(default_factory=dict)  # path -> content_hash
+    # P10 (ADR-0073): run diagnostics, never written to the graph (e.g. unresolved route prefixes)
+    diagnostics: dict[str, list[str]] = field(default_factory=dict)
 
 
 class Layout:

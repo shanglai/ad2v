@@ -64,13 +64,13 @@ def test_v04_file_is_upgraded_in_place_and_normative_dump_is_unchanged(tmp_path)
     assert store.read_meta(store.open_readonly(out))["format_version"] == "0.4"
 
     conn = store.open_rw(out)  # the upgrade happens here
-    assert store.read_meta(conn)["format_version"] == ir.FORMAT_VERSION == "0.6"  # 0.4 -> 0.5 -> 0.6
+    assert store.read_meta(conn)["format_version"] == ir.FORMAT_VERSION == "0.7"  # 0.4 -> 0.5 -> 0.6 -> 0.7
     _insert_result(conn, "chat", "r_chat1")
     assert {r[0] for r in conn.execute("SELECT result_id FROM llm_results")} == {"r_old", "r_chat1"}
     conn.execute("SELECT * FROM judge_rollups").fetchall()
     conn.execute("SELECT * FROM node_status_effective LIMIT 1").fetchall()
     conn.commit()
-    assert not upgrade_v04(conn) and not upgrade_v05(conn)  # idempotent: already v0.6
+    assert not upgrade_v04(conn) and not upgrade_v05(conn)  # idempotent: already v0.7
     conn.close()
     assert dump.canonical_dump(out, normative_only=True) == before
 
@@ -116,7 +116,7 @@ def test_v05_file_is_upgraded_to_v06_and_accepts_not_evaluable(tmp_path):
     conn.close()
     assert validate_ok(out)
     conn = store.open_rw(out)
-    assert store.read_meta(conn)["format_version"] == "0.6"
+    assert store.read_meta(conn)["format_version"] == "0.7"
     conn.execute("SELECT * FROM node_status_effective LIMIT 1").fetchall()
     conn.execute("SAVEPOINT s")
     conn.execute("UPDATE node_status SET status = 'not_evaluable' WHERE epoch_id = ?", (e,))
@@ -137,3 +137,74 @@ def validate_ok(path) -> bool:
 def test_statement_lookup_errors():
     with pytest.raises(KeyError):
         _statement("CREATE TABLE a (x);\n", "CREATE TABLE b")
+
+
+def _downgrade_to_v06(path) -> None:
+    """The v0.6 shape (P8.1/P9): no infra side, no change kind `infra`, no epochs.infra_hash, no
+    infra_status / c4_* tables."""
+    ddl = ddl_path().read_text(encoding="utf-8")
+    epochs = _statement(ddl, "CREATE TABLE epochs ")
+    epochs = epochs.replace("'tests_only',\n                    'infra','mixed'", "'tests_only','mixed'")
+    lines = [ln for ln in epochs.split("\n") if "infra_hash" not in ln]
+    epochs = "\n".join(lines).replace("created_at      TEXT,", "created_at      TEXT")
+    nv = _statement(ddl, "CREATE TABLE node_versions ").replace("('code','spec','infra')", "('code','spec')")
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("PRAGMA legacy_alter_table = ON")
+    views = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'view'")]
+    for v in views:
+        conn.execute(f'DROP VIEW "{v}"')
+    for t in ("infra_status", "c4_elements", "c4_relations", "c4_layout"):
+        conn.execute(f"DROP TABLE {t}")
+        conn.execute("DELETE FROM epoch_materialized WHERE table_name = ?", (t,))
+    for table, create in (("epochs", epochs), ("node_versions", nv)):
+        conn.execute(create.replace(f"CREATE TABLE {table}", f"CREATE TABLE {table}_old", 1))
+        cols = ", ".join(r[1] for r in conn.execute(f"PRAGMA table_info({table}_old)"))
+        conn.execute(f"INSERT INTO {table}_old ({cols}) SELECT {cols} FROM {table}")
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {table}_old RENAME TO {table}")
+    conn.execute("CREATE INDEX idx_node_versions_node ON node_versions(node_id)")
+    from ad2v.upgrade import _views
+
+    for v in _views(ddl):
+        conn.execute(v)
+    conn.execute("UPDATE meta SET value = '0.6' WHERE key = 'format_version'")
+    conn.commit()
+    conn.close()
+
+
+INFRA_ROW = (
+    "INSERT INTO node_versions(vid, version_key, node_id, side, kind, name, qualified_name,"
+    " content_hash, subtree_hash) VALUES (999999, 'v_x', 'n_x', 'infra', 'bucket', 'b', 'b', 'h', 'h')"
+)
+
+
+def test_v06_file_is_upgraded_to_v07_and_accepts_the_infra_side(tmp_path):
+    """P10 (ADR-0077): epochs and node_versions are rebuilt (rows copied, infra_hash ''), the new
+    derived tables are created and every materialized epoch gets them (empty)."""
+    out = tmp_path / "f.ad2v"
+    pipeline.extract_to_file(FIXTURE, FIXTURE / "specs", out)
+    _downgrade_to_v06(out)
+    conn = sqlite3.connect(out)
+    assert "infra_hash" not in [r[1] for r in conn.execute("PRAGMA table_info(epochs)")]
+    with pytest.raises(sqlite3.IntegrityError):  # v0.6 has no infra side
+        conn.execute(INFRA_ROW)
+    conn.close()
+    before = dump.canonical_dump(out, normative_only=True)
+    conn = store.open_rw(out)  # the upgrade happens here
+    assert store.read_meta(conn)["format_version"] == "0.7"
+    conn.execute("SAVEPOINT s")
+    conn.execute(INFRA_ROW)
+    conn.execute("ROLLBACK TO s")
+    assert [tuple(r) for r in conn.execute("SELECT infra_hash FROM epochs")] == [("",)]
+    conn.commit()
+    conn.close()
+    after = dump.canonical_dump(out, normative_only=True)
+    import re
+
+    def norm(t: str) -> str:  # the documented differences: format version, the new empty column
+        t = re.sub(r'("key":"format_version","value":)"0\.[67]"', r'\1"0.x"', t)
+        return t.replace(',"infra_hash":""', "")
+
+    assert norm(after) == norm(before)
+    assert validate_ok(out)

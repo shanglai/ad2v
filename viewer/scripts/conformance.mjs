@@ -81,7 +81,7 @@ try {
       const tools = tl.json?.tools ?? [];
       const agent = tools.filter((t) => t.name.startsWith("ad2v_"));
       const schemasOk = tools.every((t) => t.inputSchema?.type === "object" && t.annotations?.readOnlyHint === true);
-      record(transport, era, "tools/list --strict", tl.code === 0 && agent.length === 13 && schemasOk,
+      record(transport, era, "tools/list --strict", tl.code === 0 && agent.length === 14 && schemasOk, // P10: + ad2v_architecture
         `${tools.length} tools (${agent.length} agent)${tl.stderr.includes("Warning") ? " WARN: " + tl.stderr : ""}`);
       const rl = inspector(target, era, ["--method", "resources/list"]);
       const res = (rl.json?.resources ?? []).find((r) => r.uri === "ui://ad2v/map");

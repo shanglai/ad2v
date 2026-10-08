@@ -86,6 +86,23 @@ def test_step2b_existing_project_init(ws):
     assert data["findings"]["spec_id_prefixes"] == ["HU", "RF", "RNF"]
 
 
+def test_step5b_infrastructure(ws):
+    """P10: infra_root + a plan per environment + the C4 export, as step 5b shows them."""
+    text = GUIDE.read_text(encoding="utf-8")
+    assert "## 5b. Optional: infrastructure (Terraform)" in text and "infra_root: [infra]" in text
+    proj = ws["tmp"] / "bf-infra"
+    shutil.copytree(ROOT / "fixtures" / "brownfield-es", proj)
+    y = ws["maps"] / "bf-infra.yaml"
+    ad2v("init", "--repo", proj, "--write", y)
+    assert "infra_root: [infra]" in y.read_text(encoding="utf-8")
+    plan = ROOT / "fixtures" / "infra" / "brownfield-es" / "prod.json"
+    m = ws["maps"] / "bf-infra.ad2v"
+    out = ad2v("extract", "--repo", proj, "--manifest", y, "--out", m, "--infra-plan", f"prod={plan}")
+    assert "Infra (prod):" in out
+    dsl = ad2v("c4", m, "--env", "prod", "--format", "structurizr")
+    assert dsl.startswith("workspace ") and "conciliacion-backend" in dsl
+
+
 def test_step5_first_extraction(ws):
     p, m = ws["proj"], ws["map"]
     out = ad2v(

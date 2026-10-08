@@ -13,7 +13,7 @@ describe("LocalFileSource against the demo file", async () => {
     expect(epochs[0]!.parentEpochId).toBeNull();
     expect(epochs[2]!.changeKind).toBe("spec");
     const meta = await ds.meta();
-    expect(meta.formatVersion).toBe("0.6");
+    expect(meta.formatVersion).toBe("0.7");
     expect(meta.llmProviders).toEqual(["fake"]);
   });
 
@@ -27,7 +27,7 @@ describe("LocalFileSource against the demo file", async () => {
     expect(steps.length).toBeGreaterThan(0);
     for (const n of nodes) {
       // P9 (ADR-0072): scenario steps stay in the graph but get no box (listed in their scenario's card)
-      expect(layout.has(n.id)).toBe(n.kind !== "scenario_step");
+      expect(layout.has(n.id)).toBe(n.kind !== "scenario_step" && n.side !== "infra"); // P10: infra is in the Architecture view
       expect(glyphs.has(n.id)).toBe(true);
     }
   });

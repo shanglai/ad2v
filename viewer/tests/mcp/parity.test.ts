@@ -29,7 +29,7 @@ describe("RemoteSliceSource over stdio == LocalFileSource", () => {
   it("lists the app tools only for an MCP Apps client, all app-only and linked to the map", async () => {
     const r = (await client.request("tools/list")) as { tools: Array<{ name: string; _meta?: { ui?: { visibility?: string[]; resourceUri?: string } } }> };
     const app = r.tools.filter((t) => t.name.startsWith("viewer_"));
-    expect(app.length).toBe(20);
+    expect(app.length).toBe(22); // P10: + viewer_c4, viewer_infra_status
     for (const t of app) {
       expect(t._meta?.ui?.visibility).toEqual(["app"]);
       expect(t._meta?.ui?.resourceUri).toBe("ui://ad2v/map");
@@ -48,7 +48,7 @@ describe("RemoteSliceSource over stdio == LocalFileSource", () => {
   it("every per-epoch method, for every epoch", async () => {
     for (const e of epochs) {
       const id = e.epochId;
-      for (const m of ["nodes", "layout", "glyphs", "edges", "rollups", "links", "judgments", "suggestions", "summaries", "workflows", "lineage"] as const) {
+      for (const m of ["nodes", "layout", "glyphs", "edges", "rollups", "links", "judgments", "suggestions", "summaries", "workflows", "lineage", "c4", "infraStatus"] as const) {
         expect(await remote[m](id), `${m} @ #${e.seq}`).toEqual(await local[m](id));
       }
       for (const mode of ["normative", "effective"] as const) {

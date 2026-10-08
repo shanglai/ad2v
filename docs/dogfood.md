@@ -94,6 +94,12 @@ C:\ad2v-maps\repo-a-junit.xml`) so verified requirements can be counted.
 
 ## 2. Run ad2v and time it
 
+**Infra (P10).** If the repository has Terraform, keep `infra_root` from the `init` proposal; that
+reads the `.tf` statically. For deployment facts, produce one plan JSON per environment yourself
+(`init` prints the command; it runs the providers and needs credentials), store it next to the map
+(never in the repository), and add `--infra-plan prod=C:\ad2v-maps\repo-a-plan-prod.json` to the
+extract below. Then look at the **Architecture** tab and `ad2v c4 $MAP --env prod`.
+
 PowerShell (`Measure-Command { … }` prints the duration; POSIX: prefix with `time`):
 
 ```powershell
@@ -175,6 +181,12 @@ do not need it again. Nothing was written inside the private repositories.
 | non-functional requirements (count) / by status (`nonfunctional_requirements_by_status`) | | |
 | code nodes: verified / implemented / not_evaluable / orphan / drift / needs_review | | |
 | languages not read (files per language) | | |
+| infra input (none / `infra_root` static / plan JSON per env) and its environments | | |
+| infra resources by kind (`ad2v_overview` "Infra resources") / infra_other count | | |
+| containers deployed / undeployed / ambiguous per env (and how many deploys needed `infra.deploys`) | | |
+| env vars read / unwired per env; unwired checked / actually missing (false unwired) | | |
+| infra_orphan resources checked / actually unused | | |
+| Architecture tab: elements, relations, first render (s); does it match how the team draws the system? | | |
 | drift rows checked / real / false | | |
 | missing + specified checked / actually implemented (missed pairings) | | |
 | orphans checked / actually specified (false orphans) | | |

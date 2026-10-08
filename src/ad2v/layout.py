@@ -161,7 +161,7 @@ def assign_slots(children: list[str], prev: Grid | None, g: ir.Graph) -> Grid:
 
 
 # P9 (ADR-0072): kinds that stay in the graph but get no box on the map (shown in their parent's card)
-OFF_MAP_KINDS = frozenset({"scenario_step"})
+OFF_MAP_KINDS = frozenset({"scenario_step", *ir.INFRA_KINDS})  # infra: the Architecture view (P10)
 
 
 def map_children(g: ir.Graph) -> dict[str, list[str]]:
@@ -413,7 +413,7 @@ def density(g: ir.Graph, boxes: dict[str, Box]) -> dict[str, float]:
 
 
 # -- storage ------------------------------------------------------------------------------------
-# The same table as in schema/ad2v-v0.6.sql, for v0.4 files created before P5 (additive).
+# The same table as in schema/ad2v-v0.7.sql, for v0.4 files created before P5 (additive).
 DDL = """
 CREATE TABLE IF NOT EXISTS layout_grids (
     epoch_id  TEXT NOT NULL REFERENCES epochs(epoch_id),

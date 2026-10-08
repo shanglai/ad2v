@@ -89,6 +89,10 @@ class Findings:
     unresolved_routes: int = 0
     spec_components: list[dict[str, Any]] = field(default_factory=list)
     capped: bool = False
+    # P10 (ADR-0081): infra roots (Terraform root modules) and how deployment units map to containers
+    infra_roots: list[str] = field(default_factory=list)
+    infra_matches: dict[str, list[str]] = field(default_factory=dict)  # container -> unit addresses
+    infra_ambiguous: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items()}
@@ -347,6 +351,9 @@ def scan(repo: Path, repo_label: str | None = None) -> Findings:
             migration = any(part in CODE_ONLY_EXCLUDES for part in f.split("/")[:-1])
             fd.sql.append({"path": f, "dropped_by": p, "migration": migration})
     fd.infra = _infra(files, read)
+    fd.infra_roots = [d for d in fd.infra.get("terraform", []) if "modules" not in d.split("/")]
+    if fd.infra_roots:
+        _infra_matches(fd, repo, read)
     junit = sorted(f for f in files if f.endswith(".xml") and "<testsuite" in read(f)[:4000])
     pytest_cfg = sorted(
         f
@@ -379,6 +386,34 @@ def scan(repo: Path, repo_label: str | None = None) -> Findings:
     return fd
 
 
+def _infra_matches(fd: Findings, repo: Path, read: Any) -> None:
+    """Which static deployment units (or website buckets) match each proposed container by name
+    (the bridge's rule (b)); several candidates with different images are ambiguous."""
+    from ad2v.infra import bridge, static
+
+    names = static.env_names(fd.infra_roots)
+    hosts = []
+    for root in fd.infra_roots:
+        for r in static.read_root(repo, root, names[root], read).resources:
+            if r.kind == "deployment_unit" or (r.kind == "bucket" and r.attrs.get("website")):
+                hosts.append(
+                    ir.Node("infra", r.kind, r.address, r.address, attrs={**r.attrs, "address": r.address})
+                )
+    for c in fd.containers:
+        cname = bridge._slug(c["name"])
+        cands = [u for u in hosts if bridge._name_match(bridge._unit_names(u), cname)]
+        images = {u.attrs.get("image") for u in cands}
+        if len(cands) == 1 or (len(cands) > 1 and len(images) == 1 and None not in images):
+            fd.infra_matches[c["name"]] = sorted(u.qualified_name for u in cands)
+        elif len(cands) > 1:
+            fd.infra_ambiguous[c["name"]] = sorted(u.qualified_name for u in cands)
+
+
+PLAN_COMMAND = (
+    "terraform init && terraform plan -refresh=false -out tfplan && terraform show -json tfplan > plan.json"
+)
+
+
 # -- the proposal ----------------------------------------------------------------------------------
 def proposal(fd: Findings) -> dict[str, Any]:
     """The proposed manifest as data (sorted keys)."""
@@ -408,6 +443,10 @@ def proposal(fd: Findings) -> dict[str, Any]:
         out["spec_markdown"] = rules
     if fd.spec_roots:
         out["spec_root"] = list(fd.spec_roots)
+    if fd.infra_roots:
+        out["infra_root"] = list(fd.infra_roots)
+    if fd.infra_ambiguous:  # placeholders: an empty value is ignored until a human picks
+        out["infra"] = {"deploys": {a: "" for c in sorted(fd.infra_ambiguous) for a in fd.infra_ambiguous[c]}}
     return dict(sorted(out.items()))
 
 
@@ -466,10 +505,25 @@ def render_yaml(fd: Findings, manifest: dict[str, Any]) -> str:
                 lines.append(f"  - {_flow(r)}")
         elif key == "spec_root":
             lines.append(f"spec_root: {_flow(value)}")
+        elif key == "infra_root":
+            lines.append(
+                "# Terraform root modules, read statically every epoch (pass --infra-plan for the plan)"
+            )
+            lines.append(f"infra_root: {_flow(value)}")
+        elif key == "infra":
+            lines.append(
+                "# several deployment units match a container by name: keep the right one (empty = ignored)"
+            )
+            lines.append("infra:")
+            lines.append("  deploys:")
+            for addr in value["deploys"]:
+                who = next(c for c, a in fd.infra_ambiguous.items() if addr in a)
+                lines.append(f'    {_flow(addr)}: ""  # {who}?')
         elif key == "system":
             lines.append(f"system: {_flow(value)}")
     for kind, dirs in fd.infra.items():
-        lines.append(f"# infra: {kind} in {', '.join(dirs)} (detected; not mapped until P10)")
+        if kind != "terraform":
+            lines.append(f"# infra: {kind} in {', '.join(dirs)} (detected; only Terraform is read)")
     return "\n".join(lines) + "\n"
 
 
@@ -521,9 +575,23 @@ def render_report(fd: Findings, manifest_path: str | None) -> str:
             warn = f"  WARNING: dropped by the exclude {s['dropped_by']!r}" if s["dropped_by"] else ""
             out.append(f"  {s['path']}{warn}")
     if fd.infra:
-        out.append("Infrastructure as code (detected; not mapped until P10):")
+        out.append("Infrastructure as code:")
         for k, dirs in fd.infra.items():
-            out.append(f"  {k}: {', '.join(d + '/' for d in dirs)}")
+            tag = "proposed infra_root" if k == "terraform" and fd.infra_roots else "detected; not read"
+            out.append(f"  {k}: {', '.join(d + '/' for d in dirs)}  ({tag})")
+        for c, units in sorted(fd.infra_matches.items()):
+            out.append(f"  {c} is deployed by {', '.join(units)} (name match)")
+        for c, units in sorted(fd.infra_ambiguous.items()):
+            out.append(f"  {c}: several deployment units match ({', '.join(units)}); choose in infra.deploys")
+        if fd.infra_roots:
+            out.append("  For deployment facts per environment, produce a plan JSON yourself:")
+            out.append(f"    {PLAN_COMMAND}")
+            out.append(
+                "  That runs the providers and needs credentials and state. ad2v never runs it; it only"
+            )
+            out.append(
+                "  reads plan.json (--infra-plan prod=plan.json). Keep plan.json out of the repository."
+            )
     tr = fd.test_results
     if tr.get("junit") or tr.get("pytest_config"):
         out.append("Test results:")
@@ -598,6 +666,17 @@ def check(fd: Findings, existing: dict[str, Any]) -> list[str]:
     for k in fd.path_constants:
         if k not in have_pc:
             diffs.append(f"unresolved route prefix without a path_constants entry: {k}")
+    have_ir = existing.get("infra_root") or []
+    have_ir = [have_ir] if isinstance(have_ir, str) else list(have_ir)
+    for r in fd.infra_roots:
+        if r not in have_ir:
+            diffs.append(f"Terraform folder not in infra_root: {r}")
+    chosen = {  # an empty value is a placeholder
+        k for k, v in ((existing.get("infra") or {}).get("deploys") or {}).items() if v not in (None, "", [])
+    }
+    for c, units in sorted(fd.infra_ambiguous.items()):
+        if not chosen & set(units):
+            diffs.append(f"ambiguous deployment for container {c}: {', '.join(units)} (set infra.deploys)")
     return diffs
 
 

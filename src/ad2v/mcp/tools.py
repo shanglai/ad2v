@@ -17,8 +17,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ad2v import c4 as c4mod
 from ad2v import diff as diff_mod
-from ad2v import ir, store, workflows
+from ad2v import ir, store, unconfigured, workflows
 from ad2v.mcp import locate, slices
 from ad2v.mcp.files import FileAccessError, FileSet
 from ad2v.mcp.index import (
@@ -35,7 +36,7 @@ from ad2v.mcp.protocol import Request, Tool, tool_error
 
 MAP_URI = "ui://ad2v/map"
 MAX_TEXT = 24_000  # characters of `text` per result; structured content is capped by limits
-INTENTS = ("focus", "fit", "path", "replay", "diff")
+INTENTS = ("focus", "fit", "path", "replay", "diff", "c4")
 
 INSTRUCTIONS = """ad2v serves a code map: a repository and its specs as one graph of components, \
 with statuses (verified, implemented, drift, missing, orphan, stale, ...), risks and workflows.
@@ -76,7 +77,7 @@ NODE = {
 }
 LIMIT = {"type": "integer", "minimum": 1, "maximum": 50, "description": "page size (default 10)"}
 CURSOR = {"type": "string", "description": "nextCursor from a previous page", "maxLength": 32}
-SIDE = {"type": "string", "enum": ["code", "spec"]}
+SIDE = {"type": "string", "enum": ["code", "spec", "infra"]}
 STATUS = {"type": "string", "enum": list(ir.NODE_STATUSES)}
 KIND = {"type": "string", "enum": list(ir.NODE_KINDS)}
 
@@ -264,6 +265,8 @@ def t_overview(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         "effective": {"code": {}, "spec": {}},
     }
     for nid, n in ix.nodes.items():
+        if n["side"] not in ("code", "spec"):  # infra has its own dimension (below)
+            continue
         s = ix.norm.get(nid, {}).get("status", "none")
         st["normative"][n["side"]][s] = st["normative"][n["side"]].get(s, 0) + 1
         e = ix.eff.get(nid, {}).get("status", s)
@@ -296,6 +299,8 @@ def t_overview(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         if n["kind"] == "requirement" and ix.attrs.get(nid, {}).get("requirement_type") == "nonfunctional":
             k = ix.status(nid)
             nfr[k] = nfr.get(k, 0) + 1
+    unconf = _unconfigured(m)  # P10 M1 (ADR-0073)
+    infra = _infra_overview(conn, ix)  # P10 (ADR-0078)
     s = {
         **where(ix),
         "system": clean_name(m.get("system_name", "")),
@@ -309,6 +314,8 @@ def t_overview(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         "top_risks": risks,
         "epochs_last5": eps,
         "llm_providers": providers,
+        "unconfigured_warnings": unconf,
+        "infra": infra,
     }
     fmt = lambda d: ", ".join(f"{k} {v}" for k, v in sorted(d.items(), key=lambda x: -x[1])) or "none"  # noqa: E731
     text = [
@@ -334,7 +341,130 @@ def t_overview(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
     ]
     if providers:
         text.append(f"LLM rows present from: {', '.join(providers)} (informative)")
+    if unconf:
+        text.insert(1, unconfigured.banner(unconf) + " " + "; ".join(w["message"] for w in unconf))
+    if infra["envs"]:
+        for env, f in infra["findings"].items():
+            text.append(
+                f"Infra ({env}): " + (", ".join(f"{k} {v}" for k, v in sorted(f.items())) or "no findings")
+            )
+        text.append("Infra resources: " + ", ".join(f"{k} {v}" for k, v in infra["kinds"].items()))
+    else:
+        text.append("Infra: no input (pass --infra-plan or set infra_root); nothing is claimed")
     return result("\n".join(text), s)
+
+
+def _infra_rows(conn: sqlite3.Connection, epoch_id: str) -> list[tuple[str, str, str, list[Any]]]:
+    if store.is_materialized(conn, epoch_id):
+        return [
+            (r["node_id"], r["env"], r["status"], json.loads(r["reasons_json"]))
+            for r in conn.execute(
+                "SELECT node_id, env, status, reasons_json FROM infra_status WHERE epoch_id = ?"
+                " ORDER BY node_id, env",
+                (epoch_id,),
+            )
+        ]
+    from ad2v.infra import bridge
+
+    return bridge.statuses(store.load_graph(conn, epoch_id))
+
+
+def _infra_overview(conn: sqlite3.Connection, ix: Any) -> dict[str, Any]:
+    kinds: dict[str, int] = {}
+    envs: set[str] = set()
+    for nid, n in ix.nodes.items():
+        if n["side"] == "infra":
+            if ix.attrs.get(nid, {}).get("root"):
+                envs.add(str(ix.attrs[nid].get("env")))
+            else:
+                kinds[n["kind"]] = kinds.get(n["kind"], 0) + 1
+    findings: dict[str, dict[str, int]] = {e: {} for e in sorted(envs)}
+    for _nid, env, st, _ in _infra_rows(conn, ix.epoch_id):
+        if st in ("undeployed", "unwired", "infra_orphan", "ambiguous"):
+            findings.setdefault(env, {})[st] = findings.setdefault(env, {}).get(st, 0) + 1
+    return {"envs": sorted(envs), "kinds": dict(sorted(kinds.items())), "findings": findings}
+
+
+def t_architecture(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
+    """P10 (ADR-0079): the C4 view per infra environment: elements, relations, statuses. No secrets
+    are ever stored, so none can be returned (ADR-0076)."""
+    ix, conn = ctx.index(a)
+    view = c4mod.load(conn, ix.epoch_id)
+    envs = sorted(view)
+    env = a.get("env")
+    if env is not None and env not in view:
+        raise ToolFail(f"no infra environment {env!r} (have: {', '.join(envs) or 'none'})")
+    chosen = [env] if env is not None else envs
+    rows = _infra_rows(conn, ix.epoch_id)
+    out_envs: dict[str, Any] = {}
+    system = clean_name(store.read_meta(conn).get("system_name", ""))
+    text = [f"Architecture of {system} ({ix.file_label}, epoch #{ix.seq})"]
+    if not envs or envs == [""]:
+        text.append("No infra input: containers come from the code; deployment is unknown (nothing claimed).")
+    for e in chosen:
+        v = view[e]
+        els = [
+            {
+                "id": el["id"],
+                "level": el["level"],
+                "kind": el["kind"],
+                "name": clean_name(el["name"]),
+                "map_nodes": [ix.ref(n) for n in el["node_ids"] if n in ix.nodes][:20],
+                "infra_status": el["attrs"].get("infra_status"),
+                "coverage": el["attrs"].get("coverage"),
+                **(
+                    {"deploys": [clean_name(x) for x in el["attrs"]["deploys"]]}
+                    if el["attrs"].get("deploys")
+                    else {}
+                ),
+                **({"nfr": el["attrs"]["nfr"]} if el["attrs"].get("nfr") else {}),
+            }
+            for el in v["elements"]
+        ]
+        rels = [
+            {
+                "src": r["src"],
+                "dst": r["dst"],
+                "kind": r["kind"],
+                **({"env_vars": r["attrs"]["env_vars"]} if r["attrs"].get("env_vars") else {}),
+            }
+            for r in v["relations"]
+        ]
+        findings = [
+            {"node": ix.ref(nid), "status": st, "reasons": rs}
+            for nid, en, st, rs in rows
+            if en == e and st in ("undeployed", "unwired", "infra_orphan", "ambiguous") and nid in ix.nodes
+        ]
+        out_envs[e] = {"elements": els, "relations": rels, "findings": findings}
+        label = e or "(no infra)"
+        text.append(f"[{label}] {len(els)} elements, {len(rels)} relations")
+        for el in els:
+            if el["level"] == "container":
+                extra = f" runs {', '.join(el['deploys'])}" if el.get("deploys") else ""
+                cov = el.get("coverage") or {}
+                text.append(
+                    f"  {el['kind']} {el['name']}{extra}: infra {el['infra_status']}"
+                    + (f"; requirements {', '.join(f'{k} {n}' for k, n in cov.items())}" if cov else "")
+                )
+        for f in findings:
+            why = "; ".join(
+                str(r.get("env_var") or r.get("kind")) for r in f["reasons"] if isinstance(r, dict)
+            )
+            text.append(f"  finding: {f['status']} {ix.ref_text(f['node']['id'])} ({why})")
+    text.append("To show it: ad2v_show with intent 'c4' (and env).")
+    return result("\n".join(text), {**where(ix), "envs": envs, "view": out_envs})
+
+
+def _unconfigured(m: dict[str, str]) -> list[dict[str, Any]]:
+    try:
+        got = json.loads(m.get("unconfigured_warnings") or "[]")
+    except ValueError:
+        return []
+    return [
+        {"kind": clean_name(str(w.get("kind", ""))), "message": clean_name(str(w.get("message", "")))}
+        for w in got
+        if isinstance(w, dict)
+    ]
 
 
 def t_search(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
@@ -865,6 +995,11 @@ def t_show(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         pass
     if intent in ("focus", "fit", "path") and not ids:
         raise ToolFail(f"intent '{intent}' needs node_ids")
+    env = a.get("env")
+    if intent == "c4":  # P10: the Architecture view (optionally an infra environment, nodes to highlight)
+        envs = sorted(c4mod.load(conn, ix.epoch_id))
+        if env is not None and env not in envs:
+            raise ToolFail(f"no infra environment {env!r} (have: {', '.join(envs) or 'none'})")
     eps = {r["epoch_id"]: r for r in store.epoch_rows(conn)}
     ef = et = None
     if intent == "diff":
@@ -896,6 +1031,7 @@ def t_show(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         "epoch_to": et,
         "theme": a.get("theme") or "auto",
         "open_full_map": f"ad2v view {ix.file_label}",
+        **({"env": env} if intent == "c4" and env else {}),
     }
     verb = {
         "focus": "Focusing",
@@ -903,6 +1039,7 @@ def t_show(ctx: Ctx, req: Request, a: dict[str, Any]) -> dict[str, Any]:
         "path": "Tracing a path through",
         "replay": "Replaying",
         "diff": "Showing changes",
+        "c4": "Showing the architecture (C4)",
     }[intent]
     text = [f"{verb} on the ad2v map ({ix.file_label}, epoch #{ix.seq}):"]
     text += [f"{i + 1}. {ix.ref_text(r['id'])}" for i, r in enumerate(refs)]
@@ -1131,12 +1268,22 @@ def agent_tools(ctx: Ctx) -> list[Tool]:
             wrap(t_diff),
         ),
         T(
+            "ad2v_architecture",
+            "Architecture (C4)",
+            "The deterministic C4 view: persons, the system, external systems, deployment units and "
+            "the code containers they run, datastores, queues and buckets, with requirement coverage "
+            "and infra findings (undeployed, unwired env vars, orphan resources) per infra environment.",
+            schema({**ro, "env": {"type": "string", "maxLength": 64}}),
+            wrap(t_architecture),
+        ),
+        T(
             "ad2v_show",
             "Show on the map",
             "Point the user at components on the ad2v map. Hosts with MCP Apps render "
             "the map inline; others get the list. intent: focus (frame nodes), fit (fit all), path (ordered "
             "nodes as a "
-            "path), replay (a workflow, needs workflow_id), diff (changes between epoch_from and epoch_to). "
+            "path), replay (a workflow, needs workflow_id), diff (changes between epoch_from and epoch_to), "
+            "c4 (the Architecture view, optional env). "
             "Never pass "
             "coordinates: node ids only.",
             schema(
@@ -1149,6 +1296,7 @@ def agent_tools(ctx: Ctx) -> list[Tool]:
                     "epoch_from": EPOCH,
                     "epoch_to": EPOCH,
                     "theme": {"type": "string", "enum": ["auto", "light", "dark"]},
+                    "env": {"type": "string", "maxLength": 64},
                 },
                 ["intent"],
             ),

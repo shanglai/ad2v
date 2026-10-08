@@ -155,7 +155,20 @@ Problems found during P1–P4, with severity (high / medium / low).
 | 97 | medium | CI failed on its first runs (P8.1 push): a fresh checkout has no `viewer/dist`, so `pip install -e .` stopped on setuptools `package-dir`; any fresh clone failed the same way. | **fixed** (ADR-0067): viewer packages optional in `setup.py`, required for release builds (`AD2V_REQUIRE_VIEWER=1`); verified on a fresh copy; CI re-runs on the P9 push |
 | 98 | low | Files written before P9 keep layout rows for `scenario_step` nodes, so the viewer still draws steps for them until they are re-extracted (or `ad2v layout` is run). | accepted (format spec "Additions within v0.6") |
 | 99 | low | Derived titles are a heuristic (first six words of the response, function words trimmed); some read awkwardly (`Conciliar 100.000 movimientos`). An explicit title always wins. | open: measure on the dogfood repositories |
-| 100 | info | Infrastructure as code (Terraform, Pulumi, CloudFormation, Kubernetes, Helm) is detected and reported by `ad2v init` but not mapped. | open (P10) |
+| 100 | info | Infrastructure as code (Terraform, Pulumi, CloudFormation, Kubernetes, Helm) is detected and reported by `ad2v init` but not mapped. | **fixed for Terraform** (P10, ADR-0074/0075); Pulumi, CloudFormation, Kubernetes, Helm still only reported (see 106) |
 | 101 | low | Test titles in unread languages are references only: without a runner mapping for those languages they are never `verified`. | accepted (ADR-0070) |
 | 102 | low | `ad2v init` proposes containers from project manifests at depth ≤ 3; deeper monorepo packages need manual entries. Route prefixes are detected for Python routes only. | open |
+
+## P10
+
+| # | severity | issue | state |
+|---|---|---|---|
+| 103 | medium | `extract --into` refused a v0.6 file instead of upgrading it (`open_rw` only upgraded 0.4 and 0.5) | **fixed** (P10, found by the new 0.6 → 0.7 test) |
+| 104 | low | In a plan, a map-typed env attribute (Lambda `environment.variables`) has one expression for the whole map: a key known only after apply is attributed to its single referenced resource, or left `unknown` with candidates when several are referenced. The static read attributes per key. | accepted (ADR-0074; documented in docs/infra.md) |
+| 105 | low | `count`/`for_each` are not expanded in the static read (one node, `multiplicity: unresolved`); local modules are followed one level; `jsonencode(...)` (ECS container definitions) is opaque statically | accepted (ADR-0075) |
+| 106 | info | Azure resource types, Pulumi, CloudFormation, Kubernetes manifests and Helm are not read (Terraform GCP/AWS core only) | open |
+| 107 | low | A plan with 2,000 resources grows the file by ~4 MB (~2 KB per resource: allowlisted attrs, C4 rows and layout) and draws 2,000 C4 elements (first render 0.56 s) with no grouping | open: group `infra_other` and same-kind resources in the C4 view |
+| 108 | low | Persons in the C4 view only get a `uses` relation when a story's requirement pairs with code; unpaired stories leave persons unconnected (brownfield fixture) | open: consider person → container through spec components |
+| 109 | info | No NFR-vs-infra checks: NFRs are listed on containers as "checked against infra in a later phase" | open (deterministic catalog vs LLM judge: REPORT.md §10) |
+| 110 | low | `deploys` rule (b) matches a container's slug at a `-` boundary of the unit's name or image; a generic container name (`app`, `api`) can match several units and is then ambiguous until `infra.deploys` names one | accepted (ADR-0080; `init --check` lists it) |
 

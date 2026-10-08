@@ -88,12 +88,86 @@ def upgrade_v05(conn: sqlite3.Connection) -> bool:
             for head in indexes:
                 conn.execute(_statement(ddl, head))
         conn.execute(_statement(ddl, "CREATE VIEW node_status_effective"))
+        conn.execute("UPDATE meta SET value = '0.6' WHERE key = 'format_version'")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+    bad = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if bad:
+        raise sqlite3.IntegrityError(f"upgrade left foreign key violations: {bad[:3]}")
+    return True
+
+
+V07_REBUILT = ("epochs", "node_versions")
+V07_NEW = ("infra_status", "c4_elements", "c4_relations", "c4_layout")
+
+
+def _indexes_of(ddl: str, table: str) -> list[str]:
+    out = []
+    for raw in ddl.split(";\n"):
+        body = "\n".join(line for line in raw.split("\n") if not line.lstrip().startswith("--")).strip()
+        if re.match(rf"^CREATE (UNIQUE )?INDEX \w+ ON {table}\(", body):
+            out.append(body)
+    return out
+
+
+def _views(ddl: str) -> list[str]:
+    out = []
+    for raw in ddl.split(";\n"):
+        body = "\n".join(line for line in raw.split("\n") if not line.lstrip().startswith("--")).strip()
+        if body.startswith("CREATE VIEW "):
+            out.append(body)
+    return out
+
+
+def upgrade_v06(conn: sqlite3.Connection) -> bool:
+    """Upgrade an open v0.6 file to v0.7 (P10, ADR-0077): the `infra` side (node_versions.side),
+    change kind `infra` and `epochs.infra_hash` (both tables rebuilt, rows copied unchanged, infra_hash
+    ''), and the new derived tables `infra_status`, `c4_elements`, `c4_relations`, `c4_layout`."""
+    row = conn.execute("SELECT value FROM meta WHERE key = 'format_version'").fetchone()
+    if row is None or row[0] != "0.6":
+        return False
+    ddl = ddl_path().read_text(encoding="utf-8")
+    views = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name")]
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("PRAGMA legacy_alter_table = ON")  # the views are dropped and recreated around this
+    try:
+        conn.execute("BEGIN")
+        for v in views:
+            conn.execute(f'DROP VIEW IF EXISTS "{v}"')
+        for table in V07_REBUILT:
+            create = _statement(ddl, f"CREATE TABLE {table} ")
+            conn.execute(re.sub(rf"^CREATE TABLE {table}\b", f"CREATE TABLE {table}_v07", create))
+            cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+            names = ", ".join(cols)
+            conn.execute(f"INSERT INTO {table}_v07 ({names}) SELECT {names} FROM {table}")
+            conn.execute(f"DROP TABLE {table}")
+            conn.execute(f"ALTER TABLE {table}_v07 RENAME TO {table}")
+            for idx in _indexes_of(ddl, table):
+                conn.execute(idx)
+        for table in V07_NEW:
+            conn.execute(
+                _statement(ddl, f"CREATE TABLE {table} ").replace(
+                    "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1
+                )
+            )
+        for view in _views(ddl):
+            conn.execute(view)
+        # materialized epochs of a v0.6 file have no infra: their new derived tables are complete (empty)
+        for (e,) in conn.execute("SELECT epoch_id FROM epochs WHERE materialized = 1").fetchall():
+            for t in ("infra_status", "c4_elements", "c4_relations"):
+                conn.execute("INSERT OR IGNORE INTO epoch_materialized VALUES (?, ?)", (e, t))
         conn.execute("UPDATE meta SET value = ? WHERE key = 'format_version'", (ir.FORMAT_VERSION,))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")
         raise
     finally:
+        conn.execute("PRAGMA legacy_alter_table = OFF")
         conn.execute("PRAGMA foreign_keys = ON")
     bad = conn.execute("PRAGMA foreign_key_check").fetchall()
     if bad:
@@ -108,4 +182,6 @@ def upgrade(conn: sqlite3.Connection) -> list[str]:
         steps.append("0.4->0.5")
     if upgrade_v05(conn):
         steps.append("0.5->0.6")
+    if upgrade_v06(conn):
+        steps.append("0.6->0.7")
     return steps

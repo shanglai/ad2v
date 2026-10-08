@@ -20,6 +20,7 @@ PACKAGES = [
     "ad2v.extract.code",
     "ad2v.extract.code.rules",
     "ad2v.extract.spec",
+    "ad2v.infra",  # P10
     "ad2v.llm",
     "ad2v.llm.providers",
     "ad2v.llm.prompts",
@@ -33,6 +34,7 @@ PACKAGES = [
 PACKAGE_DIR = {"": "src", "ad2v._schema": "schema"}
 PACKAGE_DATA = {
     "ad2v.extract.code.rules": ["*.yaml"],
+    "ad2v.infra": ["*.yaml"],
     "ad2v.llm.prompts": ["*.md"],
     "ad2v._schema": ["*.sql", "*.json"],
     "ad2v._schema.themes": ["*.json"],

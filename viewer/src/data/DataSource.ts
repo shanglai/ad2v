@@ -3,6 +3,7 @@
 // server, called through the MCP Apps host bridge). Both implement exactly the same results.
 import type {
   Box,
+  C4View,
   EdgeRow,
   EpochInfo,
   GlyphRow,
@@ -47,4 +48,8 @@ export interface DataSource {
    *  returns the whole epoch. Both viewers load maps through this one method. */
   scene(epoch: string, rootId: string | null, depth: number): Promise<SceneSlice>;
   statusHistory(nodeId: string): Promise<Array<{ epochId: string; seq: number; status: string }>>;
+  /** P10: the Architecture view, one entry per infra environment (sorted by env). */
+  c4(epoch: string): Promise<C4View[]>;
+  /** P10: node id -> infra environment -> infra status (deployed, unwired, infra_orphan, ...). */
+  infraStatus(epoch: string): Promise<Map<string, Record<string, string>>>;
 }

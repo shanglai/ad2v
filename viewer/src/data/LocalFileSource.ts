@@ -4,6 +4,7 @@ import initSqlJs, { type Database, type SqlValue } from "sql.js";
 import type { DataSource } from "./DataSource";
 import type {
   Box,
+  C4View,
   EdgeRow,
   EpochInfo,
   GlyphRow,
@@ -71,6 +72,7 @@ export class LocalFileSource implements DataSource {
       systemName: m.system_name ?? "system",
       specCoverage: m.spec_coverage ?? "present",
       llmProviders: providers,
+      unconfigured: unconfiguredMessages(m.unconfigured_warnings),
     };
   }
 
@@ -310,6 +312,43 @@ export class LocalFileSource implements DataSource {
     ).map((r) => String(r.workflow_id));
   }
 
+  async c4(epoch: string): Promise<C4View[]> {
+    if (!this.hasTable("c4_elements")) return [];
+    const envs = new Map<string, C4View>();
+    for (const r of this.all(
+      "SELECT env, element_id, level, kind, name, node_ids_json, attrs_json FROM c4_elements WHERE epoch_id = ? ORDER BY env, element_id",
+      [epoch],
+    )) {
+      const env = String(r.env);
+      if (!envs.has(env)) envs.set(env, { env, elements: [], relations: [], layout: new Map() });
+      envs.get(env)!.elements.push({
+        id: String(r.element_id),
+        level: String(r.level) as "context" | "container",
+        kind: String(r.kind),
+        name: String(r.name),
+        nodeIds: JSON.parse(String(r.node_ids_json)),
+        attrs: JSON.parse(String(r.attrs_json)),
+      });
+    }
+    for (const r of this.all("SELECT env, src, dst, kind, attrs_json FROM c4_relations WHERE epoch_id = ? ORDER BY env, src, dst, kind", [epoch])) {
+      envs.get(String(r.env))?.relations.push({ src: String(r.src), dst: String(r.dst), kind: String(r.kind), attrs: JSON.parse(String(r.attrs_json)) });
+    }
+    for (const r of this.all("SELECT env, element_id, row, slot, x, y, w, h FROM c4_layout WHERE epoch_id = ? ORDER BY env, element_id", [epoch])) {
+      envs.get(String(r.env))?.layout.set(String(r.element_id), { row: String(r.row), slot: Number(r.slot), x: +r.x!, y: +r.y!, w: +r.w!, h: +r.h! });
+    }
+    return [...envs.keys()].sort().map((k) => envs.get(k)!);
+  }
+
+  async infraStatus(epoch: string): Promise<Map<string, Record<string, string>>> {
+    const out = new Map<string, Record<string, string>>();
+    if (!this.hasTable("infra_status")) return out;
+    for (const r of this.all("SELECT node_id, env, status FROM infra_status WHERE epoch_id = ? ORDER BY node_id, env", [epoch])) {
+      const id = String(r.node_id);
+      out.set(id, { ...(out.get(id) ?? {}), [String(r.env)]: String(r.status) });
+    }
+    return out;
+  }
+
   async lineage(epoch: string): Promise<LineageRow[]> {
     return this.all("SELECT old_id, new_id, method, score FROM id_lineage WHERE epoch_id = ? ORDER BY old_id", [
       epoch,
@@ -342,7 +381,8 @@ export class LocalFileSource implements DataSource {
     if (rootId === null || depth === ALL) return null;
     const parent = new Map<string, string | null>();
     const kids = new Map<string, string[]>();
-    for (const r of this.all("SELECT id, parent_id FROM nodes WHERE epoch_id = ? ORDER BY id", [epoch])) {
+    // P10: infra nodes are drawn in the Architecture view, never in a map slice (slices.py)
+    for (const r of this.all("SELECT id, parent_id FROM nodes WHERE epoch_id = ? AND side <> 'infra' ORDER BY id", [epoch])) {
       const id = String(r.id), p = r.parent_id === null ? null : String(r.parent_id);
       parent.set(id, p);
       if (p !== null) (kids.get(p) ?? kids.set(p, []).get(p)!).push(id);
@@ -350,7 +390,7 @@ export class LocalFileSource implements DataSource {
     if (!parent.has(rootId)) throw new Error(`not found: ${rootId}`);
     const keep = new Set<string>([...parent].filter(([, p]) => p === null).map(([k]) => k));
     const chain = (n: string | null | undefined): void => {
-      while (n !== null && n !== undefined && !keep.has(n)) {
+      while (n !== null && n !== undefined && !keep.has(n) && parent.has(n)) {
         keep.add(n);
         n = parent.get(n);
       }
@@ -386,6 +426,18 @@ export class LocalFileSource implements DataSource {
         " WHERE s.node_id = ? ORDER BY e.seq",
       [nodeId],
     ).map((r) => ({ epochId: String(r.epoch_id), seq: Number(r.seq), status: String(r.status) }));
+  }
+}
+
+/** P10 M1 (ADR-0073): the zero-config warning messages (slices.py `_unconfigured`). */
+function unconfiguredMessages(raw: string | undefined): string[] {
+  try {
+    const got = JSON.parse(raw ?? "[]") as unknown;
+    return Array.isArray(got)
+      ? got.filter((w): w is Record<string, unknown> => !!w && typeof w === "object").map((w) => String(w.message ?? ""))
+      : [];
+  } catch {
+    return [];
   }
 }
 

@@ -9,8 +9,8 @@ zero_config:
   containers: [container:brownfield-es]  # no top-level project manifest: one fallback container
   status:
     RF-001: specified
-    RF-002: specified          # test_rf_002_… does not link: RF is not a default test-name prefix
-    RF-003: specified
+    RF-002: implemented        # P10 M1: RF is derived from the spec ids, so test_rf_002_… links
+    RF-003: implemented
     RF-004: specified
     RF-005: specified
     RF-006: specified
@@ -26,7 +26,7 @@ zero_config:
     GET /api/v1/conciliaciones/{id}/exportar: missing
 init:
   spec_roots: "spec roots (ad2v.yaml spec_root): sdd/"
-  containers: [container:backend, container:frontend]
+  containers: [container:backend, container:frontend, container:worker]
   status:
     RF-001: specified          # referenced by its endpoint (x-ad2v-refs), but no code names it
     RF-002: implemented        # test_rf_002_… (RF proposed as a test-name prefix)
@@ -46,3 +46,30 @@ init:
     GET /api/v1/conciliaciones/{id}/exportar: implemented
     # P9 M4: a scenario rolls up the requirements its tags reference (RF-001 specified, RF-002 implemented)
     "features/conciliacion.feature::Conciliación de un extracto::Conciliar un extracto completo": implemented
+# P10 M5 (ADR-0080): the env-var bridge. `init` proposes infra_root: [infra]; the test fills the prefix.
+# static: the .tf only (one environment, `default`). plans: fixtures/infra/brownfield-es/{prod,dev}.json
+# (the plan wins; dev has no frontend bucket and no EVENTS_TOPIC).
+infra:
+  static:
+    default:
+      container:backend: deployed            # google_cloud_run_v2_service.backend "conciliacion-backend" (name)
+      container:frontend: deployed           # the website bucket "conciliacion-frontend" (static host)
+      container:worker: undeployed           # no unit or bucket names it
+      src/backend/app/settings.py::Settings: unwired   # EXPORT_BUCKET is read, nothing provides it
+      infra:default:google_storage_bucket.archivo: infra_orphan
+      infra:default:google_sql_database_instance.conciliacion: in_use
+      infra:default:google_pubsub_topic.eventos: in_use
+      infra:default:google_secret_manager_secret.banco: in_use
+  plans:
+    prod:
+      container:backend: deployed
+      container:frontend: deployed
+      container:worker: undeployed
+      src/backend/app/settings.py::Settings: unwired   # EXPORT_BUCKET
+      infra:prod:google_storage_bucket.archivo: infra_orphan
+    dev:
+      container:backend: deployed
+      container:frontend: undeployed           # count = 0 in dev
+      container:worker: undeployed
+      src/backend/app/settings.py::Settings: unwired   # EVENTS_TOPIC and EXPORT_BUCKET
+  unwired_dev: [EVENTS_TOPIC, EXPORT_BUCKET]

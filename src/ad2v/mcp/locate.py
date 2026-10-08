@@ -21,6 +21,7 @@ from typing import Any
 from ad2v import rules as rules_mod
 from ad2v import store
 from ad2v.llm.suggest import BM25, STOPWORDS, stem
+from ad2v.mcp import slices
 from ad2v.mcp.index import EpochIndex
 
 _stem = functools.lru_cache(maxsize=None)(stem)
@@ -67,6 +68,27 @@ RESOURCE_WORDS = {
     "external_service": "external service api client",
     "llm_endpoint": "llm model endpoint ai",
     "ui": "ui frontend page",
+}
+# P10 (ADR-0078): infra kinds and infra statuses, in words people use
+INFRA_WORDS = {
+    "deployment_unit": "service deployment unit runs deploys hosts cloud run lambda ecs function",
+    "managed_datastore": "managed datastore database db sql instance",
+    "managed_queue": "managed queue topic pubsub sqs sns",
+    "bucket": "bucket storage files website static site",
+    "secret_store": "secret store secrets manager",
+    "network": "network vpc",
+    "scheduler": "scheduler cron schedule job",
+    "infra_other": "infrastructure resource",
+    "infra_module": "terraform module infrastructure",
+}
+INFRA_STATUS_WORDS = {
+    "deployed": "deployed runs on",
+    "undeployed": "undeployed not deployed no deployment",
+    "wired": "wired provided",
+    "unwired": "unwired missing env var not provided environment variable",
+    "in_use": "in use",
+    "infra_orphan": "orphan unused nobody uses",
+    "ambiguous": "ambiguous several candidates",
 }
 TOUCH_EDGES = ("reads", "writes", "publishes", "consumes", "invokes_llm", "invokes_external")
 
@@ -229,6 +251,13 @@ def build(conn: sqlite3.Connection, ix: EpochIndex) -> Locator:
     code_lines = _code_heads(conn, ix)
     narr = _narrations_by_node(conn, ix)
     touched = _touched_by(conn, ix)
+    infra = slices.infra_status(conn, ix.epoch_id)
+    deploys: dict[str, list[str]] = {}
+    for r in conn.execute(
+        "SELECT src, dst FROM edges WHERE epoch_id = ? AND kind = 'deploys'", (ix.epoch_id,)
+    ):
+        if r["dst"] in ix.nodes:
+            deploys.setdefault(r["src"], []).append(ix.nodes[r["dst"]]["name"])
     for nid, n in ix.nodes.items():
         a = ix.attrs.get(nid, {})
         docs["name"][nid] = tokens(n["name"] + " " + str(a.get("title", "")))
@@ -242,6 +271,12 @@ def build(conn: sqlite3.Connection, ix: EpochIndex) -> Locator:
         if n["kind"] in RESOURCE_WORDS:  # P7: what it is, and the functions that touch it
             code.append(RESOURCE_WORDS[n["kind"]])
             code += [ix.nodes[f]["name"] for f in touched.get(nid, [])]
+        if n["side"] == "infra":  # P10: kind, type, env vars, what it deploys
+            code += [INFRA_WORDS.get(n["kind"], ""), str(a.get("type", "")), str(a.get("env", ""))]
+            code += list((a.get("env_vars") or {}).keys()) + deploys.get(nid, [])
+        for st in (infra.get(nid) or {}).values():
+            code.append(INFRA_STATUS_WORDS.get(st, ""))
+        code += [str(x) for x in a.get("env_reads", [])]
         docs["code"][nid] = tokens(" ".join(code))
         if n["side"] == "spec":
             spec = [

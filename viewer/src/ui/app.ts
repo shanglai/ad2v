@@ -4,6 +4,8 @@
 import type { DataSource } from "../data/DataSource";
 import type {
   Box,
+  C4Element,
+  C4View,
   EdgeRow,
   EpochInfo,
   GlyphRow,
@@ -48,6 +50,7 @@ import { EDGE_MODES, type EdgeMode } from "../model/declutter";
 import { ChatPanel } from "./chat";
 import { componentOutOfScopeNote, legendPanel, notEvaluableNote } from "./legend";
 import { Replay } from "./replay";
+import { ArchitectureView, infraBadge, KIND_LABEL } from "./architecture";
 
 const RESOURCE_KINDS = new Set(["datastore", "queue", "external_service", "llm_endpoint", "ui"]);
 const ALL = -1; // scene depth: the whole epoch
@@ -56,8 +59,9 @@ const MAX_INTENT_ROOTS = 24;
 
 /** What `ad2v_show` asks the map to do (its structuredContent), P6 §5. */
 export interface ShowIntent {
-  intent: "focus" | "fit" | "path" | "replay" | "diff";
+  intent: "focus" | "fit" | "path" | "replay" | "diff" | "c4";
   nodes: string[];
+  env?: string | null;
   epoch?: string | null;
   workflowId?: string | null;
   detailLevel?: number | null;
@@ -97,6 +101,9 @@ interface EpochData {
   suggestions: SuggestionRow[];
   workflows: WorkflowRow[];
   lineage: LineageRow[];
+  /** P10: the Architecture view per infra environment, and node -> env -> infra status. */
+  c4: C4View[];
+  infra: Map<string, Record<string, string>>;
 }
 
 export interface PerfProbe {
@@ -128,6 +135,12 @@ export class App {
   private diffMap: Map<string, DiffEntry> | null = null;
   private ghosts: MapModel["ghosts"] = [];
   private selection: string | null = null;
+  // P10 (ADR-0079): Map | Architecture tabs, the infra environment, infra badges on the map
+  private tab: "map" | "arch" = "map";
+  private infraEnv: string | null = null;
+  private showInfra = false;
+  private archSelected: string | null = null;
+  private readonly arch = new ArchitectureView({ onSelect: (el) => this.selectElement(el) });
   private replay: Replay | null = null;
   private timer: number | null = null;
   private speed = 1;
@@ -211,17 +224,17 @@ export class App {
     if (hit) return hit;
     const ds = this.ds;
     const roots = epochId === (this.opts.intent?.epoch ?? null) || this.cache.size === 0 ? await this.initialRoots(epochId) : [null];
-    const [slices, summaries, links, judgments, suggestions, workflows, lineage] = await Promise.all([
+    const [slices, summaries, links, judgments, suggestions, workflows, lineage, c4, infra] = await Promise.all([
       Promise.all(roots.map((r) => ds.scene(epochId, r, r === null ? ALL : APP_DEPTH))),
       ds.summaries(epochId), ds.links(epochId), ds.judgments(epochId), ds.suggestions(epochId),
-      ds.workflows(epochId), ds.lineage(epochId),
+      ds.workflows(epochId), ds.lineage(epochId), ds.c4(epochId), ds.infraStatus(epochId),
     ]);
     const d: EpochData = {
       epoch: this.epochs.find((e) => e.epochId === epochId)!,
       nodes: [], byId: new Map(), tree: new SceneTree([], new Map(), new Map()), anc: new Map(),
       layout: new Map(), glyphs: new Map(), expanded: new Set(), complete: false,
       edges: [], statusN: new Map(), statusE: new Map(), rollups: new Map(),
-      summaries, links, judgments, suggestions, workflows, lineage,
+      summaries, links, judgments, suggestions, workflows, lineage, c4, infra,
     };
     this.absorb(d, slices);
     this.cache.set(epochId, d);
@@ -338,7 +351,7 @@ export class App {
         status: this.effective ? d.statusE : d.statusN,
         rollups: d.rollups,
         edges: d.edges,
-        label: this.label,
+        label: this.mapLabel,
         effective: this.effective,
         suggestionNodes: sugNodes,
         suggestionPairs: groups.map((g) => [g.primary.specId, g.primary.codeId] as [string, string]),
@@ -396,7 +409,14 @@ export class App {
       this.panel.append(h("div", { class: "panel-head" }, h("strong", {}, "Timeline"), this.chat.meterEl, collapse), this.timeline, this.chat.el);
       this.root.append(this.toolbar, h("main", { class: "body" }, this.mapEl, this.panel), this.replayBar, this.scrubber, this.tooltip, this.hud);
     }
-    this.mapEl.append(this.searchResults);
+    this.mapEl.append(this.searchResults, this.arch.el);
+    // P10 M1 (ADR-0073): a map built without configuration says so, with each condition
+    const warn = this.meta.unconfigured ?? [];
+    if (warn.length) {
+      this.mapEl.append(h("details", { class: "banner unconfigured", id: "unconfigured-banner", role: "status" },
+        h("summary", {}, `This map was built without configuration; ${warn.length} thing${warn.length === 1 ? "" : "s"} may be wrong. Run `, h("code", {}, "ad2v init"), "."),
+        h("ul", {}, ...warn.map((w) => h("li", {}, w)))));
+    }
     this.searchBox.addEventListener("input", () => this.search(this.searchBox.value));
     this.searchBox.addEventListener("keydown", (e) => {
       if (e.key === "Enter") (this.searchResults.querySelector("button") as HTMLButtonElement | null)?.click();
@@ -429,6 +449,7 @@ export class App {
     this.toolbar.replaceChildren(
       h("span", { class: "brand" }, "ad2v"),
       h("span", { class: "sys" }, `${this.meta.systemName}${llm}`),
+      ...this.tabControls(),
       this.searchBox,
       h("button", { id: "home", title: "system view (Home)", onclick: () => this.scene.home() }, "⌂"),
       h("button", { id: "toggle-effective", class: this.effective ? "on" : "", "aria-pressed": String(this.effective), title: "normative status (deterministic) or effective status (with LLM judgments)",
@@ -492,6 +513,7 @@ export class App {
     const cmd = `ad2v view ${this.fileName}`;
     this.toolbar.replaceChildren(
       h("span", { class: "brand" }, "ad2v"),
+      ...this.tabControls(),
       crumbs,
       ...(cmp ? [h("span", { class: "chip", id: "diff-label" }, `Diff #${cmp.seq} → #${d.epoch.seq}`)] : []),
       h("button", { id: "toggle-effective", class: this.effective ? "on" : "", "aria-pressed": String(this.effective), title: "normative status (deterministic) or effective status (with LLM judgments)",
@@ -531,6 +553,104 @@ export class App {
     document.documentElement.dataset.theme = name;
     this.scene.setTheme(THEMES[name], name);
     this.renderToolbarState();
+    this.renderArch();
+  }
+
+  // -- P10 (ADR-0079): the Architecture tab -------------------------------------------------------
+  /** The infra environment shown: the chosen one, else `default`, else the first ('' without infra). */
+  currentEnv(): string {
+    const envs = this.cur.c4.map((v) => v.env);
+    if (this.infraEnv !== null && envs.includes(this.infraEnv)) return this.infraEnv;
+    return envs.includes("default") ? "default" : envs[0] ?? "";
+  }
+
+  private infraOf(id: string): string | undefined {
+    return this.cur.infra.get(id)?.[this.currentEnv()];
+  }
+
+  /** Map labels with the infra badge when the toggle is on (deployed ☁, undeployed ∅☁, unwired ⚠). */
+  private mapLabel = (id: string): string => {
+    const base = this.label(id);
+    if (!this.showInfra) return base;
+    const b = infraBadge(this.infraOf(id));
+    return b ? `${b} ${base}` : base;
+  };
+
+  private tabControls(): HTMLElement[] {
+    const envs = this.cur?.c4.map((v) => v.env).filter((e) => e !== "") ?? [];
+    const out: HTMLElement[] = [
+      h("div", { class: "tabs", role: "tablist", "aria-label": "views" },
+        h("button", { id: "tab-map", role: "tab", class: this.tab === "map" ? "on" : "", "aria-selected": String(this.tab === "map"), onclick: () => this.setTab("map") }, "Map"),
+        h("button", { id: "tab-arch", role: "tab", class: this.tab === "arch" ? "on" : "", "aria-selected": String(this.tab === "arch"), onclick: () => this.setTab("arch") }, "Architecture")),
+    ];
+    if (envs.length) {
+      const cur = this.currentEnv();
+      out.push(h("select", { id: "infra-env", "aria-label": "infra environment", title: "infra environment (findings are per environment)",
+        onchange: (e) => { this.infraEnv = (e.target as HTMLSelectElement).value; this.pushModel(); this.renderArch(); this.renderToolbarState(); } },
+        ...envs.map((e) => h("option", { value: e, selected: e === cur }, `Env: ${e}`))));
+      out.push(h("button", { id: "toggle-infra", class: this.showInfra ? "on" : "", "aria-pressed": String(this.showInfra),
+        title: "infra badges on the map: ☁ deployed, ∅☁ undeployed, ⚠ unwired env var, ?☁ ambiguous",
+        onclick: () => { this.showInfra = !this.showInfra; this.pushModel(); this.renderToolbarState(); } }, "Infra badges"));
+    }
+    return out;
+  }
+
+  setTab(tab: "map" | "arch"): void {
+    this.tab = tab;
+    this.arch.el.classList.toggle("hidden", tab !== "arch");
+    this.root.classList.toggle("arch-mode", tab === "arch");
+    if (tab === "arch") {
+      const hit = this.selection ? this.arch.elementFor([this.selection, ...(this.cur.anc.get(this.selection) ?? [])]) : null;
+      if (hit) this.archSelected = hit.id;
+    }
+    this.renderArch();
+    this.renderToolbarState();
+  }
+
+  private renderArch(): void {
+    if (!this.cur || this.tab !== "arch") return;
+    const view = this.cur.c4.find((v) => v.env === this.currentEnv()) ?? null;
+    const hl = new Set<string>();
+    if (this.selection && view) {
+      const ids = new Set([this.selection, ...(this.cur.anc.get(this.selection) ?? [])]);
+      for (const e of view.elements) if (e.nodeIds.some((n) => ids.has(n))) hl.add(e.id);
+    }
+    this.arch.set(view, THEMES[resolveTheme(this.themeChoice)], this.archSelected, hl);
+  }
+
+  /** An element picked in the Architecture view: its card; the map selection follows (sync). */
+  selectElement(el: C4Element): void {
+    this.archSelected = el.id;
+    const target = el.nodeIds.find((n) => this.cur.byId.get(n)?.kind === "container") ?? el.nodeIds.find((n) => this.cur.byId.has(n));
+    if (target) {
+      this.selection = target;
+      this.scene.setSelection(target);
+    }
+    this.card(this.elementCard(el));
+    this.renderArch();
+  }
+
+  private elementCard(el: C4Element): HTMLElement {
+    const a = el.attrs;
+    const status = typeof a.infra_status === "string" ? a.infra_status : "unknown";
+    const cov = (a.coverage ?? {}) as Record<string, number>;
+    const deploys = Array.isArray(a.deploys) ? (a.deploys as string[]) : [];
+    const unwired = Array.isArray(a.unwired) ? (a.unwired as string[]) : [];
+    const nfr = Array.isArray(a.nfr) ? (a.nfr as string[]) : [];
+    const mapNodes = el.nodeIds.filter((n) => this.cur.byId.has(n) && this.cur.tree.nodes.has(n));
+    const env = this.currentEnv();
+    return h("section", { class: "card node c4-card", "data-element-id": el.id },
+      h("div", { class: "card-head" },
+        h("h3", {}, el.name, " ", h("span", { class: "kind" }, KIND_LABEL[el.kind] ?? el.kind)),
+        h("div", { class: "statuses" }, h("span", { class: `chip infra-${status}`, id: "c4-infra-status" }, `infra${env ? ` (${env})` : ""}: ${status}`))),
+      deploys.length ? h("p", {}, "Runs: ", deploys.join(", ")) : null,
+      typeof a.type === "string" ? h("p", { class: "muted" }, a.type) : null,
+      unwired.length ? h("p", { class: "scope-note", id: "c4-unwired" }, `⚠ Env vars the code reads that this deployment does not provide: ${unwired.join(", ")}`) : null,
+      Object.keys(cov).length ? h("div", { class: "statuses", id: "c4-coverage" }, "Requirements: ",
+        ...Object.entries(cov).map(([k, n]) => statusChip(String(n), k))) : null,
+      nfr.length ? h("p", { class: "scope-note nfr-note", id: "c4-nfr" }, `NFR (checked against infra in a later phase): ${nfr.join(", ")}`) : null,
+      mapNodes.length ? h("div", { class: "c4-open" }, ...mapNodes.slice(0, 6).map((n) =>
+        h("button", { class: "linkish", "data-node": n, onclick: () => { this.setTab("map"); this.enter(n); } }, `open ${this.label(n)} in map`))) : null);
   }
 
   private renderScrubber(): void {
@@ -592,6 +712,7 @@ export class App {
     this.selection = id;
     this.scene.setSelection(id);
     this.pushModel();
+    if (this.tab === "arch") this.renderArch();
     if (fly) this.scene.flyTo(id);
     if (addCard) void this.nodeCard(id).then((c) => this.card(c));
     if (this.app) {
@@ -651,6 +772,14 @@ export class App {
         if (it.epochFrom && it.epochTo) await this.compareIds(it.epochFrom, it.epochTo);
         if (ids.length) this.scene.fit(ids, instant);
         break;
+      case "c4": { // P10: the Architecture view (optionally an environment and nodes to highlight)
+        if (it.env) this.infraEnv = it.env;
+        if (ids.length) this.selection = ids[0]!;
+        this.setTab("arch");
+        const hit = ids.length ? this.arch.elementFor([ids[0]!, ...(this.cur.anc.get(ids[0]!) ?? [])]) : null;
+        if (hit) this.selectElement(hit);
+        break;
+      }
     }
   }
 
@@ -835,6 +964,8 @@ export class App {
         statusChip("normative", sn?.status ?? "none"),
         se && se.status !== se.normative ? statusChip(`effective${se.provenance === "llm" ? " (AI)" : ""}`, se.status) : null),
       reasons.length ? h("ul", { class: "reasons" }, ...reasons) : null,
+      this.cur.infra.get(id) ? h("div", { class: "statuses", id: "infra-statuses" }, "Infra: ",
+        ...Object.entries(this.cur.infra.get(id)!).map(([env, st]) => h("span", { class: `chip infra-${st}` }, `${env}: ${st}`))) : null,
       (se?.status ?? sn?.status) === "not_evaluable"
         ? h("p", { class: "scope-note", id: "scope-note" }, outOfScope
           ? componentOutOfScopeNote(String(outOfScope.component).split("::").pop()!, Array.isArray(outOfScope.languages) ? outOfScope.languages.map(String) : [])

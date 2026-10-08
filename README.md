@@ -10,7 +10,10 @@ how the spec items and the code pair up. Readers of that file:
   verified glowing (dark) or haloed (light), drift carries a warning badge, orphan code is dashed,
   and code in a language no active extractor reads is thin, dotted and hollow with a "∅" badge
   (`not_evaluable`). A **Legend** button explains every status.
-  Workflows replay step by step with a detail slider that follows the zoom.
+  Workflows replay step by step with a detail slider that follows the zoom. An **Architecture** tab
+  shows a deterministic C4 view built from the code, the specs and the infrastructure (Terraform
+  plan JSON or `.tf`): which service runs which container, env vars the code reads that no
+  deployment provides, resources nobody uses, per environment.
 - **any MCP host's model** (Claude, ChatGPT, VS Code, …) through `ad2v mcp`: read-only tools that
   find components and explain them, with answers that point at node ids. Hosts with MCP Apps show
   the map inline in the conversation.
@@ -37,7 +40,8 @@ opt-in ([plug-in guide](docs/plugins.md)).
 | P7 | verified quickstart, settings prefixes, retrieval v2, the viewer's own chat agent (BYOM, `ad2v view --chat`), thinking per task, schema digests, judge roll-up, viewer UX v2, format v0.5 | done ([report](docs/reports/P7.md), [quickstart](docs/quickstart.md)) |
 | P8 | extractor plug-in API (`ad2v.api`, entry points, opt-in, conformance kit, out-of-tree examples), blind retrieval eval harness, packaging (not published), CI workflows, security review, sanitization, dogfood procedure | done ([report](docs/reports/P8.md), [plug-ins](docs/plugins.md), [security](docs/security.md)) |
 | P8.1 | `not_evaluable`: a status and legend for code in a language no active extractor reads; format v0.6 | done ([report](docs/reports/P8.md) §13, ADR-0066) |
-| **P9** | brownfield onboarding: `ad2v init`, Spanish and English team formats (requirement tables, user stories, Spanish EARS and Gherkin), titles, non-functional requirements, issue 95, the spec side of the map, wider default excludes, fresh-clone install fix | **done** ([report](REPORT.md), ADR-0067..0072) |
+| P9 | brownfield onboarding: `ad2v init`, Spanish and English team formats (requirement tables, user stories, Spanish EARS and Gherkin), titles, non-functional requirements, issue 95, the spec side of the map, wider default excludes, fresh-clone install fix | done ([report](docs/reports/P9.md), ADR-0067..0072) |
+| **P10** | infrastructure layer: Terraform plan JSON (primary) and static `.tf` (python-hcl2), secrets allowlist, the env-var bridge (deploys / wired / unwired / orphan, per environment), a deterministic C4 view (Architecture tab, Structurizr export, `ad2v_architecture`), zero-config warning, test-name prefixes from the specs; format v0.7 | **done** ([report](REPORT.md), [infra](docs/infra.md), ADR-0073..0081) |
 
 Extraction makes **no LLM calls**. Every row it writes is *normative* (or *volatile*: deterministic
 line numbers): the same inputs (code, specs, rules, manifest, test results) give the same normative
@@ -105,7 +109,8 @@ python -m ad2v mcp --root path/to/maps
 ```text
 ad2v init     --repo <path> [--write <file> [--force]] [--format yaml|json] [--check <ad2v.yaml>]   # propose a manifest
 ad2v extract  --repo <path> [--spec <path> ...] [--no-spec-autodetect] [--manifest ad2v.yaml] [--test-results junit.xml ...]
-              (--out project.ad2v | --into project.ad2v) [--no-cache]
+              (--out project.ad2v | --into project.ad2v) [--no-cache] [--infra-plan [ENV=]plan.json ...] [--infra-env NAME]
+ad2v c4       project.ad2v [--env NAME] [--format structurizr|json] [--out FILE]   # the C4 view (P10)
 ad2v history  --repo <path> --commits <rev-range> --into project.ad2v [--spec <rel> ...] [--manifest <rel>]
               [--test-results <rel> ...] [--no-cache]
 ad2v diff     project.ad2v [--from <epoch>] [--to <epoch>] [--format table|json|md]
@@ -200,12 +205,12 @@ repository code or tests.
 
 ## Documents
 
-- [Format spec v0.6](docs/spec/ad2v-format-v0.6.md) (normative: the product; §11 the LLM layer, §12 layout and viewer, §13 MCP, retrieval and chat)
+- [Format spec v0.7](docs/spec/ad2v-format-v0.7.md) (normative: the product; §11 the LLM layer, §12 layout and viewer, §13 MCP, retrieval and chat, §14 the infra layer)
 - [Glyph grammar v0.2](docs/spec/glyph-grammar-v0.2.md) and [visual tokens v0.2](docs/spec/visual-tokens-v0.2.md)
 - [Spec Markdown convention](docs/spec/spec-markdown-convention.md)
-- [DDL](schema/ad2v-v0.6.sql), [IR JSON Schema](schema/ir-v0.6.schema.json), [themes](schema/themes/)
+- [DDL](schema/ad2v-v0.7.sql), [IR JSON Schema](schema/ir-v0.7.schema.json), [themes](schema/themes/)
 - [ADRs](docs/adr/) and [dependencies and licenses](docs/dependencies.md)
-- [REPORT.md](REPORT.md) (P9), [P8 + P8.1 report](docs/reports/P8.md), [P7 report](docs/reports/P7.md), [plug-in guide](docs/plugins.md), [security](docs/security.md), [blind eval](docs/blind-eval.md), [dogfood procedure](docs/dogfood.md), [releasing (not for now)](docs/RELEASING.md), [quickstart](docs/quickstart.md), [MCP setup](docs/mcp.md), [P6.1 report](docs/reports/P6.1.md), [P6 report](docs/reports/P6.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
+- [REPORT.md](REPORT.md) (P10), [infra layer](docs/infra.md), [P9 report](docs/reports/P9.md), [P8 + P8.1 report](docs/reports/P8.md), [P7 report](docs/reports/P7.md), [plug-in guide](docs/plugins.md), [security](docs/security.md), [blind eval](docs/blind-eval.md), [dogfood procedure](docs/dogfood.md), [releasing (not for now)](docs/RELEASING.md), [quickstart](docs/quickstart.md), [MCP setup](docs/mcp.md), [P6.1 report](docs/reports/P6.1.md), [P6 report](docs/reports/P6.md), [P5 report](docs/reports/P5.md), [P4 report](docs/reports/P4.md), [P3 report](docs/reports/P3.md), [P2 report](docs/reports/P2.md), [P1 report](docs/reports/P1.md), [status](status.md), [issues](issues.md), [pending](pending.md)
 
 ## Optional manifest (`ad2v.yaml`)
 
@@ -281,5 +286,5 @@ test (the viewer's data over the real stdio server), protocol conformance with t
 retrieval eval also runs standalone:
 `python -m ad2v.mcp.evaluate <file> fixtures/payments-recon/expected-questions.yaml [--tune]`.
 
-After editing `schema/ad2v-v0.6.sql`, regenerate the spec's column table with
+After editing `schema/ad2v-v0.7.sql`, regenerate the spec's column table with
 `python -m ad2v.ddl`. A test fails if you forget.

@@ -1,13 +1,20 @@
-# P9 report: brownfield onboarding (`ad2v init`, Spanish SDD presets, issue 95, the spec side of the map)
+# P10 report: the infrastructure layer, the env-var bridge, and a deterministic C4 view
 
-P9 makes ad2v work on an existing project that was not built for it. The example: specs in
-`sdd/`, written in Spanish as requirement tables, user stories and Gherkin; a Python backend and
-a TypeScript frontend with no `ad2v:` annotations; SQL; Terraform. The path from "never seen
-this repo" to "a useful map" is now `ad2v init` → review the proposed `ad2v.yaml` → `extract`.
-It is fully deterministic and makes no LLM call.
+P10 lets ad2v answer questions that cross spec, code and infrastructure:
+- "Which Cloud Run service runs this component?"
+- "The code reads `EXPORT_BUCKET`: does any deployment provide it?"
+- "What does the architecture look like, per environment, and which requirements does each part
+  carry?"
 
-The P8 + P8.1 report moved to [docs/reports/P8.md](docs/reports/P8.md) (one copy). This report is
-also at [docs/reports/P9.md](docs/reports/P9.md).
+ad2v never runs Terraform. It reads a plan JSON the human supplies (primary) or the `.tf` files
+statically (fallback, and the only source in `history`). Only allowlisted attributes and env var
+*names* are stored. The results appear in three places:
+- an **Architecture** tab (C4) in the viewer;
+- a Structurizr / JSON export;
+- MCP (`ad2v_architecture`, `ad2v_show` intent `c4`).
+
+The P9 report stays at [docs/reports/P9.md](docs/reports/P9.md). This report is also at
+[docs/reports/P10.md](docs/reports/P10.md). The full infra guide is [docs/infra.md](docs/infra.md).
 
 ## 1. Accrued cost per phase
 
@@ -23,367 +30,369 @@ also at [docs/reports/P9.md](docs/reports/P9.md).
 | P7 | $0.385 | Vertex AI, 163 calls (approved live run) |
 | P8 | $0 | |
 | P8.1 | $0 | |
-| **P9** | **$0** | no cloud, no LLM (the bootstrap cycle used the `fake` provider) |
+| P9 | $0 | |
+| **P10** | **$0** | no cloud, no LLM (`fake` provider only); OpenTofu ran offline with local providers |
 | **total** | **$0.977** | |
 
-**CI minutes (GitHub Actions, private repository).** `ci.yml` runs on pushes to `main` and
-`master`, so each branch push is one run. That gives about 18 billed ubuntu minutes per run (the
-P8 estimate).
+**CI minutes (GitHub Actions, private repository).** Each branch push is one `ci.yml` run, about
+18 billed ubuntu minutes (P8 estimate).
 
-| pushes | runs | estimate | note |
-|---|---|---|---|
-| Step 0: `master`, `master:main` (P8.1) | 2 | ~36 min by the rule | both runs **failed after ~12 s** at `pip install -e .` (§2), so the real billed time is a few minutes (per-job minimum) |
-| final: `master`, `master:main` (P9) | 2 | ~36 min | |
-| **P9 total** | **4** | **~72 min (upper bound)** | no manual all-OS dispatch |
+| pushes | runs | estimate |
+|---|---|---|
+| P10 final: `master`, `master:main` | 2 | ~36 min |
+
+The developer pushed P9 between phases (2 runs, ~36 min; not counted here). No manual all-OS
+dispatch.
 
 **Claude usage** is not observable per phase. The account is on the Max plan with extra usage
 disabled, so this phase added no metered Claude cost.
 
-## 2. Step 0: P8.1 committed and pushed
-
-- Gates before committing: pytest 386 passed + 2 skipped, Vitest 51, ruff, ESLint, tsc, both
-  license gates, and `test:mcp` (parity 6/6, Inspector 38/38, App e2e 10/10). The sanitization
-  scan was clean.
-- Commit **`d5038d5`**: "P8.1: not_evaluable status for code in languages no active extractor
-  reads (format v0.6, ADR-0066)".
-- Pushes: `origin/master` and `origin/main`, both **fast-forward** `b7e1726..d5038d5`. No force.
-- **Both CI runs failed** in about 12 seconds. A fresh checkout has no `viewer/dist`, and
-  `pyproject.toml` mapped the viewer packages onto it, so `pip install -e .` stopped. Any fresh
-  clone hit the same failure. Fixed in P9 (ADR-0067, §3 M5). It was verified on a fresh copy of
-  the tree in a throwaway venv:
-  - `pip install -e .` works without a viewer build, and `extract` runs;
-  - `AD2V_REQUIRE_VIEWER=1 python -m build --wheel` fails without the build and passes with it
-    (112 files, viewer and app included).
-  The P9 push is the first CI run with the fix.
-
-## 3. Milestones
+## 2. Milestones
 
 | milestone | state | notes |
 |---|---|---|
-| M1 `ad2v init` | **done** | `init.py`, `cli_init.py`; `--write [--force]`, `--format yaml|json`, `--check`; ADR-0071 |
-| M2 team presets | **done** | `table`, `stories` (Spanish + English), Spanish EARS, Spanish Gherkin (native), titles, NFR; ADR-0069 |
-| M3 issue 95 | **done** | `component_out_of_scope`; test titles in unread languages (`test_in_unread_language`, never verified); ADR-0070; issue closed |
-| M4 spec side of the map | **done** | steps off the map, scenario roll-up, labels, word-boundary truncation, NFR badge, step lists, spec replay; stability 1.0000; ADR-0072 |
-| M5 default excludes | **done** | wider defaults, SQL kept under `migrations/`/`alembic/`, IaC not `not_evaluable`; ADR-0068. Also the fresh-clone install fix (ADR-0067) |
-| M6 `fixtures/brownfield-es` | **done** | written from the prompt alone; goldens `expected-init.txt`, `expected.yaml`; in `determinism_check.py` |
-| M7 docs, gates, report | **done** | quickstart §2b (guarded by a test), convention, format spec notes (no bump), dogfood, README, claude-context, issues, pending, dependencies |
+| M1 zero-config warning + derived test prefixes | **done** | ADR-0073 |
+| M2 infra from a plan JSON | **done** | format 1.x; GCP + AWS core types; per-environment plans; carry-forward; real OpenTofu plan verified; ADR-0074 |
+| M3 static `.tf` fallback | **done** | python-hcl2 8.1.4 (MIT) + lark (MIT) + regex (Apache-2.0 AND CNRI-Python), pinned; `infra_root`; plan wins, static fills gaps; history reads infra; ADR-0075 |
+| M4 format v0.7 | **done** | infra side, 4 edge kinds, `epochs.infra_hash`, `change_kind: infra`, `infra_status` + C4 tables, upgrade 0.6 → 0.7 (chained from 0.4), masked dump proof; ADR-0077, ADR-0078 |
+| M5 env-var bridge | **done** | env reads (os.environ / getenv / BaseSettings), `deploys` a/b/c + ambiguity + many-to-many, `provides_env` / `wires`, per environment; brownfield fixture + plans; ADR-0080 |
+| M6 C4 view | **done** | derived tables + slot-persistent layout, Architecture tab (env selector, cards, open in map, selection sync, infra badges), Structurizr / JSON export, MCP tool + intent + overview + retrieval; ADR-0079 |
+| M7 `init` + docs | **done** | `infra_root` proposal, plan command and warning, `infra.deploys` placeholders, `--check`; docs/infra.md, quickstart 5b (guarded), security §8b, format spec v0.7 §14, dogfood rows, README, claude-context, issues, pending, dependencies; ADR-0081 |
+| M8 tests and gates | **done** | §9 |
+| M9 report, commit, push | **done** | this report; commit and push in §11 |
 
-## 4. `ad2v init`
+## 3. M1: zero-config before and after (brownfield-es)
 
-**Detectors:**
-- **Spec folders.** By name: `specs/`, `spec/`, `docs/specs/`, `.kiro/specs/`, `sdd/`,
-  `docs/sdd/`, `requirements/`, `docs/requirements/`, `specification(s)/`. By content: any folder
-  whose files a reader recognizes. Each candidate is scored, with the evidence (files per
-  format), and nested candidates are folded into their parent.
-- **Format per file.** ad2v, spec-kit, kiro, table, stories, gherkin, openapi, or prose. Prose
-  files are listed as candidates for `specs bootstrap`.
-- **Prefixes.** Spec id prefixes become `test_name_prefixes`. Non-functional prefixes are
-  detected from ids, or from a table type column.
-- **Containers.** Project manifests at depth ≤ 3, with their language and whether an active
-  extractor reads it. A components hint when spec component names match container names.
-- **Excludes.** Default or generated folders actually present, with the files and code files each
-  one drops.
-- **SQL.** SQL files are listed, with a warning when an exclude would drop them.
-- **IaC.** Terraform, Pulumi, CloudFormation, Kubernetes and Helm: reported, plus a commented
-  `# infra:` hint.
-- **Test results.** JUnit XML files and pytest configuration, with a suggested `--test-results`.
-- **Route prefixes.** The Python extractor runs with the proposed containers. The prefix
-  expressions it cannot resolve become `path_constants` with **empty** values.
+**Before (P9):** a zero-config `extract` printed no warning. RF-002 and RF-003 were `specified`
+(`RF` was not a test-name prefix).
 
-**Verbatim output on `fixtures/brownfield-es`** (also the golden `expected-init.txt`):
+**After:** the same command ends with:
 
 ```text
-ad2v init: fixtures/brownfield-es
-
-Spec folders (score; evidence = files per format):
-  sdd/  score 15  (gherkin 1, openapi 1, prose 1, stories 1, table 1)  proposed
-Spec files:
-  sdd/api/openapi.yaml: openapi
-  sdd/contexto.md: prose
-  sdd/features/conciliacion.feature: gherkin
-  sdd/historias.md: stories
-  sdd/requerimientos.md: table
-Prose no preset reads (candidates for `ad2v specs bootstrap`):
-  sdd/contexto.md
-Spec id prefixes: HU, RF, RNF
-Containers:
-  backend (src/backend/, pyproject.toml): python, read by the python extractor
-  frontend (src/frontend/, package.json): typescript, no active extractor: not_evaluable
-Excluded folders (files dropped; code files of them):
-  dist: 2 (2 code)  [default]
-  node_modules: 1 (1 code)  [default]
-SQL files (schema digests):
-  src/db/migrations/V2__indices.sql
-  src/db/schema.sql
-Infrastructure as code (detected; not mapped until P10):
-  terraform: infra/
-Test results:
-  pytest config: src/backend/pyproject.toml (run `pytest --junitxml <file>`)
-Route prefixes the extractor cannot resolve (3 route(s)): settings.API_PREFIX; fill in pairing.path_constants
-
-Next:
-  ad2v init --repo fixtures/brownfield-es --write <a file outside the repo>
-  ad2v extract --repo fixtures/brownfield-es --manifest <a file outside the repo> --out brownfield-es.ad2v
-  ad2v specs bootstrap --repo fixtures/brownfield-es --from sdd/contexto.md --plan
-  ad2v view brownfield-es.ad2v
-
-# ---- proposed ad2v.yaml ----
-# ad2v.yaml proposed by `ad2v init` (review it; nothing here is guessed).
-# Keep it outside the repository while you try it: `ad2v extract --manifest <this file>`.
-# one container per project manifest found (language: read by an extractor?)
-containers:
-  - {kind: service, name: backend, paths: [src/backend]}  # python, pyproject.toml; read
-  - {kind: service, name: frontend, paths: [src/frontend]}  # typescript, package.json; not read: shown as not_evaluable
-pairing:
-  orphan_policy: auto  # auto | strict | off
-  # route prefixes the extractor cannot resolve: fill in the values (empty = ignored)
-  path_constants:
-    "settings.API_PREFIX": ""
-spec_ids:
-  test_name_prefixes: [CMP, FR, HU, REQ, RF, RNF]  # test_rf_001_… links to RF-001
-  nonfunctional_prefixes: [RNF]
-# team formats found (they are auto-detected too; listed to keep the choice stable)
-spec_markdown:
-  - {glob: sdd/historias.md, preset: stories}
-  - {glob: sdd/requerimientos.md, preset: table}
-spec_root: [sdd]
-system: "brownfield-es"
-# infra: terraform in infra (detected; not mapped until P10)
+WARNING: This map was built without configuration; 4 things may be wrong. Run `ad2v init`.
+  - route prefixes the extractor cannot resolve: settings.API_PREFIX (endpoints may look missing and routes orphaned; set pairing.path_constants)
+  - one fallback container, but project manifests exist below the root: src/backend, src/frontend, src/worker (declare containers)
+  - spec id prefixes not in the configured test-name prefixes: HU, RF, RNF (derived from the specs for this run; list them in spec_ids.test_name_prefixes)
+  - infrastructure as code found: infra (set infra_root, and pass --infra-plan for deployment facts)
 ```
 
-The output is identical across runs and for LF vs CRLF+BOM inputs (tested). The proposal
-round-trips through YAML exactly and loads as a valid manifest as written.
+RF-002 and RF-003 are now **`implemented`**: the derived prefixes link `test_rf_002_…` and
+`test_rf_003_…`. The warnings are also in `meta.unconfigured_warnings`, which is informative and
+not in the canonical dump. The viewer shows them as a banner and the MCP overview as a line.
 
-**Known false positives and negatives** (by design or by test; not measured on real
-repositories yet):
-- FN: a container whose manifest is deeper than 3 levels (monorepo `packages/a/b/c/`) is not
-  proposed (issue 102).
-- FN: route prefixes are found for Python routes only (the only extractor).
-- FN: a spec folder whose Markdown no reader recognizes (pure prose in an unusual folder) is not
-  a candidate. Named folders still are, and their prose is listed for bootstrap.
-- FP: a `docs/` folder with one table that has an `ID` column whose values fit the spec-id
-  grammar would be proposed as a spec root. The score and evidence make that visible.
-- FP: `.feature` files under third-party test data would be proposed. Excludes (`vendor/`,
-  `node_modules/`) remove the usual cases.
-- The `generated` exclude is proposed by folder name only (`generated/`, `__generated__/`).
+The prefix was detected even without containers: the Python extractor now records an
+`include_router(…, prefix=settings.X)` whose router does not resolve (run state only).
 
-## 5. Presets: counts, Spanish EARS, titles, NFR
+## 4. Infra input
 
-| fixture | presets | requirements | EARS matched / raw | GWT criteria | Gherkin | NFR |
-|---|---|---|---|---|---|---|
-| `sdd-presets/table` (es + en) | table ×2 | 11 (8 es, 3 en) | 10 / 1 (event 2, state 1, unwanted 1, ubiquitous 6) | 0 | — | 4 (`RNF-001`, `RNF-002`, `CAL-001` by Tipo, `EXP-3` by Type) |
-| `sdd-presets/stories` (es + en) | stories ×2 | 10 (4 stories + 6 criteria; 7 es, 3 en) | 3 / 7 (stories and GWT criteria are not EARS) | 3 | — | 0 |
-| `brownfield-es` | table, stories | 22 (14 table, 8 stories) | 16 / 6 (event 1, state 1, unwanted 2, ubiquitous 12) | 1 | 1 feature, 4 scenarios (1 Background), 11 steps (Dado 4, Cuando 3, Entonces 3, Y 1) | 4 (`RNF-001..004`) |
-| `polyglot` | ad2v | 4 | 4 / 0 | 0 | — | 0 |
+- **Plan format:** `format_version` 1.x. The documented plan representation is "1.0", minor versions
+  are backward compatible, and Terraform 1.9 and OpenTofu 1.13 emit "1.2". Any other major version
+  is refused.
+- **Read:**
+  - `planned_values` (modules, `count`/`for_each` instances);
+  - `configuration` (references, through module variables and outputs);
+  - `resource_changes` (actions; `after_unknown` → `unknown`).
+- **Never read:** `variables`, `prior_state`, output values, `timestamp`, `relevant_attributes`,
+  `checks`.
+- **Types mapped** (`src/ad2v/infra/infra.yaml`, covered by `rules_hash`):
 
-The raw (`ears: null`) requirements are the cases the prompt asked for:
-- a table row that isn't EARS ("La pantalla de conciliación muestra …");
-- the story requirements themselves (Como … quiero …);
-- Dado/Cuando/Entonces criteria (kept as `gwt`);
-- one criterion with a modal outside the EARS forms ("Solo un usuario con rol de aprobador puede
-  aprobar").
+  | kind | GCP | AWS |
+  |---|---|---|
+  | `deployment_unit` | `google_cloud_run_v2_service`, `google_cloud_run_service`, `google_cloud_run_v2_job`, `google_cloudfunctions2_function` | `aws_lambda_function`, `aws_ecs_service` (+ `aws_ecs_task_definition`), `aws_batch_job_definition` (+ queue), `aws_apprunner_service` |
+  | `managed_datastore` | `google_sql_database_instance`, `google_firestore_database`, `google_bigquery_dataset`, `google_redis_instance` | `aws_db_instance`, `aws_rds_cluster`, `aws_dynamodb_table`, `aws_elasticache_cluster` |
+  | `managed_queue` | `google_pubsub_topic`, `google_pubsub_subscription` | `aws_sqs_queue`, `aws_sns_topic` |
+  | `bucket` | `google_storage_bucket` | `aws_s3_bucket` (+ website configuration) |
+  | `secret_store` | `google_secret_manager_secret` | `aws_secretsmanager_secret` |
+  | `network` | `google_compute_network`, `google_vpc_access_connector` | |
+  | `scheduler` | `google_cloud_scheduler_job` | `aws_cloudwatch_event_rule` |
+  | `infra_other` | anything else (kept, counted) | |
 
-**Title examples** (explicit wins; otherwise derived, ≤ 6 words, trailing function words cut):
+- **Real-plan check: done.** I took OpenTofu 1.13.1 as the official standalone zip (SHA-256 checked
+  against the release's `SHA256SUMS`) and ran it in a scratch folder: `init`, then
+  `plan -refresh=false`, then `show -json`. The providers were `null` and `random` plus the
+  built-in `terraform_data`, with a module under `for_each`, a sensitive variable and env-style
+  objects. There were no credentials.
+  - Module instances come out as expected, and references through module variables resolve
+    (`module.svc["api"].terraform_data.unit` → `random_password.db`, `terraform_data.db`).
+  - The static read of the same `.tf` finds the same references.
+  - The plan and config are kept as `fixtures/infra/tofu-real`.
+  - The binary, the provider cache and an empty `%APPDATA%\terraform.d` it created were deleted.
+  - One finding: the plan's top-level `variables` hold the sensitive variable's value in clear, which
+    is why ad2v never reads that key.
+- **Static parser:** python-hcl2 8.1.4 (MIT). Its tree is lark 1.3.1 (MIT) and regex 2026.9.29
+  (Apache-2.0 AND CNRI-Python). The license gate is green (14 distributions), both are pinned, and
+  it is imported only for static reads.
+- **Static limits:**
+  - `count`/`for_each` are not expanded (`multiplicity: unresolved`);
+  - local modules are followed one level; remote modules are recorded, never fetched;
+  - variable defaults are never stored;
+  - `locals` are followed, while `dynamic` and `jsonencode` are opaque;
+  - files over 4 MB are skipped, and a parse error is a warning.
 
-| id | source | title |
-|---|---|---|
-| RF-001 (table) | `Título` column | Iniciar conciliación |
-| RF-002 | EARS response | Emparejar cada movimiento del extracto |
-| RF-003 | unwanted response | Marcarlo como pendiente |
-| RF-006 | state response (*debe*) | Reintentar la descarga del extracto |
-| HU-001 | story heading | Cargar un extracto |
-| HU-002.1 | GWT *then* | Ve los movimientos pendientes ordenados |
-| RNF-001 | response, "en menos de" cut | Conciliar 100.000 movimientos |
-| EXP-1 (en) | event response | Write a CSV file |
-| REQ-004 (en) | unwanted response, modal "can" cut | Return an error the client |
+## 5. Planted secrets
 
-Two refinements came from these examples: comparatives (*menos*, *más*, *than*) and modals
-(*can*, *may*, *puede*) are now trailing words. Titles stay a heuristic (issue 99).
+The fixtures plant **21 distinct fake secrets**:
+- **GCP plan:**
+  - a root variable value and a module-variable default;
+  - a sensitive output value and an output URL key;
+  - a scheduler URI token;
+  - secret version data;
+  - before/after root passwords (in `resource_changes`) and a `prior_state` password;
+  - `output_changes`;
+  - an env var literal `API_KEY`.
+- **AWS plan:**
+  - a variable value and an output;
+  - a literal password inside the ECS `container_definitions` JSON;
+  - a Lambda env literal password;
+  - before/after DB passwords;
+  - a token in a git module source URL.
+- **Static config:** a sensitive variable default.
 
-**NFR handling.** `attrs.requirement_type = nonfunctional` comes from the id prefix
-(`spec_ids.nonfunctional_prefixes`, default RNF/NFR/NF; `init` proposes the ones it finds) or
-from a table type cell. Non-functional requirements pair like any other, so they usually stay
-`specified`. They are counted apart in:
-- `ad2v status` (a summary line);
-- the MCP overview (`nonfunctional_requirements`);
-- `scripts/dogfood_counts.py` (`nonfunctional_requirements_by_status`).
-In the viewer they get an NFR badge, and the card explains that they are not expected to pair
-with one piece of code.
+`test_planted_secrets_never_reach_the_file_or_its_dump` extracts payments-recon with both plans
+(`prod`, `dev`) and the static config as `infra_root`. It asserts that none of the 21 strings, nor
+`PLANTED` itself, nor the URL credential, appears in the `.ad2v` **bytes** or in its **full dump**
+(informative rows included). It passes. The same check on the MCP tools: `ad2v_architecture`
+output contains no `PLANTED` (test_mcp).
 
-## 6. Issue 95: before and after
+## 6. Bridge and findings on `fixtures/brownfield-es`
 
-| requirement | P8.1 | P9 | why |
+These results use the manifest `ad2v init` proposes (`infra_root: [infra]`), with the prefix
+filled. Rows are from `expected.yaml`, test_brownfield and test_infra:
+
+| | static (`.tf` only, env `default`) | plan `prod` | plan `dev` |
 |---|---|---|---|
-| polyglot REQ-001 | implemented | implemented | Python, evaluated |
-| polyglot REQ-002 | not_evaluable | not_evaluable | `// ad2v: REQ-002` in TypeScript (P8.1) |
-| polyglot REQ-003 | **specified** | **not_evaluable** | its spec component (Web client) pairs with the all-TypeScript `web` container: `component_out_of_scope` |
-| polyglot REQ-004 (new) | (would be specified) | not_evaluable | `it("REQ-004 …")` in `web/src/cart.test.ts`: `test_in_unread_language` |
-| brownfield RF-007 | (specified) | not_evaluable | `Componente = Frontend` → container `frontend` (TypeScript): `component_out_of_scope` |
-| brownfield RF-008 | (specified) | not_evaluable | `it("RF-008 …")` in `avance.test.ts` |
-| brownfield RF-009 | (specified) | not_evaluable | component, like RF-007 |
+| `container:backend` | deployed (`conciliacion-backend`, name) | deployed (name) | deployed (`conciliacion-backend-dev`) |
+| `container:frontend` | deployed (website bucket `conciliacion-frontend`) | deployed | **undeployed** (bucket `count = 0`) |
+| `container:worker` | **undeployed** | **undeployed** | **undeployed** |
+| `Settings` (reads `API_PREFIX`, `DATABASE_URL`, `EVENTS_TOPIC`, `EXPORT_BUCKET`, `BANK_TOKEN`) | **unwired**: `EXPORT_BUCKET` | **unwired**: `EXPORT_BUCKET` | **unwired**: `EVENTS_TOPIC`, `EXPORT_BUCKET` |
+| `google_storage_bucket.archivo` | **infra_orphan** | **infra_orphan** | (not in dev) |
+| SQL instance, topic, secret | in_use | in_use | in_use (topic not in dev) |
+| ambiguous | none | none | none |
 
-None of them is ever `verified`: ad2v has no test results for unread languages.
+Wires (prod): `conciliacion-backend` → `conciliacion-db` (`DATABASE_URL`), → `conciliacion-eventos`
+(`EVENTS_TOPIC`); the secret `token-banco` via `BANK_TOKEN` (`secret` source).
 
-## 7. The spec side of the map (ADR-0072)
+The bridge rules are also unit-tested on small graphs:
+- (a) the manifest wins and resolves an ambiguity;
+- (b) name (`orders-api` ↔ `api`);
+- (c) env overlap (`billing`);
+- two units matching one container by name with different images → `ambiguous`;
+- one unit deploying two containers, and two units with the same image deploying one (many-to-many).
 
-What changed:
-- **Steps off the map.** `scenario_step` nodes stay in the graph (ids, glyph rows, edges,
-  workflows) but get no layout row. They are listed in order in the scenario's card, with the
-  keyword marked. Spec scenarios are in the replay picker (a "Spec scenarios" group), start at the
-  finest level, and show each step's text.
-- **Statuses.** Steps are `none`. A scenario adds one `via_spec_ref` reason per (referenced
-  requirement, link status), so it shows the worst status of the requirements its tags name.
-- **Labels.**
-  - requirement: `RF-001 · Iniciar conciliación`;
-  - spec component with an id: `CMP-001 · Reconciliation API`;
-  - scenario: `Start a reconciliation run [REQ-001, REQ-002]`.
-  The full label is in the hover tooltip and the card. NodeRow carries `title`, `refs`, `nfr`
-  and `keyword` in both data sources, and the parity test is green.
-- **Truncation.** Text is cut at a word boundary with "…" everywhere: map labels (48), contents
-  lists (80), the replay picker (60) and tooltip text (200). The mid-word cut is gone.
-- **Cards.**
-  - NFR badge and note;
-  - `component_out_of_scope` note naming the component and its language ("its component
-    Frontend is implemented in typescript …").
+## 7. The C4 view
 
-**Layout stability on the P3 history scenario:** 786/786 unchanged nodes keep their position
-across epochs, **1.0000** with both `nestgrid-v1` and `nestgrid-v2` (target ≥ 0.95).
+**Fixture (prod).**
+- Elements:
+  - the system `brownfield-es`;
+  - 3 persons from the story actors (Jefe de finanzas, Analista de conciliacion, Operador de
+    tesoreria);
+  - deployment unit `conciliacion-backend` (runs backend; requirements implemented 2; unwired
+    `EXPORT_BUCKET`);
+  - static site `conciliacion-frontend` (runs frontend; requirements not_evaluable 1);
+  - code container `worker` (undeployed);
+  - datastore `conciliacion-db`, queue `conciliacion-eventos`, bucket `conciliacion-archivo`
+    (infra_orphan).
+- Relations: 2 `wires`. Persons have no `uses` here, because no story requirement pairs with code
+  (issue 108).
+- The payments-recon demo (GCP plan) shows `calls` (worker → API), `invokes` (to the external
+  bank API and the model endpoint), `wires` (env vars to the database and topic) and `references`
+  (the scheduler → the API service).
 
-**Screenshots** (`docs/reports/P9-screens/`, dark and light, 12 files):
-1. `*-1-payments-recon-scenario.png`: scenario card with 4 ordered steps and the roll-up reasons.
-2. `*-2-payments-recon-component.png`: `CMP-001 · Reconciliation API`.
-3. `*-3-payments-recon-replay.png`: a spec scenario replayed step by step.
-4. `*-4-brownfield-nfr.png`: `RNF-001 · …` with the NFR badge and note.
-5. `*-5-brownfield-scenario.png`: Spanish scenario, Dado / Cuando / Entonces.
-6. `*-6-brownfield-component-out-of-scope.png`: RF-007 `not_evaluable` with the component note.
+**Layout stability:** across two epochs of the fixture (the dev plan gains the frontend bucket),
+**17/17** common elements keep row, slot and position, with 1 element added. The test requires
+≥ 95%. Slots are also unit-tested: a removed element leaves its slot free, and a new one takes the
+lowest free slot. Rows wrap at 4 columns (persons at 5), so wide views stay readable in the App.
 
-## 8. Brownfield results: zero-config vs `init`
+**Structurizr export** (`ad2v c4 bf.ad2v --env prod`, golden
+`fixtures/infra/brownfield-es/expected-c4-prod.dsl`, trimmed):
 
-| | zero-config | with `init` |
+```text
+workspace "brownfield-es (prod)" "Generated by ad2v from the epoch graph (deterministic). Do not edit." {
+  model {
+    c4_3d7d2b84ebf51018ed2f = person "Jefe de finanzas" "1 user story"
+    …
+    c4_2d9e3f8e4c8e5a22a435 = softwareSystem "brownfield-es" {
+      c4_2aaddf09fb9623345b73 = container "conciliacion-db" "" "google_sql_database_instance" {
+        tags "managed_datastore,in_use,Database"
+      }
+      c4_57a530d1581bf9719500 = container "worker" "" "code container" {
+        tags "code_container,undeployed"
+      }
+      c4_698f28dd26eb49fc3235 = container "conciliacion-backend" "runs backend; requirements: implemented 2" "google_cloud_run_v2_service" {
+        tags "deployment_unit,in_use"
+      }
+      …
+    }
+    c4_698f28dd26eb49fc3235 -> c4_2aaddf09fb9623345b73 "wires: DATABASE_URL"
+    c4_698f28dd26eb49fc3235 -> c4_ba39ba0b796fca5a16b4 "wires: EVENTS_TOPIC"
+  }
+  views { systemContext … container … styles { Person, Database, Queue, undeployed (dashed), infra_orphan (dotted) } }
+}
+```
+
+**Screenshots** (`docs/reports/P10-screens/`, dark and light, 10 files):
+1. `*-1-architecture-dev.png`: dev; the frontend and worker are undeployed (dashed).
+2. `*-2-architecture-prod.png`: prod; static site, orphan bucket (dotted), wires.
+3. `*-3-architecture-card.png`: the backend card (runs, unwired `EXPORT_BUCKET`, coverage, open in
+   map).
+4. `*-4-map-infra-badges.png`: the map with infra badges (☁ backend, ∅☁ worker) and the node card's
+   infra statuses per environment.
+5. `*-5-app-c4-intent.png`: the MCP App inside a test host after `ad2v_show` intent `c4`.
+
+## 8. Format v0.7
+
+**Changes:**
+- the `infra` side and 9 kinds; edges `references`, `wires`, `deploys`, `provides_env`;
+- `epochs.infra_hash` (`''` without infra; enters the epoch id only when set);
+- `change_kind: infra`;
+- derived `infra_status`, `c4_elements`, `c4_relations`, plus `c4_layout`;
+- the rules key `infra`.
+
+**Upgrade 0.6 → 0.7** happens in place when a file is opened for writing:
+- `epochs` and `node_versions` are rebuilt (CHECK constraints) and their rows copied with
+  `infra_hash = ''`;
+- every view is dropped and recreated;
+- the new tables are created;
+- materialized epochs are marked complete for the new derived tables.
+It chains from 0.4. The new test emulates a v0.6 file from a fresh one. A real gap turned up:
+`extract --into` used to **refuse** a v0.6 file instead of upgrading it (issue 103, fixed).
+
+**Masked normative-dump proof.** The old code was run from `git archive 8d817e3` (P9) and the new
+code from the working tree, on the same copies of every fixture without infra. Masked fields: epoch
+id, rules hash (and the `infra` key in the stored rules), format version, the empty `infra_hash`.
+
+| fixture | result |
+|---|---|
+| payments-recon | identical |
+| sdd-kiro | identical |
+| sdd-stories | identical |
+| polyglot | identical |
+| sdd-spec-kit | one line differs: the epoch row's `test_ref_prefixes` gains `SC` (ADR-0073) and its `config_hash` changes |
+| sdd-custom | the same with `BILL` |
+| sdd-table | the same with `CAL`, `RNF` |
+
+No link, status, node or edge row changed. Every fixture gains `c4_*` derived rows (the code-only
+view, env `''`).
+
+## 9. Performance, tests, goldens, dependencies
+
+**Performance** (this machine; synthetic plan of 2,000 resources generated with seed 987654):
+
+| measure | value |
+|---|---|
+| plan parse (2,000 resources, 0.88 MB JSON) | 0.14 s (median of 3) |
+| payments-recon extract: no infra / GCP fixture plan / synthetic plan | 1.39 s (cold) / 0.72 s / 1.96 s (medians) |
+| file size: no infra → with 2,000 resources | 0.75 MB → 4.74 MB (+4.0 MB, ~2 KB per resource; issue 107) |
+| `c4.load` (2,005 elements) | 47 ms |
+| Architecture tab first render: fixture (7 elements) / synthetic (2,004 elements) | 58 ms / 557 ms |
+
+**Tests:**
+
+| gate | before (P9) | after |
 |---|---|---|
-| commands | 1 (`extract`) | 2 (`init --write`, `extract --manifest`) |
-| human edits | 0 | 1 (`"settings.API_PREFIX": "/api/v1"`) |
-| tool time (3 runs, this machine) | 0.72–0.87 s | init 0.60–0.69 s + extract 0.71–0.75 s |
-| spec roots | `sdd/` (auto-detected, new in P9) | `sdd/` (manifest) |
-| spec items found | 22 requirements, 4 scenarios, 3 endpoints, 5 components (same) | same |
-| containers | 1 fallback (`brownfield-es`) | `backend`, `frontend` |
-| endpoints (3) | **missing** (route prefix lost) | **implemented** |
-| code orphans | 5 (the 3 routes, the fallback container, `src`) | **0** |
-| RF-002 / RF-003 | specified (`RF` is not a default test prefix) | **implemented** (`test_rf_002_…`) |
-| RF-007/008/009 | not_evaluable (name match) | not_evaluable (`component_out_of_scope` / test title) |
-| spec status counts | missing 3, implemented 1, not_evaluable 5, specified 25 | implemented 8, not_evaluable 5, specified 21 |
-
-**Time to first useful map:** zero-config takes 1 command and under a second, but the map is
-misleading: three spec endpoints look unbuilt, and their routes look like dead code. With `init`
-it takes 2 commands and 1 edit (about 1.3 s of tool time plus reading the report). Every
-endpoint and route pairs, and the backend and frontend are separate containers. The edit is the
-only step a person must think about, and `init --check` keeps flagging it until it is done.
-
-The bootstrap cycle on `sdd/contexto.md` (prose) ran with the `fake` provider:
-1. plan;
-2. bootstrap (a Spanish EARS proposal);
-3. approve to `sdd/aprobados`.
-REQ-X001 is then `specified`.
-
-## 9. Tests, goldens, dependencies
-
-| gate | before (Step 0) | after |
-|---|---|---|
-| pytest | 386 passed + 2 skipped | **428 passed + 2 skipped** (cloud skip, Windows symlink skip); `-m slow` included |
-| coverage | — | total 95%; new modules: `cli_init` 100%, `team` 96%, `titles` 97%, `init` 93%, `scope` 98% |
-| Vitest | 51 | **53** |
-| Playwright | 26 (25 + 1 skip) | **30 (29 + 1 skip)**; new `spec-side.spec.ts` (4) |
-| `test:mcp` | parity 6/6, Inspector 38/38, App 10/10 | same |
+| pytest | 428 passed + 2 skipped | **460 passed + 2 skipped** |
+| coverage | 95% | 95%; new modules: `c4` 96%, `infra/__init__` 99%, `bridge` 96%, `envreads` 99%, `model` 94%, `plan` 96%, `static` 92%, `unconfigured` 96% |
+| Vitest | 53 | **56** |
+| Playwright | 29 + 1 skip | **33 + 1 skip** (+ architecture 2, + perf-c4 measurement spec, runs only with `AD2V_C4_PERF`) |
+| `test:mcp` | parity 6/6, Inspector 38/38, App 10/10 | parity 6/6 (incl. `c4`, `infraStatus`), Inspector 38/38, **App 12/12** (+ `c4` intent) |
+| determinism (LF vs CRLF+BOM) | 8 fixtures | **10** (+ brownfield-es-infra with 2 plans, payments-recon-infra with 2 plans + `.tf`) |
 | ruff, ESLint, tsc, npm and Python license gates | clean | clean |
-| determinism (LF vs CRLF+BOM) | 5 fixtures | 8 (+ `sdd-table`, `sdd-stories`, `brownfield-es`) |
 
-**Changed goldens and expectations, with reasons:**
-- `fixtures/payments-recon/expected-history.yaml`, diff 4→5: `verified → stale` goes from 2 to 3.
-  The scenario tagged `@REQ-001` now rolls up REQ-001, which goes stale (ADR-0072).
-- `tests/test_layout.py`: the geometry and stability checks skip `OFF_MAP_KINDS` (steps have no
-  box).
-- `viewer/tests/datasource.test.ts`: every node has a glyph; every node except steps has a
-  layout row.
-- `tests/test_scope.py`: polyglot REQ-003 `specified` → `not_evaluable`; REQ-004 added (issue 95).
-- `viewer/e2e/scope.spec.ts`: "typescript 3 file(s)" (was 2; `cart.test.ts` added).
-- **Normative dumps:** steps' `node_status` is now always `none`, and scenarios gain
-  `via_spec_ref` reasons. No other node or link row changes. `payments-recon/expected.yaml` and
-  every preset golden pass unchanged.
+One full-run failure was flaky: `test_chat.py::test_endpoint_security_rejections` hit a Windows
+`ConnectionAborted` under load. It passes 3/3 alone, and P10 did not touch chat.
 
-**Dependencies:** none added (Python or npm). `build` ran once more in a throwaway venv, and
-Playwright's Chromium was used for the screenshots. Both were removed (`docs/dependencies.md`).
+**Changed goldens and expectations:**
+- `fixtures/brownfield-es/expected.yaml`:
+  - zero-config RF-002/RF-003 → `implemented` (M1);
+  - `init` containers + `worker` (new fixture container);
+  - a new `infra` section.
+- `fixtures/brownfield-es/expected-init.txt`: the third container, the infra lines (proposed
+  `infra_root`, name matches, plan command and warning), and `infra_root: [infra]` in the proposal.
+- `tests/test_mcp.py` (13 → 14 agent tools), `viewer/tests/mcp/parity.test.ts` (20 → 22 app
+  tools), `viewer/scripts/conformance.mjs` (13 → 14).
+- `viewer/tests/datasource.test.ts`: format 0.7, and infra nodes have no map layout row.
+- `tests/test_upgrade.py`: the version chain now ends at 0.7.
 
-## 10. Open questions for P10 and P11
+**New dependencies:**
+- Python: python-hcl2 8.1.4 (MIT), lark 1.3.1 (MIT), regex 2026.9.29 (Apache-2.0 AND CNRI-Python);
+  no copyleft, no `certifi`.
+- npm: none.
+- OpenTofu 1.13.1 (MPL-2.0) was run once as a tool, outside the tree, and deleted
+  (docs/dependencies.md).
 
-**P10: infrastructure.**
-1. **Plan JSON vs static `.tf`.** A supplied `terraform show -json` plan has resolved values,
-   modules and counts. Static `.tf` parsing (HCL) needs a license-clean parser: python-hcl2 is
-   MIT, but its `lark` dependency must be checked. Which comes first, and is the static fallback
-   worth a dependency?
-2. **The env-var bridge.** Code reads `os.environ["DATABASE_URL"]` / `settings.X`; infra sets
-   `environment { DATABASE_URL = aws_db_instance.main.endpoint }`. Should a match create an edge
-   (normative, deterministic), and what happens when several resources set the same name in
-   different workspaces?
-3. **C4 view.** A deterministic C4 container or deployment view in its own tab. Should it be
-   derived from the same graph (new `infra` side, or new kinds on the code side), and is that a
-   format v0.7 change (new kinds = new CHECK constraints, ADR-0055/0066 style upgrade)?
-4. **Secrets in plans.** Plan JSON can contain sensitive values. Should they be dropped at read
-   time (never stored), with `sensitive: true` respected?
+## 10. Open questions
 
-**P11: the TypeScript extractor.**
-1. Parser: tree-sitter-typescript (MIT) through the existing plug-in API, and which frameworks
-   first (Express/Fastify/Nest routes, React Router, Next.js app router)?
-2. Test results for TS (Jest/Vitest JUnit reporters) to make `test_in_unread_language` links
-   `verified`?
-3. Once the plug-in claims `*.ts`, `not_evaluable` disappears by itself. Keep the polyglot and
-   brownfield goldens as the before/after proof?
+**P11 (the TypeScript extractor):**
+1. **Env reads in TypeScript.** `process.env.X`, `import.meta.env.X` and Next.js `NEXT_PUBLIC_*`.
+   Should the bridge treat build-time variables (baked into a static site) differently from
+   runtime ones (a static site has no runtime env)?
+2. **Frameworks first:** Express / Fastify / Nest routes or the Next.js app router, so route ↔
+   OpenAPI pairing works for TS?
+3. **Test results.** Jest / Vitest JUnit reporters would let `test_in_unread_language` links become
+   `verified` once TS is read.
+4. **Containers.** `package.json` workspaces (monorepos) as several containers: is the name match of
+   the bridge enough for them?
+
+**A later NFR-vs-infra check:**
+1. **A deterministic catalog first** (recommended). Map common NFR phrasings to infra facts ad2v
+   already stores:
+   - availability and "always on" → `min_instances ≥ 1`;
+   - encryption at rest → `encrypted`;
+   - region or data residency → `location`/`region`;
+   - scaling ceilings → `max_instances`.
+   It is deterministic, cheap and testable. It needs a small rule language over spec text, which
+   could be a pattern table in the rules.
+2. **The LLM judge** only for what the catalog cannot express ("reconcile 100,000 movements in under
+   five minutes" needs load data, not infra). It would be informative, per environment, with
+   evidence.
+3. **Should a failed check be a new `infra_status` value** (e.g. `nfr_violated`) or a link status on
+   the NFR? ADR-0078 suggests the former, to keep the 10-status precedence clean.
 
 ## 11. Commit
 
-- Commit: **"P9: brownfield onboarding (`ad2v init`, Spanish SDD presets, issue 95, spec-side
-  view)"**. Hash: see `git log -1`.
-- Push: `origin/master` and `origin/main`, fast-forward only. The result is recorded in
-  `status.md` after the push.
+- Commit: **"P10: infrastructure layer (plan JSON + static .tf), env-var bridge, deterministic C4
+  view; format v0.7"**. Hash: see `git log -1`.
+- Push: `origin/master`, then `master:main`, fast-forward only. The result is recorded in
+  `status.md`.
 - Changed files, grouped:
-  - **Onboarding:**
-    - `src/ad2v/init.py`, `src/ad2v/cli_init.py` (new), `src/ad2v/cli.py`;
-    - `src/ad2v/specroots.py` (`sdd/`);
-    - `src/ad2v/extract/code/python.py` (`unresolved_prefix_exprs`, state only).
-  - **Specs:**
-    - `src/ad2v/extract/spec/team.py`, `titles.py` (new);
-    - `markdown.py` (Spanish EARS, `(Título)`), `presets.py`, `__init__.py`;
-    - `src/ad2v/llm/prose.py` (Spanish modals).
-  - **Scope, pairing, layout, manifest:**
-    - `src/ad2v/scope.py` (test titles), `pairing.py` (component scope, scenario roll-up,
-      steps);
-    - `layout.py` (`OFF_MAP_KINDS`), `manifest.py` (excludes, NFR prefixes), `pipeline.py`;
-    - `src/ad2v/mcp/slices.py`, `mcp/tools.py`.
-  - **Packaging:** `setup.py` (new), `pyproject.toml`, `.github/workflows/release.yml`,
-    `.gitignore`.
+  - **Infra layer (new):**
+    - `src/ad2v/infra/` (`__init__`, `infra.yaml`, `model`, `plan`, `static`, `envreads`,
+      `bridge`);
+    - `src/ad2v/c4.py`, `src/ad2v/unconfigured.py`.
+  - **Core:**
+    - `ir.py` (side, kinds, edges, statuses), `pipeline.py`, `store.py`, `upgrade.py`;
+    - `manifest.py` (`infra_root`, `infra.deploys`, derived prefixes), `plugins.py` (rules key
+      `infra`), `ids.py`;
+    - `glyphs.py`, `layout.py` (off-map), `materialize.py`, `admin.py`, `gitsource.py`;
+    - `cli.py` (`--infra-plan`, `--infra-env`, `ad2v c4`, the warning), `init.py`;
+    - `extract/code/base.py` (diagnostics), `extract/code/python.py`.
+  - **MCP:** `mcp/tools.py` (`ad2v_architecture`, `c4` intent, overview), `mcp/slices.py`,
+    `mcp/app_tools.py`, `mcp/locate.py`.
+  - **Schema:**
+    - `schema/ad2v-v0.7.sql`, `schema/ir-v0.7.schema.json` (renamed from v0.6);
+    - `schema/themes/{dark,light}.json` (`infra` tokens).
   - **Viewer:**
-    - `src/data/types.ts`, `LocalFileSource.ts`;
-    - `src/model/text.ts` (`displayLabel`, `truncateWords`);
-    - `src/render/billboards.ts`;
-    - `src/ui/app.ts`, `ui/legend.ts`, `style.css`;
-    - tests `model.test.ts`, `datasource.test.ts`; e2e `spec-side.spec.ts` (new), `scope.spec.ts`.
+    - `src/ui/architecture.ts` (new), `src/ui/app.ts`, `src/ui/intent.ts`, `src/style.css`;
+    - `src/data/{types,DataSource,LocalFileSource,RemoteSliceSource}.ts`;
+    - tests and e2e (`architecture.spec.ts`, `perf-c4.spec.ts`, `app.spec.ts`), `scripts/`
+      (`make_fixtures.py`, `conformance.mjs`).
   - **Fixtures:**
-    - `fixtures/brownfield-es/` (new);
-    - `fixtures/sdd-presets/{table,stories}/` (new);
-    - `fixtures/polyglot/` (`cart.test.ts`, REQ-004);
-    - `fixtures/payments-recon/expected-history.yaml`.
-  - **Tests:** `test_brownfield.py`, `test_team_presets.py` (new), `test_presets.py`,
-    `test_scope.py`, `test_layout.py`, `test_quickstart.py` (step 2b).
-  - **Scripts:** `scripts/determinism_check.py`, `scripts/dogfood_counts.py`.
+    - `fixtures/infra/` (gcp, aws, brownfield-es prod/dev, tofu-real, README, C4 golden);
+    - `fixtures/brownfield-es` (infra, worker, settings, goldens).
+  - **Tests:** `test_infra.py`, `test_unconfigured.py`, `test_envreads.py` (new); `test_brownfield`,
+    `test_upgrade`, `test_mcp`, `test_tokens`, `test_quickstart`.
+  - **Packaging:** `pyproject.toml` (python-hcl2, lark), `setup.py` (`ad2v.infra` + yaml).
+  - **Scripts:** `scripts/determinism_check.py`.
   - **Docs:**
-    - ADR-0067..0072;
-    - `docs/quickstart.md`, `docs/spec/spec-markdown-convention.md`,
-      `docs/spec/ad2v-format-v0.6.md`;
-    - `docs/dogfood.md`, `docs/dependencies.md`, `docs/claude-context.md`;
+    - ADR-0073..0081, `docs/infra.md` (new), `docs/spec/ad2v-format-v0.7.md` (renamed + §14);
+    - `docs/quickstart.md`, `docs/security.md`, `docs/dogfood.md`, `docs/dependencies.md`,
+      `docs/claude-context.md`;
     - `README.md`, `issues.md`, `pending.md`, `status.md`;
-    - `REPORT.md` + `docs/reports/P9.md`, `docs/reports/P9-screens/`.
+    - `REPORT.md` + `docs/reports/P10.md`, `docs/reports/P10-screens/`.
 
 **Clean-up:**
-- removed: the scratch files, the fresh-copy tree, its venv and the wheels;
-- removed after the screenshots: Playwright's Chromium;
-- removed: the npx MCP Inspector cache, which was used only by `test:mcp`;
+- removed: the OpenTofu binary, zip and provider cache, and the empty `terraform.d` it created;
+- removed: the python-hcl2 wheel download folder, the P9 `git archive` tree, the perf temp folder
+  and the scratch files;
+- removed at the end: Playwright's Chromium and the npx MCP Inspector cache;
 - restored: earlier phases' screenshots that the full e2e run had re-taken.

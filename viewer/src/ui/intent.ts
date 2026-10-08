@@ -11,6 +11,7 @@ export interface ShowResult {
   epoch_from?: string | null;
   epoch_to?: string | null;
   theme?: "auto" | "light" | "dark";
+  env?: string | null; // P10: the infra environment of a c4 intent
 }
 
 export function toIntent(s: ShowResult): ShowIntent {
@@ -23,5 +24,6 @@ export function toIntent(s: ShowResult): ShowIntent {
     epochFrom: s.epoch_from ?? null,
     epochTo: s.epoch_to ?? null,
     theme: s.theme ?? "auto",
+    env: s.env ?? null,
   };
 }

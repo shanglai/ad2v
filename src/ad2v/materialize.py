@@ -26,7 +26,7 @@ def derive(conn: sqlite3.Connection, epoch_id: str) -> store.Derived:
     history.replay_state(links, store.load_link_state(conn, epoch_id))
     extra = history.Lineage(rows=store.load_lineage(conn, epoch_id)).ambiguous_reasons()
     paired = pairing.finalize(graph, links, warnings, extra)
-    return store.Derived(glyphs.compute(graph), wfs, paired)
+    return store.Derived(glyphs.compute(graph), wfs, paired, graph)
 
 
 def materialize(conn: sqlite3.Connection, epoch_id: str) -> bool:

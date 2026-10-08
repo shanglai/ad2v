@@ -140,3 +140,27 @@ body.mcp-app #app { height: var(--app-h, 560px); grid-template-rows: auto 1fr au
 .badge.nfr { font-size: 10px; font-weight: 600; letter-spacing: .04em; border: 1px solid var(--muted); color: var(--muted); border-radius: 3px; padding: 0 4px; margin-left: 6px; vertical-align: middle; }
 ol.steps { margin: 4px 0; padding-left: 20px; font-size: 12px; }
 ol.steps .kw { color: var(--accent, var(--fg)); font-weight: 600; }
+
+/* P10 M1 (ADR-0073): zero-config banner */
+.banner.unconfigured { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); max-width: min(720px, 90%); z-index: 5;
+  background: var(--surface); color: var(--fg); border: 1px solid var(--warn, #c98a00); border-left-width: 4px; border-radius: 4px; padding: 4px 10px; font-size: 12px; }
+.banner.unconfigured summary { cursor: pointer; }
+.banner.unconfigured ul { margin: 4px 0 2px; padding-left: 18px; }
+
+/* P10 (ADR-0079): Map | Architecture tabs, the C4 view, infra chips */
+.tabs { display: inline-flex; gap: 0; border: 1px solid var(--muted); border-radius: 6px; overflow: hidden; }
+.tabs button { border: 0; border-radius: 0; }
+.tabs button.on { background: var(--accent); color: var(--bg); }
+.arch { position: absolute; inset: 0; z-index: 4; background: var(--bg); overflow: auto; }
+.arch-canvas { width: 100%; height: 100%; }
+.arch svg.c4 { width: 100%; height: 100%; display: block; font-family: inherit; }
+.arch .c4-el { cursor: pointer; }
+.arch .c4-el:focus { outline: none; }
+.arch .c4-el:focus-visible rect, .arch .c4-el:focus-visible path { stroke-width: 3.6; }
+.arch .c4-rel text { pointer-events: none; }
+.arch-empty { padding: 24px; }
+.chip.infra-deployed, .chip.infra-in_use, .chip.infra-wired { border-style: solid; }
+.chip.infra-undeployed, .chip.infra-ambiguous { border-style: dashed; }
+.chip.infra-unwired { border-style: dashed; border-color: var(--warn); }
+.chip.infra-infra_orphan { border-style: dotted; }
+.c4-open { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }

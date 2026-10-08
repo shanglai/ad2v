@@ -31,6 +31,36 @@ FIXTURES = {
     "sdd-stories": ROOT / "fixtures" / "sdd-presets" / "stories",
     "brownfield-es": ROOT / "fixtures" / "brownfield-es",
 }
+# P10: infra inputs (plans are copied into the repository copy, so they get CRLF+BOM too; key order
+# and whitespace of a plan never matter)
+INFRA = ROOT / "fixtures" / "infra"
+INFRA_FIXTURES = {
+    "brownfield-es-infra": {
+        "repo": ROOT / "fixtures" / "brownfield-es",
+        "manifest": (
+            "containers:\n  - {name: backend, paths: [src/backend]}\n"
+            "  - {name: frontend, paths: [src/frontend]}\n"
+            "  - {name: worker, paths: [src/worker]}\ninfra_root: [infra]\nspec_root: [sdd]\n"
+            'pairing:\n  path_constants: {"settings.API_PREFIX": "/api/v1"}\n'
+        ),
+        "files": {
+            "_plans/prod.json": INFRA / "brownfield-es" / "prod.json",
+            "_plans/dev.json": INFRA / "brownfield-es" / "dev.json",
+        },
+        "plans": {"prod": "_plans/prod.json", "dev": "_plans/dev.json"},
+    },
+    "payments-recon-infra": {
+        "repo": ROOT / "fixtures" / "payments-recon",
+        "manifest_append": "infra_root: [infra]\n",
+        "files": {
+            "_plans/gcp.json": INFRA / "gcp" / "plan.json",
+            "_plans/aws.json": INFRA / "aws" / "plan.json",
+            "infra/main.tf": INFRA / "tofu-real" / "cfg" / "main.tf",
+            "infra/modules/svc/main.tf": INFRA / "tofu-real" / "cfg" / "modules" / "svc" / "main.tf",
+        },
+        "plans": {"prod": "_plans/gcp.json", "dev": "_plans/aws.json"},
+    },
+}
 TEXT = {
     ".py",
     ".md",
@@ -57,14 +87,30 @@ def crlf_bom_copy(src: Path, dst: Path) -> None:
             p.write_bytes(b"\xef\xbb\xbf" + text.replace("\n", "\r\n").encode("utf-8"))
 
 
-def normative_dump(repo: Path, out: Path) -> bytes:
+def normative_dump(repo: Path, out: Path, plans: dict[str, str] | None = None) -> bytes:
     from ad2v import dump, pipeline
 
     junit = repo / "test-results" / "junit.xml"
     pipeline.extract_to_file(
-        repo, None, out, test_results=[junit] if junit.is_file() else None, name_hint=repo.name
+        repo,
+        None,
+        out,
+        test_results=[junit] if junit.is_file() else None,
+        name_hint=repo.name,
+        infra_plans=[(e, repo / rel) for e, rel in sorted((plans or {}).items())],
     )
     return dump.canonical_dump(out, normative_only=True, epoch="all").encode("utf-8")
+
+
+def _add_infra(repo: Path, spec: dict) -> None:
+    for dest, src in spec.get("files", {}).items():
+        (repo / dest).parent.mkdir(parents=True, exist_ok=True)
+        (repo / dest).write_bytes(src.read_bytes().decode("utf-8-sig").replace("\r\n", "\n").encode("utf-8"))
+    if "manifest" in spec:
+        (repo / "ad2v.yaml").write_text(spec["manifest"], encoding="utf-8", newline="\n")
+    if "manifest_append" in spec:
+        m = repo / "ad2v.yaml"
+        m.write_text(m.read_text(encoding="utf-8") + spec["manifest_append"], encoding="utf-8", newline="\n")
 
 
 def run() -> tuple[dict[str, str], list[str]]:
@@ -72,16 +118,21 @@ def run() -> tuple[dict[str, str], list[str]]:
     problems: list[str] = []
     tmp = Path(tempfile.mkdtemp(prefix="ad2v-determinism-"))
     try:
-        for name, src in FIXTURES.items():
-            lf_repo = tmp / "lf" / src.name
+        for name, spec in {**FIXTURES, **INFRA_FIXTURES}.items():
+            src = spec["repo"] if isinstance(spec, dict) else spec
+            lf_repo = tmp / "lf" / name
             shutil.copytree(src, lf_repo, ignore=shutil.ignore_patterns("__pycache__", "*.ad2v"))
             for p in lf_repo.rglob("*"):  # normalize whatever the checkout did (autocrlf)
                 if p.is_file() and p.suffix in TEXT:
                     p.write_bytes(p.read_bytes().decode("utf-8-sig").replace("\r\n", "\n").encode("utf-8"))
-            crlf_repo = tmp / "crlf" / src.name
-            crlf_bom_copy(src, crlf_repo)
-            a = normative_dump(lf_repo, tmp / f"{name}-lf.ad2v")
-            b = normative_dump(crlf_repo, tmp / f"{name}-crlf.ad2v")
+            plans = None
+            if isinstance(spec, dict):
+                _add_infra(lf_repo, spec)
+                plans = spec["plans"]
+            crlf_repo = tmp / "crlf" / name
+            crlf_bom_copy(lf_repo, crlf_repo)
+            a = normative_dump(lf_repo, tmp / f"{name}-lf.ad2v", plans)
+            b = normative_dump(crlf_repo, tmp / f"{name}-crlf.ad2v", plans)
             if a != b:
                 problems.append(f"{name}: LF and CRLF+BOM normative dumps differ")
             hashes[name] = hashlib.sha256(a).hexdigest()

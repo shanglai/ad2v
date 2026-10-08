@@ -1,0 +1,300 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "timestamp": "2026-10-01T09:00:00Z",
+  "variables": {
+    "db_password": {"value": "PLANTED-var-db-password-5521"},
+    "project": {"value": "<your-gcp-project>"},
+    "region": {"value": "europe-west1"}
+  },
+  "planned_values": {
+    "outputs": {
+      "db_connection": {"sensitive": true, "value": "PLANTED-output-connection-7781"},
+      "service_url": {"sensitive": false, "value": "https://recon-api.example.run.app/?k=PLANTED-output-url-key-1902"}
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "google_cloud_scheduler_job.nightly",
+          "mode": "managed",
+          "type": "google_cloud_scheduler_job",
+          "name": "nightly",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 0,
+          "values": {
+            "name": "recon-nightly",
+            "region": "europe-west1",
+            "schedule": "0 6 * * *",
+            "http_target": [{"uri": "https://recon-api.example.run.app/run?token=PLANTED-scheduler-token-3307", "http_method": "POST"}]
+          },
+          "sensitive_values": {"http_target": [{}]}
+        },
+        {
+          "address": "google_pubsub_topic.events",
+          "mode": "managed",
+          "type": "google_pubsub_topic",
+          "name": "events",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 0,
+          "values": {"name": "recon-events", "kms_key_name": null, "labels": {"team": "finance"}},
+          "sensitive_values": {"labels": {}}
+        },
+        {
+          "address": "google_secret_manager_secret.bank_token",
+          "mode": "managed",
+          "type": "google_secret_manager_secret",
+          "name": "bank_token",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 0,
+          "values": {"secret_id": "bank-api-token", "replication": [{"auto": [{}]}]},
+          "sensitive_values": {"replication": [{"auto": [{}]}]}
+        },
+        {
+          "address": "google_secret_manager_secret_version.bank_token",
+          "mode": "managed",
+          "type": "google_secret_manager_secret_version",
+          "name": "bank_token",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 0,
+          "values": {"enabled": true},
+          "sensitive_values": {"secret_data": true}
+        },
+        {
+          "address": "google_sql_database_instance.main",
+          "mode": "managed",
+          "type": "google_sql_database_instance",
+          "name": "main",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 0,
+          "values": {
+            "name": "recon-db",
+            "database_version": "POSTGRES_15",
+            "region": "europe-west1",
+            "encryption_key_name": "projects/p/locations/europe-west1/keyRings/r/cryptoKeys/k",
+            "settings": [{"tier": "db-custom-2-7680", "ip_configuration": [{"ipv4_enabled": false}]}]
+          },
+          "sensitive_values": {"root_password": true, "settings": [{"ip_configuration": [{}]}]}
+        },
+        {
+          "address": "google_storage_bucket.archive",
+          "mode": "managed",
+          "type": "google_storage_bucket",
+          "name": "archive",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 1,
+          "values": {"name": "recon-archive", "location": "EU", "versioning": [{"enabled": true}]},
+          "sensitive_values": {"versioning": [{}]}
+        },
+        {
+          "address": "google_storage_bucket.exports[\"csv\"]",
+          "mode": "managed",
+          "type": "google_storage_bucket",
+          "name": "exports",
+          "index": "csv",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 1,
+          "values": {"name": "recon-exports-csv", "location": "EU"},
+          "sensitive_values": {}
+        },
+        {
+          "address": "google_storage_bucket.exports[\"pdf\"]",
+          "mode": "managed",
+          "type": "google_storage_bucket",
+          "name": "exports",
+          "index": "pdf",
+          "provider_name": "registry.terraform.io/hashicorp/google",
+          "schema_version": 1,
+          "values": {"name": "recon-exports-pdf", "location": "EU"},
+          "sensitive_values": {}
+        }
+      ],
+      "child_modules": [
+        {
+          "address": "module.services[\"api\"]",
+          "resources": [
+            {
+              "address": "module.services[\"api\"].google_cloud_run_v2_service.this",
+              "mode": "managed",
+              "type": "google_cloud_run_v2_service",
+              "name": "this",
+              "provider_name": "registry.terraform.io/hashicorp/google",
+              "schema_version": 0,
+              "values": {
+                "name": "recon-api",
+                "location": "europe-west1",
+                "ingress": "INGRESS_TRAFFIC_ALL",
+                "template": [
+                  {
+                    "scaling": [{"min_instance_count": 1, "max_instance_count": 4}],
+                    "containers": [
+                      {
+                        "image": "europe-docker.pkg.dev/acme/apps/recon-api:1.4.2",
+                        "env": [
+                          {"name": "DATABASE_URL", "value_source": []},
+                          {"name": "BANK_TOKEN", "value": null, "value_source": [{"secret_key_ref": [{"version": "latest"}]}]},
+                          {"name": "EVENTS_TOPIC", "value": "recon-events", "value_source": []},
+                          {"name": "LOG_LEVEL", "value": "info", "value_source": []},
+                          {"name": "API_KEY", "value": "PLANTED-literal-api-key-0042", "value_source": []}
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "sensitive_values": {"template": [{"scaling": [{}], "containers": [{"env": [{"value_source": []}, {"value_source": [{"secret_key_ref": [{}]}]}, {"value_source": []}, {"value_source": []}, {"value_source": []}]}]}]}
+            }
+          ]
+        },
+        {
+          "address": "module.services[\"worker\"]",
+          "resources": [
+            {
+              "address": "module.services[\"worker\"].google_cloud_run_v2_service.this",
+              "mode": "managed",
+              "type": "google_cloud_run_v2_service",
+              "name": "this",
+              "provider_name": "registry.terraform.io/hashicorp/google",
+              "schema_version": 0,
+              "values": {
+                "name": "recon-worker",
+                "location": "europe-west1",
+                "ingress": "INGRESS_TRAFFIC_INTERNAL_ONLY",
+                "template": [
+                  {
+                    "scaling": [{"min_instance_count": 0, "max_instance_count": 2}],
+                    "containers": [
+                      {
+                        "image": "europe-docker.pkg.dev/acme/apps/recon-worker:1.4.2",
+                        "env": [
+                          {"name": "DATABASE_URL", "value_source": []},
+                          {"name": "BANK_TOKEN", "value": null, "value_source": [{"secret_key_ref": [{"version": "latest"}]}]},
+                          {"name": "EVENTS_TOPIC", "value": "recon-events", "value_source": []},
+                          {"name": "LOG_LEVEL", "value": "info", "value_source": []},
+                          {"name": "API_KEY", "value": "PLANTED-literal-api-key-0042", "value_source": []}
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "sensitive_values": {"template": [{"scaling": [{}], "containers": [{"env": [{"value_source": []}, {"value_source": [{"secret_key_ref": [{}]}]}, {"value_source": []}, {"value_source": []}, {"value_source": []}]}]}]}
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {"address": "google_cloud_scheduler_job.nightly", "mode": "managed", "type": "google_cloud_scheduler_job", "name": "nightly", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["no-op"], "before": {"name": "recon-nightly"}, "after": {"name": "recon-nightly"}, "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {}}},
+    {"address": "google_pubsub_topic.events", "mode": "managed", "type": "google_pubsub_topic", "name": "events", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["no-op"], "before": {"name": "recon-events"}, "after": {"name": "recon-events"}, "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {}}},
+    {"address": "google_secret_manager_secret.bank_token", "mode": "managed", "type": "google_secret_manager_secret", "name": "bank_token", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["create"], "before": null, "after": {"secret_id": "bank-api-token"}, "after_unknown": {"id": true, "name": true}, "before_sensitive": false, "after_sensitive": {}}},
+    {"address": "google_secret_manager_secret_version.bank_token", "mode": "managed", "type": "google_secret_manager_secret_version", "name": "bank_token", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["create"], "before": null, "after": {"enabled": true, "secret_data": "PLANTED-secret-data-6610"}, "after_unknown": {"id": true}, "before_sensitive": false, "after_sensitive": {"secret_data": true}}},
+    {"address": "google_sql_database_instance.main", "mode": "managed", "type": "google_sql_database_instance", "name": "main", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["update"], "before": {"name": "recon-db", "root_password": "PLANTED-before-root-pw-4410"}, "after": {"name": "recon-db", "root_password": "PLANTED-after-root-pw-4411"}, "after_unknown": {"connection_name": true}, "before_sensitive": {"root_password": true}, "after_sensitive": {"root_password": true}}},
+    {"address": "google_storage_bucket.archive", "mode": "managed", "type": "google_storage_bucket", "name": "archive", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["create"], "before": null, "after": {"name": "recon-archive"}, "after_unknown": {"id": true, "url": true}, "before_sensitive": false, "after_sensitive": {}}},
+    {"address": "google_storage_bucket.exports[\"csv\"]", "mode": "managed", "type": "google_storage_bucket", "name": "exports", "index": "csv", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["create"], "before": null, "after": {"name": "recon-exports-csv"}, "after_unknown": {"id": true}, "before_sensitive": false, "after_sensitive": {}}},
+    {"address": "google_storage_bucket.exports[\"pdf\"]", "mode": "managed", "type": "google_storage_bucket", "name": "exports", "index": "pdf", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["delete", "create"], "before": {"name": "recon-exports-pdf"}, "after": {"name": "recon-exports-pdf"}, "after_unknown": {"id": true}, "before_sensitive": {}, "after_sensitive": {}}},
+    {"address": "module.services[\"api\"].google_cloud_run_v2_service.this", "module_address": "module.services[\"api\"]", "mode": "managed", "type": "google_cloud_run_v2_service", "name": "this", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["update"], "before": {"name": "recon-api"}, "after": {"name": "recon-api"}, "after_unknown": {"template": [{"containers": [{"env": [{"value": true}, {}, {}, {}, {}]}]}]}, "before_sensitive": {}, "after_sensitive": {}}},
+    {"address": "module.services[\"worker\"].google_cloud_run_v2_service.this", "module_address": "module.services[\"worker\"]", "mode": "managed", "type": "google_cloud_run_v2_service", "name": "this", "provider_name": "registry.terraform.io/hashicorp/google", "change": {"actions": ["create"], "before": null, "after": {"name": "recon-worker"}, "after_unknown": {"template": [{"containers": [{"env": [{"value": true}, {}, {}, {}, {}]}]}]}, "before_sensitive": false, "after_sensitive": {}}}
+  ],
+  "output_changes": {
+    "db_connection": {"actions": ["update"], "before": "PLANTED-before-output-8801", "after": "PLANTED-after-output-8802", "after_unknown": false, "before_sensitive": true, "after_sensitive": true}
+  },
+  "prior_state": {
+    "format_version": "1.0",
+    "terraform_version": "1.9.8",
+    "values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "google_sql_database_instance.main",
+            "mode": "managed",
+            "type": "google_sql_database_instance",
+            "name": "main",
+            "provider_name": "registry.terraform.io/hashicorp/google",
+            "schema_version": 0,
+            "values": {"name": "recon-db", "root_password": "PLANTED-prior-state-root-pw-9093"},
+            "sensitive_values": {"root_password": true}
+          }
+        ]
+      }
+    }
+  },
+  "configuration": {
+    "provider_config": {
+      "google": {"name": "google", "full_name": "registry.terraform.io/hashicorp/google", "expressions": {"project": {"references": ["var.project"]}, "region": {"references": ["var.region"]}}}
+    },
+    "root_module": {
+      "outputs": {
+        "db_connection": {"sensitive": true, "expression": {"references": ["google_sql_database_instance.main.connection_name", "google_sql_database_instance.main"]}},
+        "service_url": {"expression": {"references": ["module.services[\"api\"].url", "module.services"]}}
+      },
+      "resources": [
+        {"address": "google_cloud_scheduler_job.nightly", "mode": "managed", "type": "google_cloud_scheduler_job", "name": "nightly", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "recon-nightly"}, "schedule": {"constant_value": "0 6 * * *"}, "http_target": [{"uri": {"references": ["module.services[\"api\"].url", "module.services"]}}]}, "schema_version": 0},
+        {"address": "google_pubsub_topic.events", "mode": "managed", "type": "google_pubsub_topic", "name": "events", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "recon-events"}}, "schema_version": 0},
+        {"address": "google_secret_manager_secret.bank_token", "mode": "managed", "type": "google_secret_manager_secret", "name": "bank_token", "provider_config_key": "google",
+         "expressions": {"secret_id": {"constant_value": "bank-api-token"}, "replication": [{"auto": [{}]}]}, "schema_version": 0},
+        {"address": "google_secret_manager_secret_version.bank_token", "mode": "managed", "type": "google_secret_manager_secret_version", "name": "bank_token", "provider_config_key": "google",
+         "expressions": {"secret": {"references": ["google_secret_manager_secret.bank_token.id", "google_secret_manager_secret.bank_token"]}, "secret_data": {"references": ["var.db_password"]}}, "schema_version": 0},
+        {"address": "google_sql_database_instance.main", "mode": "managed", "type": "google_sql_database_instance", "name": "main", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "recon-db"}, "database_version": {"constant_value": "POSTGRES_15"}, "root_password": {"references": ["var.db_password"]}, "settings": [{"tier": {"constant_value": "db-custom-2-7680"}}]}, "schema_version": 0},
+        {"address": "google_storage_bucket.archive", "mode": "managed", "type": "google_storage_bucket", "name": "archive", "provider_config_key": "google",
+         "expressions": {"name": {"constant_value": "recon-archive"}, "location": {"constant_value": "EU"}, "versioning": [{"enabled": {"constant_value": true}}]}, "schema_version": 1},
+        {"address": "google_storage_bucket.exports", "mode": "managed", "type": "google_storage_bucket", "name": "exports", "provider_config_key": "google",
+         "expressions": {"name": {"references": ["each.key"]}, "location": {"constant_value": "EU"}}, "schema_version": 1,
+         "for_each_expression": {"constant_value": ["csv", "pdf"]}}
+      ],
+      "module_calls": {
+        "services": {
+          "source": "./modules/service",
+          "for_each_expression": {"constant_value": ["api", "worker"]},
+          "expressions": {
+            "name": {"references": ["each.key"]},
+            "db_connection": {"references": ["google_sql_database_instance.main.connection_name", "google_sql_database_instance.main"]},
+            "bank_secret": {"references": ["google_secret_manager_secret.bank_token.secret_id", "google_secret_manager_secret.bank_token"]},
+            "events_topic": {"references": ["google_pubsub_topic.events.name", "google_pubsub_topic.events"]}
+          },
+          "module": {
+            "outputs": {"url": {"expression": {"references": ["google_cloud_run_v2_service.this.uri", "google_cloud_run_v2_service.this"]}}},
+            "resources": [
+              {"address": "google_cloud_run_v2_service.this", "mode": "managed", "type": "google_cloud_run_v2_service", "name": "this", "provider_config_key": "google",
+               "expressions": {
+                 "name": {"references": ["var.name"]},
+                 "location": {"constant_value": "europe-west1"},
+                 "template": [{
+                   "scaling": [{"min_instance_count": {"constant_value": 1}, "max_instance_count": {"constant_value": 4}}],
+                   "containers": [{
+                     "image": {"references": ["var.name"]},
+                     "env": [
+                       {"name": {"constant_value": "DATABASE_URL"}, "value": {"references": ["var.db_connection"]}},
+                       {"name": {"constant_value": "BANK_TOKEN"}, "value_source": [{"secret_key_ref": [{"secret": {"references": ["var.bank_secret"]}, "version": {"constant_value": "latest"}}]}]},
+                       {"name": {"constant_value": "EVENTS_TOPIC"}, "value": {"references": ["var.events_topic"]}},
+                       {"name": {"constant_value": "LOG_LEVEL"}, "value": {"constant_value": "info"}},
+                       {"name": {"constant_value": "API_KEY"}, "value": {"constant_value": "PLANTED-literal-api-key-0042"}}
+                     ]
+                   }]
+                 }]
+               },
+               "schema_version": 0}
+            ],
+            "variables": {
+              "name": {"description": "service name"},
+              "db_connection": {},
+              "bank_secret": {},
+              "events_topic": {},
+              "db_password": {"sensitive": true, "default": "PLANTED-module-default-pw-2288"}
+            }
+          }
+        }
+      },
+      "variables": {
+        "db_password": {"sensitive": true, "default": "PLANTED-root-default-pw-1177"},
+        "project": {},
+        "region": {"default": "europe-west1"}
+      }
+    }
+  },
+  "relevant_attributes": [{"resource": "google_sql_database_instance.main", "attribute": ["connection_name"]}],
+  "errored": false
+}

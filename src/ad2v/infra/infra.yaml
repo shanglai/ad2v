@@ -1,0 +1,150 @@
+# ad2v infra rules (P10, ADR-0074/0076). Covered by rules_hash (epoch rules key `infra`).
+#
+# types:   provider resource type -> infra kind, the attributes kept (allowlist) and where the
+#          env vars of a deployment unit live. Anything not listed is `infra_other`.
+# Paths are dotted; a list met on the way is walked element by element (nested blocks are lists
+# in the plan JSON and in python-hcl2's output). Only the attributes named here are ever stored,
+# and only as names, numbers, booleans or short strings: never env var values, passwords,
+# connection strings, keys or outputs. A value marked sensitive in the plan is dropped.
+version: 1
+
+kinds: [deployment_unit, managed_datastore, managed_queue, bucket, secret_store, network, scheduler, infra_other]
+
+# attribute names that may be stored at all (whatever a type maps)
+allowed_attrs: [name, location, region, image, min_instances, max_instances, runtime, engine, engine_version,
+  tier, website, encrypted, fifo, schedule, versioning, memory, ingress, launch_type, desired_count, project_scoped]
+
+types:
+  # ---------------------------------------------------------------- GCP
+  google_cloud_run_v2_service:
+    kind: deployment_unit
+    attrs: {name: name, location: location, image: template.containers.image,
+            min_instances: template.scaling.min_instance_count, max_instances: template.scaling.max_instance_count,
+            ingress: ingress}
+    env:
+      - {list: template.containers.env, name: name, value: value, secret: value_source.secret_key_ref.secret}
+  google_cloud_run_service:
+    kind: deployment_unit
+    attrs: {name: name, location: location, image: template.spec.containers.image}
+    env:
+      - {list: template.spec.containers.env, name: name, value: value, secret: value_from.secret_key_ref.name}
+  google_cloud_run_v2_job:
+    kind: deployment_unit
+    attrs: {name: name, location: location, image: template.template.containers.image}
+    env:
+      - {list: template.template.containers.env, name: name, value: value, secret: value_source.secret_key_ref.secret}
+  google_cloudfunctions2_function:
+    kind: deployment_unit
+    attrs: {name: name, location: location, runtime: build_config.runtime,
+            min_instances: service_config.min_instance_count, max_instances: service_config.max_instance_count}
+    env:
+      - {map: service_config.environment_variables}
+      - {list: service_config.secret_environment_variables, name: key, secret: secret}
+  google_sql_database_instance:
+    kind: managed_datastore
+    attrs: {name: name, region: region, engine: database_version, tier: settings.tier}
+    encrypted: [encryption_key_name]
+  google_firestore_database:
+    kind: managed_datastore
+    attrs: {name: name, location: location_id}
+  google_bigquery_dataset:
+    kind: managed_datastore
+    attrs: {name: dataset_id, location: location}
+    encrypted: [default_encryption_configuration.kms_key_name]
+  google_redis_instance:
+    kind: managed_datastore
+    attrs: {name: name, region: region, tier: tier, engine: redis_version}
+  google_pubsub_topic:
+    kind: managed_queue
+    attrs: {name: name}
+    encrypted: [kms_key_name]
+  google_pubsub_subscription:
+    kind: managed_queue
+    attrs: {name: name}
+  google_storage_bucket:
+    kind: bucket
+    attrs: {name: name, location: location, versioning: versioning.enabled}
+    website: [website]
+    encrypted: [encryption.default_kms_key_name]
+  google_secret_manager_secret:
+    kind: secret_store
+    attrs: {name: secret_id}
+  google_compute_network:
+    kind: network
+    attrs: {name: name}
+  google_vpc_access_connector:
+    kind: network
+    attrs: {name: name, region: region}
+  google_cloud_scheduler_job:
+    kind: scheduler
+    attrs: {name: name, region: region, schedule: schedule}
+  # ---------------------------------------------------------------- AWS
+  aws_lambda_function:
+    kind: deployment_unit
+    attrs: {name: function_name, runtime: runtime, image: image_uri, memory: memory_size}
+    env:
+      - {map: environment.variables}
+  aws_ecs_service:
+    kind: deployment_unit
+    attrs: {name: name, launch_type: launch_type, desired_count: desired_count}
+    env_from: task_definition          # the env of the task definition it references
+  aws_ecs_task_definition:
+    kind: infra_other
+    attrs: {name: family}
+    env:
+      - {json: container_definitions, list: environment, name: name, value: value}
+      - {json: container_definitions, list: secrets, name: name, secret: valueFrom}
+    image_json: container_definitions
+  aws_batch_job_definition:
+    kind: deployment_unit
+    attrs: {name: name}
+    env:
+      - {json: container_properties, list: environment, name: name, value: value}
+      - {json: container_properties, list: secrets, name: name, secret: valueFrom}
+    image_json: container_properties
+  aws_batch_job_queue:
+    kind: infra_other
+    attrs: {name: name}
+  aws_apprunner_service:
+    kind: deployment_unit
+    attrs: {name: service_name, image: source_configuration.image_repository.image_identifier}
+    env:
+      - {map: source_configuration.image_repository.image_configuration.runtime_environment_variables}
+      - {secret_map: source_configuration.image_repository.image_configuration.runtime_environment_secrets}
+  aws_db_instance:
+    kind: managed_datastore
+    attrs: {name: identifier, engine: engine, engine_version: engine_version, tier: instance_class}
+    encrypted: [storage_encrypted]
+  aws_rds_cluster:
+    kind: managed_datastore
+    attrs: {name: cluster_identifier, engine: engine, engine_version: engine_version}
+    encrypted: [storage_encrypted]
+  aws_dynamodb_table:
+    kind: managed_datastore
+    attrs: {name: name}
+    encrypted: [server_side_encryption.enabled]
+  aws_elasticache_cluster:
+    kind: managed_datastore
+    attrs: {name: cluster_id, engine: engine, tier: node_type}
+  aws_sqs_queue:
+    kind: managed_queue
+    attrs: {name: name, fifo: fifo_queue}
+    encrypted: [kms_master_key_id, sqs_managed_sse_enabled]
+  aws_sns_topic:
+    kind: managed_queue
+    attrs: {name: name, fifo: fifo_topic}
+    encrypted: [kms_master_key_id]
+  aws_s3_bucket:
+    kind: bucket
+    attrs: {name: bucket}
+    website: [website]
+  aws_s3_bucket_website_configuration:
+    kind: infra_other
+    attrs: {}
+    website_of: bucket                 # marks the bucket it references as a website
+  aws_secretsmanager_secret:
+    kind: secret_store
+    attrs: {name: name}
+  aws_cloudwatch_event_rule:
+    kind: scheduler
+    attrs: {name: name, schedule: schedule_expression}

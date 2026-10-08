@@ -155,7 +155,9 @@ def test_tools_list_order_visibility_and_schemas(server):
     tools = rpc(server, "tools/list")["result"]["tools"]
     names = [t["name"] for t in tools]
     agent = [n for n in names if n.startswith("ad2v_")]
-    assert agent == sorted(agent) and len(agent) == 13 and names[:13] == agent  # model tools first, sorted
+    assert (
+        agent == sorted(agent) and len(agent) == 14 and names[:14] == agent
+    )  # model tools first, sorted (P10: +ad2v_architecture)
     for t in tools:
         assert t["inputSchema"]["type"] == "object" and t["inputSchema"]["additionalProperties"] is False
         assert t["annotations"]["readOnlyHint"] is True and t["annotations"]["openWorldHint"] is False
@@ -774,3 +776,29 @@ def test_evaluate_tune_and_cli(demo, capsys):
     assert "held-out" in capsys.readouterr().out
     assert evaluate.main([str(demo), str(qpath), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["before"]["with_tools"]["overall"]["n"] == 40
+
+
+def test_architecture_tool_c4_intent_overview_and_retrieval(server):
+    """P10 (ADR-0079): the demo carries the GCP plan (prod): recon-api / recon-worker on Cloud Run."""
+    r = tool(server, "ad2v_architecture")
+    s = r["structuredContent"]
+    assert s["envs"] == ["prod"]
+    els = {(e["kind"], e["name"]) for e in s["view"]["prod"]["elements"]}
+    assert {("deployment_unit", "recon-api"), ("deployment_unit", "recon-worker")} <= els
+    assert ("managed_datastore", "recon-db") in els and ("bucket", "recon-archive") in els
+    findings = {f["status"] for f in s["view"]["prod"]["findings"]}
+    assert "infra_orphan" in findings
+    assert "PLANTED" not in json.dumps(r)
+    assert "Architecture of" in r["content"][0]["text"]
+    show = tool(server, "ad2v_show", intent="c4", env="prod")["structuredContent"]
+    assert show["intent"] == "c4" and show["env"] == "prod"
+    assert tool(server, "ad2v_show", intent="c4", env="qa")["isError"]
+    assert tool(server, "ad2v_architecture", env="qa")["isError"]
+    ov = tool(server, "ad2v_overview")
+    assert (
+        ov["structuredContent"]["infra"]["envs"] == ["prod"] and "Infra (prod):" in ov["content"][0]["text"]
+    )
+    hits = tool(server, "ad2v_locate", question="which cloud run service runs the api", k=3)
+    assert hits["structuredContent"]["nodes"][0]["kind"] == "deployment_unit"
+    orphan = tool(server, "ad2v_locate", question="orphan bucket nobody uses", k=3)
+    assert orphan["structuredContent"]["nodes"][0]["kind"] == "bucket"
