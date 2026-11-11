@@ -1,14 +1,11 @@
 # Release to PyPI with trusted publishing (OIDC, no API token).
 #
-#   *** DISABLED UNTIL THE OWNER DECIDES TO PUBLISH. NOTHING IS PUBLISHED IN P8. ***
-#
-# It cannot run by accident:
+# Enabled by the owner for the first release (0.7.0). It still cannot run by accident:
 #   - the only trigger is a manual `workflow_dispatch` (no tag or push trigger);
 #   - the run must type the exact version and the confirmation phrase below;
-#   - the `publish` job is guarded by `if: false` (remove that line when enabling);
-#   - it targets the `pypi` environment, which must be created with required reviewers
-#     (manual approval) and a trusted-publisher entry on PyPI first.
-# One-time setup and the go-live checklist: docs/RELEASING.md ("not for now").
+#   - it targets the `pypi` environment (required reviewer: the owner; `main` only) and PyPI's
+#     trusted publisher for this repository, workflow and environment.
+# One-time setup and the go-live checklist: docs/RELEASING.md.
 # Actions are pinned by full commit SHA (tag in the comment).
 name: release
 
@@ -76,7 +73,6 @@ jobs:
 
   publish:
     needs: build
-    if: false # DISABLED: remove only when the owner decides to publish (docs/RELEASING.md)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:

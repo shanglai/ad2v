@@ -1,10 +1,10 @@
 # Releasing ad2v
 
-> **NOT FOR NOW.** Nothing is published until the owner decides (employer agreement first, then a
-> fresh squashed public repository; see `docs/claude-context.md`). This page records how a release
-> would work so that it is a checklist, not a project, when the time comes.
+> **Enabled for 0.7.0.** The owner set up the PyPI trusted publisher and the GitHub `pypi`
+> environment, and the publish job is no longer disabled. Publishing still happens only when the
+> owner runs the workflow and approves it.
 
-## Current state (P8)
+## Current state
 
 - Version `0.7.0`, set for the first release (`.dev` versions are refused by the workflow).
 - A fresh clone builds the viewer with `npm ci && npm run build` alone: the type stub
@@ -13,8 +13,9 @@
 - `pip install .` and the built wheel work in a clean virtual environment; the wheel contains the
   built viewer, `app.html`, the themes, the prompts and both rules files, and no fixtures, bench
   files, `.ad2v` files or `node_modules` (P8 report §M3).
-- `.github/workflows/release.yml` exists and is disabled three ways: manual trigger only, a typed
-  confirmation, and `if: false` on the publish job.
+- `.github/workflows/release.yml` is enabled (the `if: false` guard was removed for 0.7.0). It still
+  needs a manual trigger, the typed confirmation, and the owner's approval of the `pypi` environment.
+- One-time setup done by the owner: the PyPI trusted publisher and the GitHub `pypi` environment.
 
 ## One-time setup (when publishing is approved)
 
