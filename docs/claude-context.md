@@ -25,7 +25,7 @@ as one graph across a history of epochs (commits). Readers:
   render the map inline.
 
 Like mermaid.js, ad2v is an open **format** plus reference implementations, licensed Apache-2.0.
-Version **0.7.0** (set for the first PyPI release; nothing is published yet).
+Version **0.7.0**, published on PyPI (`pip install ad2v`, tag `v0.7.0`); site: https://ad2v.dev.
 Principles:
 
 - **The LLM suggests; a human confirms.** Confirmation means editing committed files:
@@ -80,18 +80,23 @@ Principles:
 13. **Blind eval:** never open, list or grep `AD2V_BLIND_EVAL` or `fixtures/retrieval-eval/blind/`;
     never write blind questions (docs/blind-eval.md).
 
-## 2a. Immutable decisions since P7 (from the owner, P8)
+## 2a. Immutable decisions since P7 (from the owner, P8; decision 1 updated at the 0.7.0 release)
 
-1. **Nothing is published** until the owner decides: no PyPI/TestPyPI upload, public demo, launch
-   posts, repo visibility change, GitHub Pages, tags or releases, or name registration. The owner
-   is signing an agreement with the employer first.
+1. **Published, by the owner's decision (2026-11-11).** This repository is public; `ad2v 0.7.0` is
+   on PyPI (trusted publishing through `.github/workflows/release.yml`, the `pypi` environment
+   with the owner as required reviewer); the GitHub release and tag `v0.7.0` exist; the site
+   https://ad2v.dev (repository `ad2v-site`) hosts the docs, the demo and `llms.txt`. This
+   replaces the earlier "nothing is published until the owner decides" rule. Each new release is
+   still the owner's call: an agent may prepare one (version, docs, checks) but only the owner
+   runs the release workflow and approves it (docs/RELEASING.md).
 2. **Split by access:** public, Apache-2.0: core, Python extractor, TypeScript extractor (P9),
    viewer, MCP server. Private, separate repos later: a Java extractor and an "enterprise pack"
    (framework detection, audit evidence reports). Do not create those repos or private code.
 3. That split relies on the **plug-in API** (P8): language extractors and framework detectors are
    plug-ins, so private ones live outside this repo without forking it.
-4. The earlier P8 launch plan (PyPI release, public demo, README marketing, layout default switch)
-   is cancelled; nestgrid-v2 stays behind its flag (pending.md).
+4. Of the earlier P8 launch plan, the PyPI release and a public demo are done (decision 1); README
+   marketing and the layout default switch are not planned; nestgrid-v2 stays behind its flag
+   (pending.md).
     - Tooling caveat: shell heredocs have mangled backslashes and quotes several times (issues
       15, 24). For non-trivial edits, use the editor tool or a script file.
 
