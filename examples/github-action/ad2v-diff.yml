@@ -31,7 +31,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install ad2v
-        run: pip install ad2v   # or: pip install git+https://github.com/<owner>/ad2v@<tag>
+        run: pip install "ad2v==0.7.0"   # pin the version for reproducible diffs
 
       # Optional: produce JUnit results so links can be `verified` (paths are examples).
       # - run: pip install -e . && pytest --junitxml=test-results/junit.xml
