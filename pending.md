@@ -127,9 +127,9 @@ Items consciously left out so far, grouped by the phase that should pick them up
 - Judge: return-shape context for "partial" cases (issue 80); a second labeled repository.
 - Chat: streaming partial answers; a per-turn cost cap; conversation export; an OpenAI-compatible
   live test against a local server.
-- Release (not before the owner decides): CHANGELOG, CONTRIBUTING, a public demo map without fake
-  LLM rows, the fresh squashed public repository, trusted publishing (docs/RELEASING.md), and
-  actionlint + gitleaks on the public repository (issue 93).
+- Release follow-ups (0.7.0 is published; trusted publishing is set up, docs/RELEASING.md):
+  CHANGELOG, CONTRIBUTING, a public demo map without fake LLM rows, and actionlint + gitleaks on
+  the public repository (issue 93).
 - Viewer: compare the schema with the format before querying a file (issue 91).
 
 ## After P6.1: real-repo readiness
