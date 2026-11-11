@@ -284,9 +284,9 @@ def test_stdio_framing_logs_on_stderr_and_eof_exit(demo):
             ).encode()
             + b"\r\n",
         ]
-        p.stdin.write(b"".join(msgs))
-        p.stdin.close()
-        out, err = p.communicate(timeout=60)
+        # communicate() writes stdin and closes it (EOF); closing it by hand first makes
+        # Python 3.11/3.12 raise "flush of closed file"
+        out, err = p.communicate(b"".join(msgs), timeout=60)
     finally:
         p.kill()
     lines = out.decode("utf-8").splitlines()
@@ -319,9 +319,7 @@ def test_stdio_cancel_while_queued(demo):
         cancel = json.dumps(
             {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 5}}
         )
-        p.stdin.write(("\n".join([*slow, cancel]) + "\n").encode())
-        p.stdin.close()
-        out, _ = p.communicate(timeout=120)
+        out, _ = p.communicate(("\n".join([*slow, cancel]) + "\n").encode(), timeout=120)
     finally:
         p.kill()
     ids = {json.loads(line)["id"] for line in out.decode().splitlines()}

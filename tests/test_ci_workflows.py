@@ -59,11 +59,16 @@ def test_ci_runs_windows_and_macos_only_on_manual_dispatch():
         assert wf["jobs"][job]["runs-on"] == "ubuntu-latest"
 
 
-def test_release_cannot_publish():
+def test_release_publishes_only_on_purpose():
+    # The publish job is enabled (0.7.0); what keeps it from running by accident: manual
+    # trigger only, the typed confirmation, and the `pypi` environment (owner approval).
     wf = _load("release.yml")
     assert set(wf["on"]) == {"workflow_dispatch"}
+    assert set(wf["on"]["workflow_dispatch"]["inputs"]) == {"version", "confirm"}
+    text = (WF / "release.yml").read_text(encoding="utf-8")
+    assert 'test "$INPUT_CONFIRM" = "publish to PyPI"' in text
     pub = wf["jobs"]["publish"]
-    assert pub["if"] is False
+    assert pub["needs"] == "build"
     assert pub["environment"]["name"] == "pypi"
     assert pub["permissions"] == {"id-token": "write"}
     assert "dev" in (WF / "release.yml").read_text(encoding="utf-8")  # refuses .dev versions
