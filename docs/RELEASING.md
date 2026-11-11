@@ -6,7 +6,10 @@
 
 ## Current state (P8)
 
-- Version `0.7.0.dev0` (a pre-release; `.dev` versions are refused by the workflow).
+- Version `0.7.0`, set for the first release (`.dev` versions are refused by the workflow).
+- A fresh clone builds the viewer with `npm ci && npm run build` alone: the type stub
+  `viewer/src/generated/demo-data.d.ts` is committed; only `npm run build:demo` needs the generated
+  module (`npm run fixtures`).
 - `pip install .` and the built wheel work in a clean virtual environment; the wheel contains the
   built viewer, `app.html`, the themes, the prompts and both rules files, and no fixtures, bench
   files, `.ad2v` files or `node_modules` (P8 report §M3).

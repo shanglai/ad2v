@@ -25,7 +25,7 @@ as one graph across a history of epochs (commits). Readers:
   render the map inline.
 
 Like mermaid.js, ad2v is an open **format** plus reference implementations, licensed Apache-2.0.
-Version **0.7.0.dev0** (pre-release; nothing is published).
+Version **0.7.0** (set for the first PyPI release; nothing is published yet).
 Principles:
 
 - **The LLM suggests; a human confirms.** Confirmation means editing committed files:

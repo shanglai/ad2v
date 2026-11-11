@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   let resolveResult: (r: ShowResult | Error) => void = () => undefined;
   const result = new Promise<ShowResult | Error>((r) => (resolveResult = r));
 
-  const mcp = new McpApp({ name: "ad2v-map", version: "0.7.0-dev.0" }, { availableDisplayModes: ["inline", "fullscreen"] }, { autoResize: true });
+  const mcp = new McpApp({ name: "ad2v-map", version: "0.7.0" }, { availableDisplayModes: ["inline", "fullscreen"] }, { autoResize: true });
   mcp.ontoolresult = (r) => {
     const sc = (r as ToolResult).structuredContent as ShowResult | undefined;
     if ((r as ToolResult).isError || !sc) resolveResult(new Error((r as ToolResult).content?.[0]?.text ?? "ad2v_show failed"));
