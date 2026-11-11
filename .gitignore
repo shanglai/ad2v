@@ -45,7 +45,8 @@ desktop.ini
 node_modules/
 viewer/test-results/
 viewer/playwright-report/
-viewer/src/generated/
+viewer/src/generated/*
+!viewer/src/generated/demo-data.d.ts
 
 # P9: the brownfield fixture ships a node_modules/ and a dist/ that ad2v must exclude
 !fixtures/brownfield-es/src/frontend/node_modules/

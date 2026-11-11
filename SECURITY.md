@@ -7,7 +7,7 @@
 
 ## Supported versions
 
-Only the latest development version (`0.7.0.dev0`, branch `main`) receives fixes.
+Only the latest version (`0.7.0`, branch `main`) receives fixes.
 
 ## Reporting a vulnerability
 

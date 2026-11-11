@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ad2v"
-version = "0.7.0.dev0"
+version = "0.7.0"
 description = "agent development to viz: compare a repository against its SDD specs and emit one .ad2v SQLite file"
 readme = "README.md"
 license = "Apache-2.0"

@@ -20,7 +20,7 @@ how the spec items and the code pair up. Readers of that file:
 
 Like mermaid.js, ad2v is an open **format** plus reference implementations. License: Apache-2.0.
 
-Current version: **0.7.0.dev0** (a development pre-release; not published on PyPI). Code is read by
+Current version: **0.7.0** (the first release; not yet published on PyPI). Code is read by
 **language extractors** and frameworks are recognized by **framework packs**, both plug-ins behind a
 stable public API (`ad2v.api`, api 1.0, entry-point groups `ad2v.extractors` / `ad2v.frameworks`).
 The built-in Python extractor and Python framework pack use the same API; third-party plug-ins are
