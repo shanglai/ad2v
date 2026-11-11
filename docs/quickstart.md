@@ -38,6 +38,16 @@ the source code itself. `ad2v specs bootstrap` also keeps its cache in `<repo>/.
 
 ## 1. Install ad2v (once)
 
+From PyPI, in any virtual environment (the wheel includes the viewer and the MCP App):
+
+```powershell
+pip install ad2v
+ad2v --version
+```
+
+The steps below use the fixtures in the source repository, so clone it too
+(`git clone https://github.com/shanglai/ad2v.git`). To work on ad2v itself, install from the clone:
+
 ```powershell
 cd C:\path\to\ad2v
 python -m venv .venv
@@ -49,7 +59,7 @@ ad2v --version
 
 POSIX: `source .venv/bin/activate`, and `(cd viewer && npm ci && npm run build && npm run build:app)`.
 
-Node is only needed to build the viewer and the MCP App. `ad2v` itself is pure Python.
+Node is only needed to build the viewer and the MCP App from source. `ad2v` itself is pure Python.
 
 ---
 

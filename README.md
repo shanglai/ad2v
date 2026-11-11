@@ -20,7 +20,7 @@ how the spec items and the code pair up. Readers of that file:
 
 Like mermaid.js, ad2v is an open **format** plus reference implementations. License: Apache-2.0.
 
-Current version: **0.7.0** (the first release; not yet published on PyPI). Code is read by
+Current version: **0.7.0** ([PyPI](https://pypi.org/project/ad2v/): `pip install ad2v`). Code is read by
 **language extractors** and frameworks are recognized by **framework packs**, both plug-ins behind a
 stable public API (`ad2v.api`, api 1.0, entry-point groups `ad2v.extractors` / `ad2v.frameworks`).
 The built-in Python extractor and Python framework pack use the same API; third-party plug-ins are
@@ -51,7 +51,13 @@ committed files (`ad2v.yaml`, spec files).
 
 ## Quickstart
 
-Requires Python ≥ 3.11. `uv` works too (`uv sync --extra dev`).
+Requires Python ≥ 3.11. Install from PyPI (the wheel includes the viewer and the MCP App):
+
+```bash
+pip install ad2v
+```
+
+To work on ad2v itself, install from a clone instead (`uv sync --extra dev` works too):
 
 ```bash
 python -m venv .venv
@@ -61,7 +67,9 @@ python -m venv .venv
 .venv/Scripts/python -m pip install -e ".[dev]"
 ```
 
-(On macOS/Linux, use `.venv/bin/python`.) Then extract the bundled fixture, with its test results:
+(On macOS/Linux, use `.venv/bin/python`. A source checkout needs the viewer built to run
+`ad2v view`; see [Development](#development).) Then, from a clone, extract the bundled fixture,
+with its test results:
 
 ```bash
 ad2v extract --repo fixtures/payments-recon --spec fixtures/payments-recon/specs --test-results fixtures/payments-recon/test-results/junit.xml --out recon.ad2v
